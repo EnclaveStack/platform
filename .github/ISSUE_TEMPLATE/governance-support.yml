@@ -1,0 +1,11 @@
+name: Governance support
+description: Question or problem with the doc layers, SIVE gate, registries or workflows
+labels: [governance]
+body:
+  - type: textarea
+    id: ask
+    attributes: { label: What do you need }
+    validations: { required: true }
+  - type: textarea
+    id: output
+    attributes: { label: SIVE / CI output, render: shell }

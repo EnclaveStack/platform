@@ -1,0 +1,60 @@
+name: PR Governance
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  sive:
+    name: Statutory Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Statutory Integrity Verification Engine
+        run: bash bin/statutory-integrity.sh
+
+  metadata:
+    name: PR Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate title and body
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+
+          if [ "$BASE_REF" = "main" ] && [ "$HEAD_REF" = "develop" ]; then
+            # Promotion PRs are titled `release: …`, never `chore: …`, so release history is searchable.
+            echo "$PR_TITLE" | grep -Eq '^release(\(.+\))?: .+' || err "develop -> main promotion titles must start with 'release:' (got: $PR_TITLE)"
+          else
+            echo "$PR_TITLE" | grep -Eq '^(feat|fix|docs|chore|tech|infra|refactor|test|ci|build|perf)(\([a-z0-9._/-]+\))?!?: .+' \
+              || err "PR title must be a Conventional Commit: type(scope): description (got: $PR_TITLE)"
+          fi
+
+          # `## Docs update` must carry a real status — the governance contract (L0-006) says every change either
+          # updated its owning docs or states why it is exempt. Blank is not an answer.
+          # Dependabot writes its own body (release notes) and a version bump changes no owning doc (L0-005 §2).
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "Dependabot PR: Docs update block not required"
+          else
+            echo "$PR_BODY" | grep -Eq '^- Status:[[:space:]]*`?(UPDATED|EXEMPT)`?[[:space:]]*$' \
+              || err "PR body needs '## Docs update' with the exact bullet '- Status: UPDATED' or '- Status: EXEMPT'"
+            echo "$PR_BODY" | grep -Eq '^- Notes:[[:space:]]*[^[:space:]<]' \
+              || err "PR body needs '- Notes:' under '## Docs update' (list the docs touched, or why exempt)"
+          fi
+          if echo "$PR_BODY" | grep -qiE 'Generated with \[?Claude|claude\.ai/code|Co-Authored-By:.*(Claude|Anthropic)'; then
+            err "PR description carries AI attribution — remove it (project rule)"
+          fi
+          exit $fail

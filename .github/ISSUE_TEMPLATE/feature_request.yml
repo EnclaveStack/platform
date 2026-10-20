@@ -1,0 +1,23 @@
+name: Feature request
+description: New capability or behaviour change
+labels: [feature]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: "Who needs this and why (this becomes the L2 requirement)" }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Proposal }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria }
+    validations: { required: true }
+  - type: checkboxes
+    id: doc-chain
+    attributes:
+      label: Doc chain (doc-first — code starts after these exist)
+      options:
+        - label: L2 PRD or feature brief
+        - label: L3 spec (API / data model / architecture) if the system boundary changes
+        - label: L5 test-playbook section

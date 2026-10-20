@@ -1,0 +1,8 @@
+{
+  "name": "main-develop-undeletable",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/develop"], "exclude": [] } },
+  "bypass_actors": [],
+  "rules": [{ "type": "deletion" }]
+}

@@ -1,0 +1,10 @@
+#!/bin/bash
+# pre-commit — secret scan on the staged diff.
+set -euo pipefail
+ROOT_DIR=$(git rev-parse --show-toplevel)
+cd "$ROOT_DIR"
+if command -v gitleaks >/dev/null 2>&1; then
+  bash bin/run-gitleaks.sh staged
+else
+  echo "[pre-commit] gitleaks not installed — secret scan SKIPPED locally (CI still runs it). brew install gitleaks"
+fi

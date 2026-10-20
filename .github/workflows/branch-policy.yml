@@ -1,0 +1,47 @@
+name: Branch Policy
+
+# Enforces the one promotion rule a ruleset cannot express: `main` may only be updated from `develop`.
+#
+# A ruleset can require a PR, pin the merge method and demand status checks, but it has no concept of the
+# PR's HEAD branch — so "feature branches never target main" would otherwise be convention with nothing
+# behind it. Where it was only convention, feature PRs reached `main` directly, `main` and `develop`
+# diverged, and a later promotion had to reconcile them by hand.
+#
+# Triggered on `pull_request: branches: [main]` rather than as a job gated by `if: base_ref == 'main'`:
+# a required check that is conditionally *skipped* is ambiguous to rulesets; a workflow whose trigger
+# simply never fires on a develop-targeting PR is not.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  source-branch:
+    name: Branch Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: main may only be updated from develop
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$HEAD_REF" = "develop" ]; then
+            echo "OK — $HEAD_REF -> $BASE_REF"
+            exit 0
+          fi
+          echo "::error title=Wrong source branch::main may only be updated from develop, not '$HEAD_REF'."
+          echo ""
+          echo "  BLOCKED — this PR targets main from a branch other than develop."
+          echo ""
+          echo "    source : $HEAD_REF"
+          echo "    target : $BASE_REF"
+          echo ""
+          echo "  Homecloud's promotion path is one-way and has no shortcut (L0-002 §4.2):"
+          echo ""
+          echo "    feature/fix branch  ->  develop  ->  main"
+          echo ""
+          echo "  Retarget this PR at develop. Once merged there, open a separate develop -> main promotion PR."
+          echo "  Hotfixes are not an exception: branch from develop, merge to develop, then promote."
+          exit 1

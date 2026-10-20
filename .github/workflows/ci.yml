@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+# Job names are the required status checks in .github/governance/rulesets/*.json.
+# Rename a job and you must rename it there in the same PR, or it silently stops being enforced.
+#
+# These are seed jobs. They pass trivially until the repo has a package.json, so a fresh scaffold is green;
+# once it has one they run your real install / lint / type-check / test commands. Add stack-specific jobs
+# (migrations, e2e, scans) here and add their names to the required checks.
+jobs:
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Skip until the project has a package.json
+        if: hashFiles('package.json') == ''
+        run: echo "No package.json yet - nothing to lint or type-check."
+      - uses: pnpm/action-setup@v4
+        if: hashFiles('package.json') != ''
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 22.15.0
+      - run: pnpm install --frozen-lockfile
+        if: hashFiles('package.json') != ''
+      - run: pnpm lint
+        if: hashFiles('package.json') != ''
+      - run: pnpm type-check
+        if: hashFiles('package.json') != ''
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Skip until the project has a package.json
+        if: hashFiles('package.json') == ''
+        run: echo "No package.json yet - nothing to test."
+      - uses: pnpm/action-setup@v4
+        if: hashFiles('package.json') != ''
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 22.15.0
+      - run: pnpm install --frozen-lockfile
+        if: hashFiles('package.json') != ''
+      - run: pnpm test
+        if: hashFiles('package.json') != ''

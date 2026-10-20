@@ -1,0 +1,14 @@
+name: Task
+description: Engineering, infrastructure or documentation work
+labels: [task]
+body:
+  - type: textarea
+    id: goal
+    attributes: { label: Goal }
+    validations: { required: true }
+  - type: dropdown
+    id: category
+    attributes:
+      label: Change category (L0-006 §2)
+      options: [Strategic, Product, Engineering, Operational]
+    validations: { required: true }

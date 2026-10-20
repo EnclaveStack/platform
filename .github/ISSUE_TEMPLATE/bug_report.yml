@@ -1,0 +1,22 @@
+name: Bug report
+description: Something is broken or behaves differently from its spec
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "Expected vs actual" }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: dropdown
+    id: owner-layer
+    attributes:
+      label: Which layer owns the problem?
+      description: "The layer that owns the problem gets the first edit (L0-006). Pick the best guess."
+      options: [L1 Strategy, L2 Product, L2.5 UX & Design, L3 Architecture, L4 Infrastructure, L5 Operations, Not sure]
+    validations: { required: true }
+  - type: textarea
+    id: evidence
+    attributes: { label: Logs / screenshots }

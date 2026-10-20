@@ -1,0 +1,6 @@
+# Allowlist ONLY known fixtures. Every entry needs a comment saying why it is safe.
+[allowlist]
+description = "Known non-secret fixtures"
+paths = [
+  '''(^|/)\.governance/manifest\.json$''',
+]

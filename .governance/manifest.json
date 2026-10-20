@@ -1,0 +1,100 @@
+{
+  "template": "soupler-governance-template",
+  "templateVersion": "1.2.1",
+  "syncedAt": "2026-10-20T06:12:45.579Z",
+  "repo": "homecloud-platform",
+  "profile": "product",
+  "config": {
+    "version": 1,
+    "org": {
+      "name": "Homecloud",
+      "slug": "homecloud",
+      "github": "soupler-labs",
+      "owner": "Soupler Labs",
+      "copyright": "Soupler Labs",
+      "license": "MIT",
+      "regulated": true,
+      "visibility": "public",
+      "defaultBranch": "develop",
+      "standardsRepo": "homecloud-platform",
+      "codeowners": "",
+      "bypass": "organization-admin"
+    },
+    "rules": {
+      "noAiAttribution": true,
+      "releasePrTitle": "release",
+      "requireDocsUpdate": true
+    },
+    "commands": {
+      "install": "pnpm install --frozen-lockfile",
+      "lint": "pnpm lint",
+      "typeCheck": "pnpm type-check",
+      "test": "pnpm test"
+    },
+    "stack": {
+      "packageManager": "pnpm",
+      "node": "22.15.0",
+      "pnpm": "9.15.9",
+      "isPnpm": true
+    },
+    "features": {
+      "docsSite": false
+    },
+    "layerFolders": {},
+    "repos": [
+      {
+        "description": "Homecloud monorepo: Go control plane, machine agent and CLI, plus the TypeScript web console.",
+        "owns": [
+          "API contracts",
+          "service templates",
+          "console UI"
+        ],
+        "follows": [],
+        "name": "homecloud-platform",
+        "profile": "product"
+      },
+      {
+        "description": "Public website for Homecloud.",
+        "owns": [],
+        "follows": [
+          "homecloud-platform",
+          "homecloud-assets"
+        ],
+        "name": "homecloud-website",
+        "profile": "site"
+      },
+      {
+        "description": "Brand assets: logos, social templates and renders.",
+        "owns": [
+          "logos, brand palette, fonts and brand/static media"
+        ],
+        "follows": [
+          "homecloud-platform"
+        ],
+        "name": "homecloud-assets",
+        "profile": "assets"
+      }
+    ]
+  },
+  "files": {
+    ".claude/commands/classify-change.md": "db3a7bdfb1154f82b6c0a9ca5f06fd5eabb46777e83310fdc61e727bfd5ff154",
+    ".claude/commands/governance-check.md": "1024f834eb8e809874e8e69b8a027f87d4aa9cdabad6cd8a564586f4d299f82b",
+    ".claude/commands/new-doc.md": "84c6cda137b163e5773905e1475fdb2d8fc90ac50fbe85bef55ba9b0550c6177",
+    ".claude/skills/doc-governance/SKILL.md": "145ec9a210b6ac5e2781193fe9df6b52c83c6afaed0b06bd1e0560a13e90b956",
+    ".githooks/commit-msg": "529b1a0e11f291c9bee4fa041c87efc8763c4f1f37dec4fb4814b10c03149a71",
+    ".githooks/pre-commit": "49904188745c5f681e58c78f1ca3f166d4cf6aabc6ff399db04494d468c65a02",
+    ".github/PROTECTION_GUIDE.md": "d7ee8ea0af5195c7e1b355379db52ae5c647dfab8ce7a0f5da972701e22db02f",
+    ".github/governance/rulesets/main-develop-protection.json": "032ac572dad6f2d19fce23ad849a25fda768e65b27943638fe5e11934ecc64d5",
+    ".github/governance/rulesets/main-develop-undeletable.json": "91b754507e383544057dd462fa3bac61c56fbf6fdf91a515d2da4f8cc2ffab0e",
+    ".github/governance/rulesets/main-protection.json": "f8347b28587562ce7f4114e5bd9a0d7600e4860fab500bf65b8b090fd24cc068",
+    ".github/workflows/branch-policy.yml": "63a9dd01e1f3e5c7b959766dcf87674282b9d40b792d6075880a58626b768549",
+    ".github/workflows/post-merge-issue-closure.yml": "65964e8e5671037dc32083410c581c9fc103ba3930c6a443f86ecc975f910245",
+    ".github/workflows/pr-governance.yml": "8abf83b961773283d41f9990bc44065bd26f63f036043e5bc073af35edbcb727",
+    ".github/workflows/secret-scan.yml": "bec3b69a989bf6c1a14a816f416d4c09490b8a6fb6591b33be1bc23cb1b295c3",
+    "bin/governance-brief.sh": "8ee3e0e59b1261c820feb7d18477bd37a3c3536e6c61db3837f94266b7277b43",
+    "bin/install-hooks.sh": "135f09f47197cc900ff36d68fea95dd3843f11aeedbbf610a904a407e77d616f",
+    "bin/run-gitleaks.sh": "184f2f2005bed55d665f708ad45bf69fbdf0d1ea3c268c7211194cbef34deea0",
+    "bin/statutory-integrity.mjs": "51687a8bd6edd0d467db9ca9dd71f81202e4b096fdc2c2a4cbb8f05c4b3e8675",
+    "bin/statutory-integrity.sh": "5dd33b366d76b45098d4d33d50489f353d858d36924a6c6195f87338b2993ef5"
+  }
+}
