@@ -5,7 +5,10 @@ LDFLAGS   := -s -w -X github.com/enclavestack/platform/internal/version.Version=
 TOFU      ?= $(shell command -v tofu 2>/dev/null)
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 
-.PHONY: build console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
+.PHONY: demo build console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
+
+demo: build ## one command to a running server with sample data (fake engine; DRIVER=docker, PORT, DATA)
+	examples/demo/run.sh
 
 build: console embed ## console + both binaries in ./build (console embedded)
 	$(GO) build -tags embedconsole -ldflags '$(LDFLAGS)' -o build/enclave ./cmd/enclave

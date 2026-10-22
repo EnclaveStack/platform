@@ -61,7 +61,7 @@ Open **http://127.0.0.1:7070**, enter the setup code and create your admin accou
 ./build/enclave ls
 ```
 
-No Docker at hand? `./build/enclave server --driver fake` runs everything against a simulated engine, so you can still try the console and the CLI.
+Just want to look around? `pnpm install && make demo` starts it on a simulated engine, so no Docker is needed. It creates the admin account (`admin@enclave.local` / `enclave-demo`) and fills it with sample apps, databases, a cache, a bucket, a job, a WordPress stack and a second project. `make demo DRIVER=docker` does the same with real containers.
 
 ## What you get
 

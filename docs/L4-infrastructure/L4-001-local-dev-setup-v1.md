@@ -6,7 +6,7 @@
 | Document ID | L4-001-local-dev-setup-v1 |
 | Layer | L4 — Infrastructure & Deployment |
 | Status | Draft |
-| Version | v14 |
+| Version | v15 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -40,14 +40,24 @@ bash bin/install-hooks.sh
 make build            # console → console/dist → embedded; build/enclave and build/terraform-provider-enclave
 ```
 
+### Try it in one command
+
+```bash
+make demo                      # builds, starts the server on the fake engine, signs up admin@enclave.local / enclave-demo and adds sample data
+make demo DRIVER=docker        # the same with real containers; the data stays in ~/.enclave-demo, and a second run picks it up
+make demo PORT=7171 DATA=/tmp/my-demo   # another port; keep the data
+```
+
+The sample data (`examples/demo/run.sh`): a secret, a PostgreSQL database, a Redis cache, a bucket, an app using the secret, a daily job, a WordPress stack from the catalogue, and a second project with its own app. The script prints the console address, the sign-in and an `export` line for the CLI. Ctrl-C stops the server; with the fake engine and no `DATA`, the data goes with it.
+
 ### Run the control plane and console
 
 ```bash
 ./build/enclave server --driver fake --data-dir /tmp/hc      # no Docker needed; prints the setup code
 ./build/enclave server                                      # real Docker driver, data in ~/.enclave
 # console: http://127.0.0.1:7070 (served by the binary)
-pnpm dev                                                    # console dev server on :5173 with hot reload, proxying /api to :7070
-VITE_ENCLAVE_API=mock pnpm dev                            # console alone against the in-memory mock
+pnpm dev                                                    # console dev server on :5173 with hot reload, alone with in-memory sample data (console/.env); sign in as admin@enclave.local / enclave-demo
+VITE_ENCLAVE_API=http pnpm dev                            # the same against the server on :7070 (/api is proxied)
 ```
 
 ### CLI and OpenTofu against it
@@ -163,3 +173,4 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | v12 | 2026-10-22 | Soupler Labs | `--console-url`: where alert and invite links point |
 | v13 | 2026-10-22 | Soupler Labs | v0.8 prerequisites (planned): a second machine in Docker-in-Docker, a real second computer and its ports, agent files, the mesh image, looking at the tunnel |
 | v14 | 2026-10-22 | Soupler Labs | v0.8 as built: `make linux-binary`, `server-in-docker`, `machine2` and `machine2-down` through the bridge gateway |
+| v15 | 2026-10-22 | Soupler Labs | §2 `make demo`: a running server with an admin and sample data in one command; `pnpm dev` uses the in-memory sample data by default (`VITE_ENCLAVE_API=http` for the server) |
