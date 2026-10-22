@@ -95,10 +95,8 @@ func TestMetricsReflectReconcileOutcomes(t *testing.T) {
 	ctx := context.Background()
 	res, _ := c.CreateResource(ctx, api.KindCache, "metered", api.CacheSpec{})
 	waitReadyWithin(t, c, res.ID, 5*time.Second)
-	body := httpGet(t, env.URL+"/metrics")
+	// The resources gauge is refreshed on each reconciler poll, so it can trail Ready by one poll.
 	for _, want := range []string{`enclave_reconcile_total{kind="cache",result="ready"}`, `enclave_resources{kind="cache",phase="ready"}`, "enclave_reconcile_duration_seconds_bucket"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("metrics missing %s", want)
-		}
+		testenv.Eventually(t, 10*time.Second, "metrics show "+want, func() bool { return strings.Contains(httpGet(t, env.URL+"/metrics"), want) })
 	}
 }

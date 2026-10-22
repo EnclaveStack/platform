@@ -371,18 +371,6 @@ func (s *Resources) mailEndpoint(ctx context.Context, r *domain.Resource) (mail.
 	return ep, spec, err
 }
 
-func asInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	}
-	return 0, false
-}
-
 func mailError(err error) error {
 	switch {
 	case errors.Is(err, mail.ErrUnavailable):

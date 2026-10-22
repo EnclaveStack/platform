@@ -437,7 +437,7 @@ func (i *infisical) login(ctx context.Context) (string, error) {
 	body, _ := json.Marshal(map[string]string{"clientId": i.id, "clientSecret": i.secret})
 	if err := i.do(ctx, http.MethodPost, i.spec.SiteURL+"/api/v1/auth/universal-auth/login", map[string]string{"Content-Type": "application/json"}, body, &out); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return "", errors.New("Infisical's sign-in endpoint wasn't found: check the site URL")
+			return "", errors.New("the Infisical sign-in endpoint wasn't found: check the site URL")
 		}
 		return "", err
 	}
