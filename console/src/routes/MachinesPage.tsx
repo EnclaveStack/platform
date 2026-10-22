@@ -63,8 +63,8 @@ export function MachinesPage() {
                     <Status tone={tone(m)}>{MACHINE_STATE[m.state] ?? m.state}</Status>
                     {!m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
                     {m.versionMismatch && <Chip tone="warn">Different version</Chip>}
-                    <Text mono truncate>{m.memoryTotalBytes ? `${formatBytes(m.memoryReservedBytes)} of ${formatBytes(m.memoryTotalBytes)}` : ''}</Text>
-                    <span>{m.resources} resources</span>
+                    {m.memoryTotalBytes > 0 && <span>{formatBytes(m.memoryTotalBytes)}</span>}
+                    <span>{m.resources} {m.resources === 1 ? 'resource' : 'resources'}</span>
                   </>
                 } />
             </Link>

@@ -5,6 +5,8 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 ## [Unreleased]
 
 ### Changed
+- **README rewritten as a product page (2026-10-22).** It has a hero with the logo and tagline, console screenshots in light and dark (`.github/assets/`, taken from the console's demo mode), a quick start, a table of services with their cloud equivalents, the three surfaces side by side, many machines, a diagram of how it works, the status per release, an FAQ, documentation links, contributing and licence. Before, it read like a note about the repository.
+- Console: the Machines list card shows the total memory and the resource count, so its state isn't cut to "Onlin"; a resource's overview labels its machine **Machine**.
 - **Licence MIT → Apache License 2.0 (2026-10-22, `L1-001` v4).** It adds a patent grant from every contributor, says the licence doesn't cover the EnclaveStack name or logo, and takes contributions in under the same terms. The repo now has `LICENSE` and `NOTICE` (it had no licence file at all). The `license` field of the three `package.json` files, the OpenAPI `info.license`, every doc header (`L0-008` v2, whose copyright line also drops "All rights reserved", which contradicted the licence) and the DAR-023 criterion (`L3-004` v7) say Apache-2.0. Nothing was released under MIT.
 - **Renamed Homecloud → EnclaveStack (2026-10-22, `L1-001` v3).** The Homecloud name wasn't available.
   - GitHub: `EnclaveStack/platform` (this repo, was `homecloud-platform`), `EnclaveStack/marketing` (the website, was `homecloud-website`), `EnclaveStack/assets` (was `homecloud-assets`). Go module `github.com/enclavestack/platform`.

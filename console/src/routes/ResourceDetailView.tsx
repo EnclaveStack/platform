@@ -37,7 +37,7 @@ const POLL_MS = 1000;
 const REVEAL_MS = 30_000;
 
 const OUTPUT_LABELS: Record<string, string> = {
-  host: 'Host', port: 'Port', internalHost: 'Internal host', internalPort: 'Internal port', database: 'Database', username: 'Username',
+  machine: 'Machine', host: 'Host', port: 'Port', internalHost: 'Internal host', internalPort: 'Internal port', database: 'Database', username: 'Username',
   passwordSecret: 'Password secret', endpoint: 'S3 endpoint', internalEndpoint: 'Internal S3 endpoint', bucket: 'Bucket',
   credentialsSecret: 'Credentials secret', version: 'Version', valueUpdatedAt: 'Value updated',
   servingRevision: 'Serving revision', lastDeploy: 'Last deploy', builtCommit: 'Built commit', builtImage: 'Built image', lastBuild: 'Last build',
