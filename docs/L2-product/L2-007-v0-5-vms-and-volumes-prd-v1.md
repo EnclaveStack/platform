@@ -11,8 +11,8 @@
 | Last Updated | 2026-10-21 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose

@@ -3,8 +3,8 @@ info:
   title: EnclaveStack control-plane API
   version: v1
   license:
-    name: MIT
-    identifier: MIT
+    name: Apache-2.0
+    identifier: Apache-2.0
   description: |
     The one API behind the EnclaveStack console, the `enclave` CLI and the OpenTofu provider (ADR-003).
     Human-readable contract: docs/L3-architecture/L3-002. Code form: pkg/api. A test keeps the paths

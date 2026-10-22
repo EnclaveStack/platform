@@ -43,7 +43,7 @@ Full propagation paths: `docs/L0-foundation/L0-006-change-propagation-governance
 
 ## Project
 
-EnclaveStack is an open-source (MIT), self-hosted cloud — "our own AWS": one install turns a Mac or Linux machine into a host for apps, PostgreSQL databases, Redis caches, S3-compatible buckets and encrypted secrets, managed from **three equal surfaces over one API**: web console, `enclave` CLI and the OpenTofu provider (`L1-001`, ADR-003). A capability isn't done until all three can use it.
+EnclaveStack is an open-source (Apache-2.0), self-hosted cloud — "our own AWS": one install turns a Mac or Linux machine into a host for apps, PostgreSQL databases, Redis caches, S3-compatible buckets and encrypted secrets, managed from **three equal surfaces over one API**: web console, `enclave` CLI and the OpenTofu provider (`L1-001`, ADR-003). A capability isn't done until all three can use it.
 
 - **Stack**: Go ≥ 1.26 module (control plane, CLI, provider) + pnpm workspace (console: React 19, Vite, TypeScript strict, react-router, Vitest, Playwright). SQLite (modernc, WAL), Docker Engine SDK, minio-go, Cobra, terraform-plugin-framework, Prometheus client.
 - **Map** (details in `L3-001` §2):

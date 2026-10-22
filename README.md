@@ -72,6 +72,10 @@ bash bin/statutory-integrity.sh    # the gate CI runs on every PR
 
 Standards live in `docs/L0-foundation/`. Start with `L0-006-change-propagation-governance-v1.md` (what to edit, in what order).
 
+## License
+
+Apache License 2.0: see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Contributions are accepted under the same licence. The licence doesn't grant use of the EnclaveStack name or logo.
+
 ## Contributing
 
 Branch from `develop` (`<type>/<slug>`), open the PR against `develop`, fill in every section of the PR template (including `## Docs update`). Only the `develop` → `main` promotion targets `main`.

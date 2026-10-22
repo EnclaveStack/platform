@@ -6,13 +6,13 @@
 | Document ID | L3-004-decision-analysis-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v6 |
+| Version | v7 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -323,7 +323,7 @@ Resolution: **an `engine` field on `database`**, as AWS RDS does. Engine-specifi
 | Criterion | Weight | OpenSearch | Meilisearch | Typesense | Elasticsearch |
 |---|---|---|---|---|---|
 | Compatible with AWS OpenSearch and Elasticsearch clients and tools | 30 | 5 | 1 | 1 | 4 |
-| Licence fits an MIT project that ships images | 20 | 5 | 5 | 4 | 2 |
+| Licence fits an Apache-2.0 project that ships images | 20 | 5 | 5 | 4 | 2 |
 | Footprint on a home machine | 20 | 2 | 5 | 4 | 2 |
 | Built-in authentication | 15 | 4 | 5 | 5 | 4 |
 | Feature breadth (aggregations, analysers, vectors) | 15 | 5 | 3 | 3 | 5 |
@@ -469,3 +469,4 @@ Resolution: **plain HTTP clients**, with the last value cached encrypted like an
 | v4 | 2026-10-21 | Soupler Labs | DAR-017 – DAR-020 for v0.5: hypervisor, VM networking, volume storage, snapshot form (spikes recorded) |
 | v5 | 2026-10-21 | Soupler Labs | DAR-021 – DAR-026 for v0.6: broker, database engines, search, email, CDN cache, transcoding (broker spike recorded) |
 | v6 | 2026-10-22 | Soupler Labs | DAR-027 – DAR-033 for v0.7: project separation, access model, metrics storage, alert evaluation, notification delivery, log export, outside secret managers |
+| v7 | 2026-10-22 | Soupler Labs | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |

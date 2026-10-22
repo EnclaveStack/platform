@@ -5,6 +5,7 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 ## [Unreleased]
 
 ### Changed
+- **Licence MIT → Apache License 2.0 (2026-10-22, `L1-001` v4).** It adds a patent grant from every contributor, says the licence doesn't cover the EnclaveStack name or logo, and takes contributions in under the same terms. The repo now has `LICENSE` and `NOTICE` (it had no licence file at all). The `license` field of the three `package.json` files, the OpenAPI `info.license`, every doc header (`L0-008` v2, whose copyright line also drops "All rights reserved", which contradicted the licence) and the DAR-023 criterion (`L3-004` v7) say Apache-2.0. Nothing was released under MIT.
 - **Renamed Homecloud → EnclaveStack (2026-10-22, `L1-001` v3).** The Homecloud name wasn't available.
   - GitHub: `EnclaveStack/platform` (this repo, was `homecloud-platform`), `EnclaveStack/marketing` (the website, was `homecloud-website`), `EnclaveStack/assets` (was `homecloud-assets`). Go module `github.com/enclavestack/platform`.
   - What people type and configure: the `enclave` CLI (was `homecloud`), `ENCLAVE_*` environment variables, `enclave_*` OpenTofu resources from `enclavestack/enclave`, the `X-Enclave-CSRF` and `X-Enclave-Signature` headers, `enclave_*` Prometheus metrics, data in `~/.enclave`.

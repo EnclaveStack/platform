@@ -6,13 +6,13 @@
 | Document ID | L1-001-product-brief-v1 |
 | Layer | L1 — Vision & Strategy |
 | Status | Draft |
-| Version | v3 |
+| Version | v4 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -50,7 +50,7 @@ All three talk to one control-plane API; nothing is possible in one surface that
 ## 4 · Positioning
 
 - **API-first**: the HTTP API is the product; the console, CLI and provider are clients of it.
-- **Open source, no paid tier, no feature gates** (MIT). There is no pricing model.
+- **Open source, no paid tier, no feature gates** (Apache License 2.0). There is no pricing model. Apache 2.0 over MIT, chosen with the owner on 2026-10-22: it grants users a licence to contributors' patents and ends it for anyone who sues over them, says the licence gives no right to the EnclaveStack name or logo, and takes contributions in under the same terms.
 - Familiar to anyone who has used a cloud console: each EnclaveStack service names the cloud service it replaces.
 - First proof workload: the Galiaraa platform (13 services, Postgres, Redis, object storage, video encoding) on one machine.
 
@@ -85,3 +85,4 @@ All three talk to one control-plane API; nothing is possible in one surface that
 | v1 | 2026-10-20 | Soupler Labs | Initial brief: problem, product, segments, open-source positioning, success measures |
 | v2 | 2026-10-20 | Soupler Labs | "Our own AWS": three equal surfaces (console, CLI, OpenTofu provider), API-first positioning, scope by release, parity and latency measures |
 | v3 | 2026-10-22 | Soupler Labs | Renamed Homecloud → EnclaveStack (name unavailable): GitHub org `EnclaveStack` with `platform`, `marketing`, `assets`; CLI `enclave`, `ENCLAVE_*` settings, `enclave_*` OpenTofu resources, `es-` resource names |
+| v4 | 2026-10-22 | Soupler Labs | Licence MIT → Apache License 2.0 (patent grant, trademark clause, contribution terms); nothing was released under MIT |

@@ -2,7 +2,7 @@
   "name": "@enclavestack/ui",
   "private": true,
   "version": "0.2.0",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "EnclaveStack design system: tokens, typography and components (ADR-014, L2.5-001).",
   "exports": {

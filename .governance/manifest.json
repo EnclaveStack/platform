@@ -12,7 +12,7 @@
       "github": "EnclaveStack",
       "owner": "Soupler Labs",
       "copyright": "Soupler Labs",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "regulated": true,
       "visibility": "public",
       "defaultBranch": "develop",
