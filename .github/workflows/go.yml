@@ -1,0 +1,113 @@
+name: Go and end-to-end
+
+# Test levels from L5-002 that need more than the governance template's ci.yml: static analysis,
+# race-detected tests with coverage, OpenTofu acceptance, browser e2e, real-engine e2e and load.
+# Job names are stable; add them to the rulesets' required checks when the repo is public (L4-002).
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Go Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go vet -tags docker ./internal/engine/docker/ && go vet -tags e2e ./tests/e2e/
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: Generated console contract is current
+        run: go run ./cmd/gencontracts && git diff --exit-code -- console/src/api/generated.ts
+
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out | tail -1
+
+  provider:
+    name: Provider Acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - run: make provider-acceptance TOFU=$(command -v tofu)
+
+  console-e2e:
+    name: Console E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @enclavestack/console exec playwright install --with-deps chrome
+      - run: pnpm --filter @enclavestack/console e2e
+
+  engine-e2e:
+    name: Engine E2E
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - run: make engine-docker
+      # VMs (ADR-025): QEMU with KVM, which GitHub's Linux runners offer once /dev/kvm is opened to the user.
+      - name: Enable KVM and install QEMU
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils
+      - run: make engine-qemu
+      - run: make e2e
+
+  load:
+    name: Load Test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: grafana/setup-k6-action@v1
+      - run: DURATION=30s tests/load/run.sh --quiet

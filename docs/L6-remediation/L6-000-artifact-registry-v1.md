@@ -31,4 +31,4 @@ Registry of every artifact in layer **L6 — Remediation** (audit + plan per rem
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Registry created by soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Registry created by soupler-governance-template v1.2.1 |

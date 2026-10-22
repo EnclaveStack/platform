@@ -1,0 +1,16 @@
+{
+  "name": "platform",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @enclavestack/console dev",
+    "build": "make build",
+    "lint": "pnpm -r lint && go vet ./...",
+    "type-check": "pnpm -r type-check && go build ./... && go run ./cmd/gencontracts && git diff --exit-code -- console/src/api/generated.ts",
+    "test": "pnpm -r test && go test -race -count=1 ./..."
+  }
+}

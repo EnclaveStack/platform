@@ -17,7 +17,7 @@
 
 ## Purpose
 
-How Homecloud writes — in product copy, docs, commit messages and PRs.
+How EnclaveStack writes — in product copy, docs, commit messages and PRs.
 
 ## 1 · Voice
 
@@ -35,4 +35,4 @@ How Homecloud writes — in product copy, docs, commit messages and PRs.
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

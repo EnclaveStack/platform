@@ -42,4 +42,4 @@ Skipping WE is acceptable only when the PR is the sole evidence: mark the L7 row
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial skeleton from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial skeleton from soupler-governance-template v1.2.1 |

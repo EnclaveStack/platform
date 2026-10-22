@@ -101,7 +101,7 @@ All lowercase, hyphens only, 2–6 words. Same three-tier ID check: an existing 
 | CI must pass | required status checks in both rulesets |
 | **Only `develop` may PR into `main`** | `.github/workflows/branch-policy.yml` — a ruleset cannot see a PR's head branch |
 
-These are **rulesets, not classic branch protection**; `gh api repos/.../branches/<b>/protection` returns 404 by design. Inspect with `gh api repos/soupler-labs/<repo>/rulesets`.
+These are **rulesets, not classic branch protection**; `gh api repos/.../branches/<b>/protection` returns 404 by design. Inspect with `gh api repos/EnclaveStack/<repo>/rulesets`.
 
 ## 5 · Releases (SemVer)
 
@@ -115,4 +115,4 @@ kebab-case for every new filename. Code/schema artifacts that belong to a layer 
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

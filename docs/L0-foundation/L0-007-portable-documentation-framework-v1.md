@@ -61,7 +61,7 @@ Set `org.regulated` in `governance.json` to add L6/L6.1/L7 everywhere.
 
 ## 4 · Multi-repository model
 
-A product usually spans repositories with different jobs. Each has a **profile** (`product`, `site`, `assets`). Standards (L0) live in **one** repository (`homecloud-platform`); the others point to it. Source-of-truth direction is explicit — one repo *owns* a fact (brand tokens, legal text, API contracts) and the others *follow* it. Topology is in `L0-010`.
+A product usually spans repositories with different jobs. Each has a **profile** (`product`, `site`, `assets`). Standards (L0) live in **one** repository (`platform`); the others point to it. Source-of-truth direction is explicit — one repo *owns* a fact (brand tokens, legal text, API contracts) and the others *follow* it. Topology is in `L0-010`.
 
 ## 5 · Non-negotiable framework rules
 
@@ -77,4 +77,4 @@ A product usually spans repositories with different jobs. Each has a **profile**
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

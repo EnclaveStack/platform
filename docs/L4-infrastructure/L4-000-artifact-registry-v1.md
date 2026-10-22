@@ -25,10 +25,11 @@ Registry of every artifact in layer **L4 — Infrastructure & Deployment** (envi
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L4-001-local-dev-setup-v1 | Local Development Setup & Smoke Runbook | Draft | v1 | Soupler Labs | 2026-10-20 |
+| L4-001-local-dev-setup-v1 | Local Development Setup & Smoke Runbook | Draft | v12 | Soupler Labs | 2026-10-22 |
+| L4-002-ci-release-runbook-v1 | CI Pipeline and Release Runbook | Draft | v3 | Soupler Labs | 2026-10-21 |
 
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Registry created by soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Registry created by soupler-governance-template v1.2.1 |

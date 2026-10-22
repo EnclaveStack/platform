@@ -2,21 +2,21 @@
   "template": "soupler-governance-template",
   "templateVersion": "1.2.1",
   "syncedAt": "2026-10-20T06:12:45.579Z",
-  "repo": "homecloud-platform",
+  "repo": "platform",
   "profile": "product",
   "config": {
     "version": 1,
     "org": {
-      "name": "Homecloud",
-      "slug": "homecloud",
-      "github": "soupler-labs",
+      "name": "EnclaveStack",
+      "slug": "enclavestack",
+      "github": "EnclaveStack",
       "owner": "Soupler Labs",
       "copyright": "Soupler Labs",
       "license": "MIT",
       "regulated": true,
       "visibility": "public",
       "defaultBranch": "develop",
-      "standardsRepo": "homecloud-platform",
+      "standardsRepo": "platform",
       "codeowners": "",
       "bypass": "organization-admin"
     },
@@ -43,24 +43,24 @@
     "layerFolders": {},
     "repos": [
       {
-        "description": "Homecloud monorepo: Go control plane, machine agent and CLI, plus the TypeScript web console.",
+        "description": "EnclaveStack monorepo: Go control plane, machine agent and CLI, plus the TypeScript web console.",
         "owns": [
           "API contracts",
           "service templates",
           "console UI"
         ],
         "follows": [],
-        "name": "homecloud-platform",
+        "name": "platform",
         "profile": "product"
       },
       {
-        "description": "Public website for Homecloud.",
+        "description": "Public website for EnclaveStack.",
         "owns": [],
         "follows": [
-          "homecloud-platform",
-          "homecloud-assets"
+          "platform",
+          "assets"
         ],
-        "name": "homecloud-website",
+        "name": "marketing",
         "profile": "site"
       },
       {
@@ -69,9 +69,9 @@
           "logos, brand palette, fonts and brand/static media"
         ],
         "follows": [
-          "homecloud-platform"
+          "platform"
         ],
-        "name": "homecloud-assets",
+        "name": "assets",
         "profile": "assets"
       }
     ]

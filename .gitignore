@@ -9,3 +9,15 @@ dist/
 build/
 coverage/
 *.governance-new
+
+# console
+node_modules/
+console/dist/
+*.tsbuildinfo
+
+# go
+/build/
+internal/webui/dist/
+coverage.out
+console/test-results/
+console/playwright-report/
