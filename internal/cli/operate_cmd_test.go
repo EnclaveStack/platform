@@ -89,8 +89,18 @@ func TestMonitoringFromTheCLI(t *testing.T) {
 	t.Cleanup(hook.Close)
 	m := h.env.Monitor
 	var clockMu sync.Mutex
-	offset := time.Duration(0) // the monitor's clock, moved by the test while the notifier runs
-	m.Now = func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return time.Now().Add(offset) }
+	// The monitor's clock runs normally (the notifier needs it), except at the two samples, where the test
+	// pins it 30 s apart exactly, so the CPU rate is exact however slow the machine is.
+	var pinned *time.Time
+	m.Now = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		if pinned != nil {
+			return *pinned
+		}
+		return time.Now()
+	}
+	pin := func(t *time.Time) { clockMu.Lock(); pinned = t; clockMu.Unlock() }
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	go func() {
@@ -120,16 +130,14 @@ func TestMonitoringFromTheCLI(t *testing.T) {
 	h.ok("dashboard", "create", "health", "--widget", "title=API CPU,metric=cpu,resources=app/api", "--wait")
 
 	app, _ := h.env.Store.GetResourceByName(context.Background(), api.DefaultProject, api.KindApp, "api")
-	clockMu.Lock()
-	offset = -time.Minute // the samples land in the last minute, inside the metrics window
-	clockMu.Unlock()
+	first, second := time.Now().Add(-time.Minute), time.Now().Add(-30*time.Second) // inside the metrics window
+	pin(&first)
 	h.env.Fake.SetStats(app.ID, engine.ContainerStats{ID: "c", CPUSeconds: 1, MemoryBytes: 50 << 20})
 	_ = m.SampleOnce(context.Background())
-	clockMu.Lock()
-	offset += 30 * time.Second
-	clockMu.Unlock()
+	pin(&second)
 	h.env.Fake.SetStats(app.ID, engine.ContainerStats{ID: "c", CPUSeconds: 16, MemoryBytes: 60 << 20})
 	_ = m.SampleOnce(context.Background())
+	pin(nil)
 	if r := h.ok("metrics", "app/api", "--metric", "cpu", "--metric", "memory"); !strings.Contains(r.out, "0.500") || !strings.Contains(r.out, "60.0 MiB") {
 		t.Errorf("metrics: %s", r.out)
 	}
