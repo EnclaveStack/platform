@@ -411,6 +411,28 @@ func (d *Driver) createStandIn(ctx context.Context, name string, s engine.StandI
 	return nil
 }
 
+// removeStandInAt removes the stand-in holding addr on net: what it stood for is moving here, keeping its
+// address (ADR-047), and the next mesh sync no longer asks for it since the old copy has stopped.
+func (d *Driver) removeStandInAt(ctx context.Context, net, addr string) error {
+	lctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	list, err := d.cli.ContainerList(lctx, container.ListOptions{All: true, Filters: filters.NewArgs(filters.Arg("label", labelStandInOf))})
+	cancel()
+	if err != nil {
+		return d.classify(fmt.Errorf("list stand-ins: %w", err))
+	}
+	for _, c := range list {
+		if c.NetworkSettings == nil {
+			continue
+		}
+		if ep := c.NetworkSettings.Networks[net]; ep != nil && (ep.IPAddress == addr || (ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address == addr)) {
+			if err := d.remove(ctx, c.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // removeMesh takes the mesh and every stand-in away (one machine again); the key's volume stays.
 func (d *Driver) removeMesh(ctx context.Context) error {
 	d.meshMu.Lock()

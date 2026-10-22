@@ -181,6 +181,9 @@ func (d *Driver) endpoint(ctx context.Context, p engine.Placement, aliases []str
 	ep := &network.EndpointSettings{Aliases: aliases}
 	switch {
 	case p.Address != "": // a move keeps its address (ADR-047)
+		if err := d.removeStandInAt(ctx, net, p.Address); err != nil {
+			return nil, err
+		}
 		ep.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: p.Address}
 	case d.meshCfg() != nil: // with a mesh, this machine's pool (ADR-045)
 		addr, err := d.poolAddress(ctx, net, p.Subnet)

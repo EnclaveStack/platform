@@ -348,3 +348,34 @@ func TestDefaultRangeClashIsReported(t *testing.T) {
 		t.Errorf("default range clash: %v", err)
 	}
 }
+
+// A resource moving here keeps its address (ADR-047), which this machine's stand-in for the old copy held:
+// the stand-in goes, and the moved resource starts on the address.
+func TestMoveTakesTheAddressItsStandInHeld(t *testing.T) {
+	d := newDriver(t)
+	ctx := context.Background()
+	cidr, _, _ := randomCIDR()
+	n, _ := newNetwork(t, d, api.NetworkSpec{CIDR: cidr})
+	net := engine.DockerNetwork("", n.Name)
+	addr := netip.MustParsePrefix(cidr).Addr().Next().Next().Next().Next().Next().String()
+	if err := d.ensureImage(ctx, "busybox:1.37", false); err != nil {
+		t.Fatal(err)
+	}
+	standIn := standInPrefix + "it-" + suffix()
+	t.Cleanup(func() { _ = d.remove(context.Background(), standIn) })
+	if _, err := d.cli.ContainerCreate(ctx, &container.Config{Image: "busybox:1.37", Cmd: []string{"sleep", "3600"},
+		Labels: map[string]string{LabelManaged: "true", labelStandInOf: "cache/sessions"}}, &container.HostConfig{},
+		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{net: {IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: addr}}}},
+		nil, standIn); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.cli.ContainerStart(ctx, standIn, container.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runIn(t, d, engine.Placement{Network: net, Address: addr}, "sh", "-c", "ip -4 addr show eth0 | grep -q 'inet "+addr+"/'"); code != 0 {
+		t.Fatalf("the moved resource isn't on %s: %d %s", addr, code, out)
+	}
+	if c, _ := d.inspect(ctx, standIn); c != nil {
+		t.Error("the stand-in still holds the address")
+	}
+}
