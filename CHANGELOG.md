@@ -12,6 +12,9 @@ All notable changes to `platform` are recorded here. Every change — code, docs
   - Nothing was released under the old names, so there is no migration.
 
 ### Fixed
+- The CI workflows had names that didn't say what they check: `ci.yml` is now **Console Checks** (was `CI`) and `go.yml` is **Go and End-to-End Tests** (was `Go and end-to-end`). Job names, and so the required checks, are unchanged (`L4-002`).
+- CI ran twice on every merge, once on the PR and again on the push to `develop`/`main`. All workflows now run on pull requests only (plus a manual **Run workflow**); the nightly run is gone too. Engine E2E (real Docker and QEMU) and Load Test, which used to skip PRs, now run on every PR and are required checks (`L5-002` §5, `L4-002`).
+- CI ran the race-enabled Go suite twice per push: the `Tests` and `Quality Checks` jobs called the root `pnpm` scripts, which include Go, while `go.yml` runs Go too. They now run the JS workspace only (`pnpm -r`); `Go Quality`, `Go Tests`, `Provider Acceptance` and `Console E2E` join the required checks in the rulesets (`L4-002`).
 - `.gitignore` ignored the source package `internal/build/` through an unanchored `build/` rule, so the first CI run couldn't compile; the rule is now `/build/` only (lesson recorded in CLAUDE.md).
 
 ### Added

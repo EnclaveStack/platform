@@ -1,10 +1,15 @@
-name: CI
+name: Console Checks
+
+# (Named "CI" until 2026-10-22.) Lint, type-check and test the JavaScript workspace: the web console and
+# @enclavestack/ui. Branch protection requires these by JOB name, so renaming this workflow does not affect it.
+#
+# Pull requests only: every commit reaches develop or main through a PR, which already ran these checks, so a
+# push trigger would run them a second time on the same commit (L4-002 §1). Use "Run workflow" for a one-off.
 
 on:
   pull_request:
     branches: [main, develop]
-  push:
-    branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,6 +20,10 @@ permissions:
 # These are seed jobs. They pass trivially until the repo has a package.json, so a fresh scaffold is green;
 # once it has one they run your real install / lint / type-check / test commands. Add stack-specific jobs
 # (migrations, e2e, scans) here and add their names to the required checks.
+#
+# Here they run the JavaScript workspace only (pnpm -r). The root pnpm scripts also run Go so one local
+# command checks everything, but in CI go.yml owns Go (Go Quality, Go Tests); running it here too ran the
+# race-enabled Go suite twice on every PR (L4-002 §2).
 jobs:
   quality:
     name: Quality Checks
@@ -34,9 +43,9 @@ jobs:
           node-version: 22.15.0
       - run: pnpm install --frozen-lockfile
         if: hashFiles('package.json') != ''
-      - run: pnpm lint
+      - run: pnpm -r lint
         if: hashFiles('package.json') != ''
-      - run: pnpm type-check
+      - run: pnpm -r type-check
         if: hashFiles('package.json') != ''
 
   tests:
@@ -57,5 +66,5 @@ jobs:
           node-version: 22.15.0
       - run: pnpm install --frozen-lockfile
         if: hashFiles('package.json') != ''
-      - run: pnpm test
+      - run: pnpm -r test
         if: hashFiles('package.json') != ''

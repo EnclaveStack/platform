@@ -6,7 +6,7 @@
 | Document ID | L5-002-test-strategy-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v16 |
+| Version | v17 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -51,7 +51,7 @@ The fake driver accepts per-resource failure scripts (`fail N times transiently`
 
 ## 5 · Quality gates
 
-`go vet` and `staticcheck` clean · `go test -race` for unit and integration · console lint, type-check, tests · coverage reported for `internal/...` (target ≥ 75 % statements; domain, auth and reconciler ≥ 85 %) · SIVE 100 %. CI runs all levels except the real-engine e2e on every PR; the real-engine e2e and the load test run on `develop` pushes and nightly (`L4-002`).
+`go vet` and `staticcheck` clean · `go test -race` for unit and integration · console lint, type-check, tests · coverage reported for `internal/...` (target ≥ 75 % statements; domain, auth and reconciler ≥ 85 %) · SIVE 100 %. CI runs every level, the real-engine e2e and the load test included, on every pull request into `develop` or `main`, and nowhere else: no push or nightly runs, so nothing merges untested against real Docker and QEMU (`L4-002`).
 
 ## 6 · Implemented suites (2026-10-20)
 
@@ -167,3 +167,4 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 | v14 | 2026-10-21 | Soupler Labs | §8 suites shipped and green, with timings |
 | v15 | 2026-10-21 | Soupler Labs | §9 v0.6 suites (planned) |
 | v16 | 2026-10-22 | Soupler Labs | §9 suites shipped and green, with results; requirement-coverage suite; firewall test race fixed |
+| v17 | 2026-10-22 | Soupler Labs | §5: CI runs every level, real-engine e2e and load included, on every PR only (no push or nightly runs) |

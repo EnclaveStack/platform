@@ -1,16 +1,17 @@
-name: Go and end-to-end
+name: Go and End-to-End Tests
 
+# (Named "Go and end-to-end" until 2026-10-22.)
 # Test levels from L5-002 that need more than the governance template's ci.yml: static analysis,
 # race-detected tests with coverage, OpenTofu acceptance, browser e2e, real-engine e2e and load.
-# Job names are stable; add them to the rulesets' required checks when the repo is public (L4-002).
+# Every job runs on every pull request, the real-engine e2e and load test included (L5-002 §5), and every job
+# name is a required check in .github/governance/rulesets/*.json; rename a job and rename it there in the same PR.
+# Pull requests only: every commit reaches develop or main through a PR, which already ran these checks, so a
+# push trigger would run them a second time on the same commit (L4-002 §1). Use "Run workflow" for a one-off.
 
 on:
   pull_request:
     branches: [main, develop]
-  push:
-    branches: [main, develop]
-  schedule:
-    - cron: '17 2 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -78,7 +79,6 @@ jobs:
 
   engine-e2e:
     name: Engine E2E
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -102,7 +102,6 @@ jobs:
 
   load:
     name: Load Test
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
