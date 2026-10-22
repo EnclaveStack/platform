@@ -11,21 +11,21 @@
 | Last Updated | 2026-10-20 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
 
-Which repositories make up Homecloud, what each owns, and which direction truth flows. This is the document behind every "never modify a sibling from here" rule in the repos' `CLAUDE.md` files.
+Which repositories make up EnclaveStack, what each owns, and which direction truth flows. This is the document behind every "never modify a sibling from here" rule in the repos' `CLAUDE.md` files.
 
 <!-- gov:begin topology -->
-- **`homecloud-platform`** — profile `product`: Homecloud monorepo: Go control plane, machine agent and CLI, plus the TypeScript web console.
-- **`homecloud-website`** — profile `site`: Public website for Homecloud.
-- **`homecloud-assets`** — profile `assets`: Brand assets: logos, social templates and renders.
+- **`platform`** — profile `product`: EnclaveStack monorepo: Go control plane, machine agent and CLI, plus the TypeScript web console.
+- **`marketing`** — profile `site`: Public website for EnclaveStack.
+- **`assets`** — profile `assets`: Brand assets: logos, social templates and renders.
 <!-- gov:end topology -->
 
-Standards (L0) live in **`homecloud-platform`**.
+Standards (L0) live in **`platform`**.
 
 ## Rules
 
@@ -38,4 +38,4 @@ Standards (L0) live in **`homecloud-platform`**.
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

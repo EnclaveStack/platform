@@ -11,8 +11,8 @@
 | Last Updated | 2026-10-20 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -51,4 +51,4 @@ One error shape and one tone for every API and user-facing surface, so clients h
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

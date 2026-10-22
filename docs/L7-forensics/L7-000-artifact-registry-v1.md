@@ -11,8 +11,8 @@
 | Last Updated | 2026-10-20 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Copyright | © 2026 Soupler Labs |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -33,4 +33,4 @@ The chain-of-custody table lives in `L7-001-master-registry-v1`; every remediati
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Registry created by soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Registry created by soupler-governance-template v1.2.1 |

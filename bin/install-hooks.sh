@@ -14,8 +14,8 @@ for SRC in "$HOOK_DIR"/*; do
   DEST="$ROOT_DIR/.git/hooks/$NAME"
   mkdir -p "$(dirname "$DEST")"
   if [ -f "$DEST" ] && ! cmp -s "$SRC" "$DEST"; then
-    cp "$DEST" "$DEST.homecloud.backup"
-    echo "[hooks] Backed up existing $NAME hook to $DEST.homecloud.backup"
+    cp "$DEST" "$DEST.enclave.backup"
+    echo "[hooks] Backed up existing $NAME hook to $DEST.enclave.backup"
   fi
   cp "$SRC" "$DEST"
   chmod +x "$DEST"

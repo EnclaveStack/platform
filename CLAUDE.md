@@ -1,6 +1,6 @@
-# Homecloud — `homecloud-platform` Project Instructions
+# EnclaveStack — `platform` Project Instructions
 
-This is `homecloud-platform` (`soupler-labs/homecloud-platform` on GitHub), Homecloud's **Product codebase (apps, services, shared packages)**.
+This is `platform` (`EnclaveStack/platform` on GitHub), EnclaveStack's **Product codebase (apps, services, shared packages)**.
 
 **Read this file and the `doc-governance` skill (`.claude/skills/doc-governance/SKILL.md`) before touching anything.** This repo is governed by a layered documentation system. Every task — feature, fix, refactor, infra, docs — follows it. Code is the last thing that changes, never the first.
 
@@ -43,19 +43,24 @@ Full propagation paths: `docs/L0-foundation/L0-006-change-propagation-governance
 
 ## Project
 
-TODO — what this product does in 1–2 sentences.
+EnclaveStack is an open-source (Apache-2.0), self-hosted cloud — "our own AWS": one install turns a Mac or Linux machine into a host for apps, PostgreSQL databases, Redis caches, S3-compatible buckets and encrypted secrets, managed from **three equal surfaces over one API**: web console, `enclave` CLI and the OpenTofu provider (`L1-001`, ADR-003). A capability isn't done until all three can use it.
 
-- **Stack**: TODO (e.g. pnpm + Turborepo monorepo; Node 22.15.0)
-- **Apps / services / packages**: TODO — list them; this is the map agents navigate by
-- **Infra**: TODO
+- **Stack**: Go ≥ 1.26 module (control plane, CLI, provider) + pnpm workspace (console: React 19, Vite, TypeScript strict, react-router, Vitest, Playwright). SQLite (modernc, WAL), Docker Engine SDK, minio-go, Cobra, terraform-plugin-framework, Prometheus client.
+- **Map** (details in `L3-001` §2):
+  - `pkg/api` — wire contract: types, kinds, phases, error codes, validation rules (single source; `make contracts` regenerates `console/src/api/generated.ts`). `pkg/client` — Go SDK with retries and idempotency.
+  - `cmd/enclave` → `internal/cli` (CLI + `enclave server`); `cmd/terraform-provider-enclave` → `internal/provider`.
+  - `internal/server` (wiring), `internal/httpapi` (routes, middleware, errors), `internal/service` (use cases), `internal/domain` (pure model, phase machine), `internal/store` (SQLite + migrations), `internal/reconciler` (async convergence, retry, recovery, drift), `internal/engine/{docker,fake}` (drivers), `internal/auth`, `internal/secretbox`, `internal/observability`, `internal/webui` (console assets), `internal/contracts`, `internal/archtest` (import rules), `internal/testenv` (in-process test server).
+  - `console/` — the web console (behaviour and copy only); `packages/ui` — `@enclavestack/ui`, the design system: every colour, type size, radius, spacing step and component lives here (ADR-014; a test fails on styling inside `console/src`); `api/openapi.yaml` — machine-readable contract; `tests/e2e` (real Docker + OpenTofu), `tests/load` (k6); `examples/opentofu`.
+- **Rules that bite**: change `L3-002`, `pkg/api`, `api/openapi.yaml`, the generated console file, both console adapters and the handlers together (tests enforce parity). Services never call state-changing engine methods — only the reconciler does (`internal/archtest`). Secrets never appear in responses, events or logs (tests assert it). Binaries go to `build/`; `bin/` holds governance scripts.
+- **Infra**: none hosted — EnclaveStack runs on the user's machine and drives the local Docker Engine. Local dev and troubleshooting: `L4-001`; CI and release: `L4-002`.
 
 <!-- gov:begin siblings -->
 ## Sibling repositories
 
-Homecloud spans several repositories, siblings under one parent directory. **Never modify a sibling's files from inside this repo** — work in the repo that owns the change, and say so if a change is needed elsewhere.
+EnclaveStack spans several repositories, siblings under one parent directory. **Never modify a sibling's files from inside this repo** — work in the repo that owns the change, and say so if a change is needed elsewhere.
 
-- **`homecloud-website`** (`../homecloud-website`) — Public website for Homecloud. · It follows this repo — if you change what it follows, update it separately afterward.
-- **`homecloud-assets`** (`../homecloud-assets`) — Brand assets: logos, social templates and renders. · Owns: logos, brand palette, fonts and brand/static media · It follows this repo — if you change what it follows, update it separately afterward.
+- **`marketing`** (`../marketing`) — Public website for EnclaveStack. · It follows this repo — if you change what it follows, update it separately afterward.
+- **`assets`** (`../assets`) — Brand assets: logos, social templates and renders. · Owns: logos, brand palette, fonts and brand/static media · It follows this repo — if you change what it follows, update it separately afterward.
 
 **This repo is the source of truth for:** API contracts; service templates; console UI. Siblings follow it, never the reverse.
 <!-- gov:end siblings -->
@@ -82,7 +87,7 @@ Homecloud spans several repositories, siblings under one parent directory. **Nev
 - Always cut the working branch from `develop`, never `main` — **hotfixes included**. Never commit to `develop` or `main`
 - Branch naming `<type>/<short-slug>` (`feat` `fix` `tech` `infra` `docs` `chore`). Tracking ID already exists → embed in the slug; else remediation-track work → lowercase `r-NNN`; else a plain slug
 - Open all PRs with `gh pr create --base develop`. **`main` only ever receives `develop`** (enforced by `.github/workflows/branch-policy.yml`; rulesets cannot express it). Promotion PR titles start with `release:`
-- Protection is via **GitHub rulesets**, not classic branch protection (the protection API 404s by design) — inspect with `gh api repos/soupler-labs/homecloud-platform/rulesets`; payloads live in `.github/governance/rulesets/`
+- Protection is via **GitHub rulesets**, not classic branch protection (the protection API 404s by design) — inspect with `gh api repos/EnclaveStack/platform/rulesets`; payloads live in `.github/governance/rulesets/`
 - One logical change per PR
 - **Commit only when the user explicitly asks; push only when the user explicitly asks.** Never create a branch mid-session without asking
 - Commit format: Conventional Commits `type(scope): short imperative description`, type one of `feat fix docs chore tech infra refactor test ci build perf release`. Reference a tracking/audit ID inline when one exists; never as a bracketed prefix
@@ -118,4 +123,4 @@ All six steps close a session. Skipping L6.1 WE is only acceptable when the PR i
 
 Rules in this file exist because something broke. When a real incident teaches a new rule, add it here with *why* — a rule without its reason gets deleted by the next person who finds it inconvenient.
 
-- (none yet)
+- **Anchor ignore rules for output folders** (`/build/`, not `build/`). *Why:* on 2026-10-22 an unanchored `build/` in `.gitignore` also matched the source package `internal/build/`; it was never committed, everything passed locally, and the first CI run failed to compile. Before a first push, run `git ls-files -o -i --exclude-standard` and check nothing but generated output is ignored.

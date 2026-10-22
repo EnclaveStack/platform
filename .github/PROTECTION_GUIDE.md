@@ -1,6 +1,6 @@
 # Branch Protection Guide
 
-Homecloud uses **GitHub Flow with a promotion branch**: feature → `develop` → `main`. Protection is enforced by **repository rulesets**, not classic branch protection — `gh api repos/.../branches/<branch>/protection` returns 404 by design.
+EnclaveStack uses **GitHub Flow with a promotion branch**: feature → `develop` → `main`. Protection is enforced by **repository rulesets**, not classic branch protection — `gh api repos/.../branches/<branch>/protection` returns 404 by design.
 
 ## Rulesets (source of truth: `.github/governance/rulesets/*.json`)
 
@@ -20,7 +20,7 @@ A ruleset has no concept of a PR's head branch, so "only `develop` may PR into `
 
 ```bash
 gov github .                                   # from soupler-governance-template: create/update all three
-gh api repos/soupler-labs/homecloud-platform/rulesets      # inspect
+gh api repos/EnclaveStack/platform/rulesets      # inspect
 ```
 
 When a required job is renamed in a workflow, update the matching ruleset JSON in the same PR — a renamed job that is not in the ruleset silently stops being enforced.

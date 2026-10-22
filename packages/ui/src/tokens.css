@@ -1,0 +1,209 @@
+/*
+ * EnclaveStack design tokens (L2.5-001, ADR-014) — the only place colours, type, radii, spacing, shadows
+ * and motion are defined. Components and apps use var(--es-*); literals elsewhere fail a test.
+ * Light by default; dark follows the OS unless [data-theme] says otherwise.
+ */
+
+:root {
+  /* Ground and surfaces */
+  --es-bg: #F3F4F0;
+  --es-panel: #F9FAF7;
+  --es-surface: #FFFFFF;
+  --es-surface-2: #EDEFEA;
+  --es-sunk: #E7EAE3;
+  --es-hair: #E2E5DE;
+  --es-hair-strong: #CFD3CB;
+
+  /* Text */
+  --es-ink: #111513;
+  --es-muted: #4E5450;
+  --es-subtle: #5F6661;
+  --es-faint: #7A817C;
+
+  /* Accent (electric blue) */
+  --es-accent: #2C4BFF;
+  --es-accent-hover: #1A33C7;
+  --es-accent-ink: #1A33C7;
+  --es-accent-soft: #E3E9FF;
+  --es-accent-softer: #EEF2FF;
+  --es-on-accent: #FFFFFF;
+
+  /* Primary action: dark pill */
+  --es-act: #111513;
+  --es-act-hover: #2A302D;
+  --es-on-act: #F3F4F0;
+
+  /* Status */
+  --es-ok: #2E9E62;
+  --es-ok-ink: #1C6E43;
+  --es-ok-bg: #DFF3E7;
+  --es-warn: #D9822B;
+  --es-warn-ink: #8F4708;
+  --es-warn-bg: #FCEBD7;
+  --es-bad: #D64545;
+  --es-bad-ink: #A12A2A;
+  --es-bad-bg: #FBE0E0;
+
+  /* Avatars: six pastel tones, chosen from the name */
+  --es-av-1-bg: #DCE4FF; --es-av-1-ink: #1A33C7;
+  --es-av-2-bg: #D3F1EA; --es-av-2-ink: #11665A;
+  --es-av-3-bg: #E9DFFF; --es-av-3-ink: #5B34B5;
+  --es-av-4-bg: #FCEBC8; --es-av-4-ink: #7A5000;
+  --es-av-5-bg: #FBDDE4; --es-av-5-ink: #A1284A;
+  --es-av-6-bg: #DDF3DE; --es-av-6-ink: #22663A;
+
+  /* Code and logs */
+  /* Chart series (L2.5-001 §2): a validated categorical order, never cycled — slot n is the nth series. */
+  --es-series-1: #2A78D6; --es-series-2: #EB6834; --es-series-3: #1BAF7A; --es-series-4: #EDA100;
+  --es-series-5: #E87BA4; --es-series-6: #008300; --es-series-7: #6250D6; --es-series-8: #E34948;
+  --es-code-bg: #111513;
+  --es-code-ink: #D7DBD6;
+  --es-code-dim: #8A918C;
+  --es-code-info: #8EA0FF;
+  --es-code-warn: #F0B36B;
+  --es-code-error: #FF9C9C;
+
+  /* Effects */
+  --es-wash: radial-gradient(70% 60% at 0% 0%, #2C4BFF1F 0%, #2C4BFF00 70%),
+    radial-gradient(60% 55% at 100% 0%, #6E86FF17 0%, #6E86FF00 70%),
+    radial-gradient(70% 50% at 70% 100%, #2E9E620D 0%, #2E9E6200 70%), var(--es-surface);
+  --es-shadow-card: none;
+  --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #11151366;
+  --es-scrim: #11151366;
+  --es-focus: 0 0 0 2px var(--es-bg), 0 0 0 4px var(--es-accent);
+
+  /* Type */
+  --es-font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --es-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --es-text-2xs: 11px;
+  --es-text-xs: 12px;
+  --es-text-sm: 13px;
+  --es-text-base: 14px;
+  --es-text-md: 15px;
+  --es-text-lg: 17px;
+  --es-text-xl: 20px;
+  --es-text-2xl: 26px;
+  --es-text-3xl: 34px;
+  --es-weight-regular: 400;
+  --es-weight-medium: 500;
+  --es-weight-semibold: 600;
+  --es-weight-bold: 700;
+  --es-weight-heavy: 800;
+  --es-leading-tight: 1.15;
+  --es-leading-normal: 1.45;
+  --es-tracking-tight: -0.03em;
+
+  /* Shape */
+  --es-r-xs: 8px;
+  --es-r-sm: 12px;
+  --es-r-md: 16px;
+  --es-r-lg: 22px;
+  --es-r-xl: 28px;
+  --es-r-pill: 999px;
+
+  /* Space (4 px base) */
+  --es-s-1: 4px;
+  --es-s-2: 8px;
+  --es-s-3: 12px;
+  --es-s-4: 16px;
+  --es-s-5: 20px;
+  --es-s-6: 24px;
+  --es-s-8: 32px;
+  --es-s-10: 40px;
+  --es-s-12: 48px;
+
+  /* Sizes */
+  --es-tap: 44px;
+  --es-control: 40px;
+  --es-sidebar: 264px;
+  --es-column: 340px;
+
+  /* Motion */
+  --es-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --es-fast: 120ms;
+  --es-normal: 200ms;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --es-bg: #0E1110;
+    --es-panel: #131715;
+    --es-surface: #181D1B;
+    --es-surface-2: #1F2522;
+    --es-sunk: #252C28;
+    --es-hair: #2A312D;
+    --es-hair-strong: #3A433E;
+    --es-ink: #EEF0EC;
+    --es-muted: #B9BFBA;
+    --es-subtle: #A3AAA4;
+    --es-faint: #8B928D;
+    --es-accent: #7C92FF;
+    --es-accent-hover: #9AABFF;
+    --es-accent-ink: #B4C1FF;
+    --es-accent-soft: #1E2650;
+    --es-accent-softer: #181E3C;
+    --es-on-accent: #0E1110;
+    --es-act: #EEF0EC;
+    --es-act-hover: #FFFFFF;
+    --es-on-act: #0E1110;
+    --es-ok: #3DDC84; --es-ok-ink: #7EE2A8; --es-ok-bg: #16301F;
+    --es-warn: #F0B36B; --es-warn-ink: #F6C98F; --es-warn-bg: #3A2C10;
+    --es-bad: #FF7B7B; --es-bad-ink: #FF9C9C; --es-bad-bg: #3B1D1E;
+    --es-av-1-bg: #1E2650; --es-av-1-ink: #B4C1FF;
+    --es-av-2-bg: #12332D; --es-av-2-ink: #8FDCCB;
+    --es-av-3-bg: #2A1F4A; --es-av-3-ink: #CDB8FF;
+    --es-av-4-bg: #3A2C10; --es-av-4-ink: #F2C063;
+    --es-av-5-bg: #3B1D27; --es-av-5-ink: #F7A7BB;
+    --es-av-6-bg: #16301F; --es-av-6-ink: #9FDDAA;
+    --es-series-1: #3987E5; --es-series-2: #D95926; --es-series-3: #199E70; --es-series-4: #C98500;
+    --es-series-5: #D55181; --es-series-6: #008300; --es-series-7: #9085E9; --es-series-8: #E66767;
+    --es-code-bg: #0A0C0B;
+    --es-wash: radial-gradient(70% 60% at 0% 0%, #7C92FF24 0%, #7C92FF00 70%),
+      radial-gradient(60% 55% at 100% 0%, #6E86FF14 0%, #6E86FF00 70%), var(--es-surface);
+    --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #000000B3;
+    --es-scrim: #0000008C;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --es-bg: #0E1110;
+  --es-panel: #131715;
+  --es-surface: #181D1B;
+  --es-surface-2: #1F2522;
+  --es-sunk: #252C28;
+  --es-hair: #2A312D;
+  --es-hair-strong: #3A433E;
+  --es-ink: #EEF0EC;
+  --es-muted: #B9BFBA;
+  --es-subtle: #A3AAA4;
+  --es-faint: #8B928D;
+  --es-accent: #7C92FF;
+  --es-accent-hover: #9AABFF;
+  --es-accent-ink: #B4C1FF;
+  --es-accent-soft: #1E2650;
+  --es-accent-softer: #181E3C;
+  --es-on-accent: #0E1110;
+  --es-act: #EEF0EC;
+  --es-act-hover: #FFFFFF;
+  --es-on-act: #0E1110;
+  --es-ok: #3DDC84; --es-ok-ink: #7EE2A8; --es-ok-bg: #16301F;
+  --es-warn: #F0B36B; --es-warn-ink: #F6C98F; --es-warn-bg: #3A2C10;
+  --es-bad: #FF7B7B; --es-bad-ink: #FF9C9C; --es-bad-bg: #3B1D1E;
+  --es-av-1-bg: #1E2650; --es-av-1-ink: #B4C1FF;
+  --es-av-2-bg: #12332D; --es-av-2-ink: #8FDCCB;
+  --es-av-3-bg: #2A1F4A; --es-av-3-ink: #CDB8FF;
+  --es-av-4-bg: #3A2C10; --es-av-4-ink: #F2C063;
+  --es-av-5-bg: #3B1D27; --es-av-5-ink: #F7A7BB;
+  --es-av-6-bg: #16301F; --es-av-6-ink: #9FDDAA;
+  --es-series-1: #3987E5; --es-series-2: #D95926; --es-series-3: #199E70; --es-series-4: #C98500;
+  --es-series-5: #D55181; --es-series-6: #008300; --es-series-7: #9085E9; --es-series-8: #E66767;
+  --es-code-bg: #0A0C0B;
+  --es-wash: radial-gradient(70% 60% at 0% 0%, #7C92FF24 0%, #7C92FF00 70%),
+    radial-gradient(60% 55% at 100% 0%, #6E86FF14 0%, #6E86FF00 70%), var(--es-surface);
+  --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #000000B3;
+  --es-scrim: #0000008C;
+  color-scheme: dark;
+}

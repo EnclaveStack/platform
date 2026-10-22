@@ -1,8 +1,302 @@
 # Changelog
 
-All notable changes to `homecloud-platform` are recorded here. Every change — code, docs, infra — gets a dated entry (L0-006 §4). `## [Unreleased]` accumulates across promotions.
+All notable changes to `platform` are recorded here. Every change — code, docs, infra — gets a dated entry (L0-006 §4). `## [Unreleased]` accumulates across promotions.
 
 ## [Unreleased]
 
+### Changed
+- **Licence MIT → Apache License 2.0 (2026-10-22, `L1-001` v4).** It adds a patent grant from every contributor, says the licence doesn't cover the EnclaveStack name or logo, and takes contributions in under the same terms. The repo now has `LICENSE` and `NOTICE` (it had no licence file at all). The `license` field of the three `package.json` files, the OpenAPI `info.license`, every doc header (`L0-008` v2, whose copyright line also drops "All rights reserved", which contradicted the licence) and the DAR-023 criterion (`L3-004` v7) say Apache-2.0. Nothing was released under MIT.
+- **Renamed Homecloud → EnclaveStack (2026-10-22, `L1-001` v3).** The Homecloud name wasn't available.
+  - GitHub: `EnclaveStack/platform` (this repo, was `homecloud-platform`), `EnclaveStack/marketing` (the website, was `homecloud-website`), `EnclaveStack/assets` (was `homecloud-assets`). Go module `github.com/enclavestack/platform`.
+  - What people type and configure: the `enclave` CLI (was `homecloud`), `ENCLAVE_*` environment variables, `enclave_*` OpenTofu resources from `enclavestack/enclave`, the `X-Enclave-CSRF` and `X-Enclave-Signature` headers, `enclave_*` Prometheus metrics, data in `~/.enclave`.
+  - What EnclaveStack creates: containers, networks and volumes named `es-…` (was `hc-…`), API tokens `es_pat_…`, broker subjects `es.q.*` / `es.t.*`, the console package `@enclavestack/ui`.
+  - Nothing was released under the old names, so there is no migration.
+
+### Fixed
+- The CI workflows had names that didn't say what they check: `ci.yml` is now **Console Checks** (was `CI`) and `go.yml` is **Go and End-to-End Tests** (was `Go and end-to-end`). Job names, and so the required checks, are unchanged (`L4-002`).
+- CI ran twice on every merge, once on the PR and again on the push to `develop`/`main`. All workflows now run on pull requests only (plus a manual **Run workflow**); the nightly run is gone too. Engine E2E (real Docker and QEMU) and Load Test, which used to skip PRs, now run on every PR and are required checks (`L5-002` §5, `L4-002`).
+- CI ran the race-enabled Go suite twice per push: the `Tests` and `Quality Checks` jobs called the root `pnpm` scripts, which include Go, while `go.yml` runs Go too. They now run the JS workspace only (`pnpm -r`); `Go Quality`, `Go Tests`, `Provider Acceptance` and `Console E2E` join the required checks in the rulesets (`L4-002`).
+- `.gitignore` ignored the source package `internal/build/` through an unanchored `build/` rule, so the first CI run couldn't compile; the rule is now `/build/` only (lesson recorded in CLAUDE.md).
+
 ### Added
+- **v0.7 "Operate" — built on every surface (2026-10-22, `L2-009`, ADR-035 – ADR-041).**
+  - **Projects** are namespaces. Names are unique per project; containers, networks, private DNS (`<name>.<kind>.<project>.internal`) and broker users carry the project; each project gets its own object-store user limited to its buckets. Everything from v0.6 is in `default` and keeps its names and addresses. Migration `0012_operate`.
+  - **People and roles**: viewer, editor and admin, on the whole machine or per project. Invites and password resets are one-time links; an audit log records sign-ins, invites, roles, tokens and projects. A project you can't see answers 404; a role too weak answers 403.
+  - **Scoped tokens**: a role and a list of projects. v0.6 `read` tokens become viewer and `write` tokens admin; a new token without a role gets its owner's strongest role.
+  - **Metrics**, sampled by EnclaveStack itself every 30 s (no Prometheus to run): CPU, memory, network, disk, restarts, requests, 5xx and response time from the edge, queue depth, deliveries, volume use, CDN cache, and the machine's own disk and memory. Rolled up for 30 days; exposed as `enclave_resource_value` too.
+  - **Dashboards** (`dashboard` kind), **alerts** (`alert`: metric thresholds, crash loops, failures, failed runs; fire once, remind if asked, resolve) and **channels** (`channel`: email, webhook signed with HMAC-SHA256, Slack, Discord, Telegram), with a persisted outbox and retries.
+  - **Log export** (`logexport` kind) to a bucket, any S3, HTTP, OpenTelemetry (OTLP/HTTP) or Grafana Loki, with per-container checkpoints so each line goes once.
+  - **Secret stores** (`secretstore` kind): Vault / OpenBao, 1Password Connect, AWS Secrets Manager, Doppler and Infisical. A secret can read its value from one (`source`) and is kept in sync; "Refresh now" reads it at once.
+  - **Surfaces**:
+    - API: `L3-002` §10 and `api/openapi.yaml` (projects, users, invites, audit, metrics, `test` and `refresh` actions, incidents, notifications);
+    - CLI: `--project` / `ENCLAVE_PROJECT`, `project`, `user`, `audit`, `metrics`, `dashboard`, `alert`, `channel`, `logexport`, `secretstore`, `secret create --from-store`, `token create --role --project`, `ls --all-projects`;
+    - OpenTofu: `project` on every resource and on the provider, `<project>/<name>` imports, `enclave_project`, `enclave_user`, `enclave_dashboard`, `enclave_alert`, `enclave_channel`, `enclave_log_export`, `enclave_secret_store`, `enclave_secret.source`, data source `enclave_metrics`;
+    - console: a project switcher, People, Projects, Audit and Your account pages, roles in the interface ("View only"), a Metrics tab on every resource that runs, Monitoring with the machine's dashboard and yours, Alerts with incidents, Channels with deliveries and "Send a test", Log exports, Secret stores with "Test connection", and "From a secret store" on secrets.
+  - **Design system**: `LineChart` and eight chart series tokens, validated for colour-blind readers in light and dark (`L2.5-001` §6); icons for the new sections.
+  - **Tested**: Go suite with the race detector; real-Docker driver tests (stats, logs, per-project object-store users); OpenTofu acceptance (`TestAccOperateStack`); console Vitest (235) and Playwright (18); UI package (26); a built-binary e2e on real Docker and OpenTofu (`TestOperateStackForRealWithOpenTofu`: the same app name in two projects, Docker metrics, an alert firing to a webhook, a log export, a secret read from a Vault).
+  - **Found while building and fixed**: a stopped leftover edge container made network health fail (now ignored); a stopped edge still joined to a deleted network could never start again (a stopped edge is now made anew; `TestAStoppedEdgeOnADeletedNetworkComesBack`); the sidebar's project list didn't show a new project until the next page; an alert sentence showed a machine metric without its title or unit; whole numbers printed as `90.0`.
+  - **Gaps closed the same day** (`L2-009` §5):
+    - invites and password resets are emailed when the machine names an email service and a sender (`inviteEmail` in `PATCH /machine`; `enclave machine set --invite-email [PROJECT/]NAME --invite-from ADDRESS`; `invite_email` on `enclave_machine_settings`; the console's Email invites card). The link is still shown, and a failed send says why without failing the invite;
+    - log exports send each of several lines that share a timestamp once, and report lines the engine rotated away before they were read (`export_gap` event, `enclave_log_export_gaps_total`);
+    - synced secrets refresh while the engine is down;
+    - the Vault client is verified against real HashiCorp Vault 1.20 and OpenBao 2.4 in Docker.
+  - **Fixed**: a status save could undo a deletion. A background writer (certificate renewal, drift, refresh) that read a resource just before it was deleted saved its old phase over `deleting`, and the resource was never removed. Under load this hung a test for ten minutes. Deleting is now final in the store.
+  - **Verified for real**: Slack, Discord and Telegram, set up through OpenTofu; a test, a firing alert and its resolution each arrived. Message wording fixed the same day: alert messages use the metric's title and unit, "this machine" and "1 minute", and link to the console only at an address others can open (new `enclave server --console-url`, also used for invite links). `pkg/api.FormatMetric` is shared by the CLI and notifications.
+  - **Still open**: email through a real provider, and the real 1Password, AWS, Doppler and Infisical services, need the owner's accounts; a crash loop counts restarts between samples.
+- **v0.6 "Data and Messaging" — built on every surface (2026-10-22, `L2-008`, ADR-029 – ADR-034).**
+  - **Databases** of four engines: PostgreSQL, MySQL 8.4, MongoDB 7.0 or 8.0, ClickHouse 26.3 or 25.8. Each engine has its own connection facts and its own logical backups (`mysqldump`, `mongodump` archives, ClickHouse `BACKUP`). A restore refuses another engine's dump.
+  - **Queues and topics** on one NATS JetStream broker (`es-system-broker`, started with the first queue or topic):
+    - visibility timeout, retention, size limit, deduplication, maximum receives and dead-letter queues;
+    - topics fan out to queues and to webhooks signed with HMAC-SHA256, retried with backoff;
+    - every queue and topic has its own NATS user, limited to its own subjects;
+    - API endpoints to send, receive, delete and peek messages and to list deliveries;
+    - purge.
+  - **Search** (`search` kind): OpenSearch 3.3 or 2.19 behind a password, with the Java heap set to half its memory.
+  - **Email** (`email` kind): a Mailpit SMTP server per service. It keeps every message to look at, or relays through your provider. API endpoints send and read messages; the console has a viewer and a composer.
+  - **CDN** (`cdn` kind): an nginx cache with its own hostname behind the edge, in front of an app or a bucket. It sends `X-Cache`, serves stale copies while the origin is down, and can be purged. A bucket behind a CDN becomes readable object by object.
+  - **Transcoders** (`transcoder` kind): FFmpeg converts each new file in a bucket folder, with presets MP4 480p/720p/1080p, WebM, HLS, MP3 and a thumbnail. Each run is a network-less container fed and emptied by the control plane. A file can also be converted by hand.
+  - **Surfaces**:
+    - API: `L3-002` §9 and `api/openapi.yaml`;
+    - CLI: `queue`, `topic`, `search`, `transcoder`, `cdn`, `email` and `db --engine`;
+    - OpenTofu: `enclave_queue`, `enclave_topic`, `enclave_search`, `enclave_transcoder`, `enclave_cdn`, `enclave_email`, plus `engine` on databases;
+    - console: six sections with Messages, Deliveries, Runs and Connect tabs, an engine choice, purge and transcode actions, and the broker on the machine card.
+  - **Metrics**: `enclave_messages_sent_total`, `enclave_deliveries_total`, `enclave_dead_letters_total`, `enclave_purges_total`; transcodes in `enclave_runs_total`. Migration `0011_data_messaging_kinds`.
+  - **Tested**:
+    - unit and integration tests on the fake engine, with an in-memory broker and mail;
+    - the broker against an embedded NATS server, with the same conformance table as the in-memory broker;
+    - the real-Docker suite;
+    - a new built-binary e2e of the `L2-008` shop through OpenTofu;
+    - provider acceptance; console Vitest (208) and Playwright (15).
+  - **Found on real Docker and fixed**:
+    - a restart moved every published port (Docker Desktop picks a new one unless the binding names it), so ports are now chosen when a container is created;
+    - Mailpit refused PLAIN sign-in to a relay without TLS, so it now uses LOGIN;
+    - FFmpeg needed `/out` to exist;
+    - MongoDB 8 refuses Docker Desktop's kernel 7.0.12 (SERVER-121912), so 7.0 is the default and the failure says what to do.
+  - **Found by the requirement tests and fixed**:
+    - search and email services ignored their `network`;
+    - firewalls didn't accept them as targets. `RULES.firewallKinds` and `RULES.placeableKinds` are now generated, replacing two hard-coded lists in the console;
+    - `enclave get/list/delete` didn't know the six new kinds.
+  - **Not yet walked by hand**: a relay through a real email provider, and a CDN with a public certificate.
+- **v0.6 "Data and Messaging" specified before any code (2026-10-21, doc-first).**
+  - **Product**: `L2-008` covers the whole roadmap row: MySQL, MongoDB and ClickHouse databases; queues (visibility timeout, retries, dead letters) and topics (fan-out to queues and signed webhooks); OpenSearch search services; transcoders that convert media dropped in a bucket; a CDN in front of apps and buckets; email services that catch messages or relay them through the user's provider. Decided with the owner: the whole row, NATS JetStream, OpenSearch, catch + relay email. Surface requirements: `L2-001` CON-37 – CON-44, `L2-002` CLI-29 – CLI-36, `L2-003` TF-27 – TF-33; console patterns `L2.5-002` §13. `L1-002` marks v0.6 specified.
+  - **Decisions**: DAR-021 – DAR-026 and ADR-029 – ADR-034 (broker, database engines, OpenSearch, Mailpit, nginx CDN, FFmpeg transcoders). The broker was spiked on Docker Desktop 29.7.2: per-queue bcrypt users with subject permissions, work-queue retention, deduplication, redelivery, dead-letter advisories kept in a stream, and users reloaded with `SIGHUP` without dropping connections.
+  - **Engineering**: contract `L3-002` §9 (kinds, data endpoints for messages and emails, purge and transcoder run actions, validation, dependencies), `L3-001` components, `L3-005` §8, `L3-006` §8, `L3-007` §11; tests `L5-001` §2d and `L5-002` §9.
+- **v0.5 "VMs and Volumes" — built on every surface (2026-10-21, `L2-007`, ADR-025 – ADR-028).**
+  - **VMs** (`vm` kind) run by QEMU on the host, with HVF on macOS and KVM on Linux.
+    - Images: Ubuntu 24.04 and Debian 12 from a pinned catalog (checksums checked), any cloud image by URL, or a snapshot.
+    - SSH keys, inline or from a secret, for the user `enclave` with sudo; an optional first-boot script, written into a NoCloud seed in pure Go (go-diskfs).
+    - CPUs, memory, a root disk that grows live, data disks and published ports; `start`, `stop` and `restart`; the boot console as logs.
+    - VMs survive server restarts (adopted by pidfile and QMP). A crash is repaired; a power-off inside the VM is recorded as stopped. Without QEMU, VMs wait with the command that fixes it, and `GET /machine` says so. Migration `0010_compute_kinds`.
+  - **VMs in networks**: each VM has a link container in its network, which carries its private IP, its `<name>.vm.internal` name, its firewalls (`vm/<name>` as target and source) and `internet: false`. QEMU streams Ethernet frames to the link over a loopback port; `es-vmlink` moves them to a tap device, forwards DNS and repairs the checksums Docker Desktop leaves unfilled. Moving a VM between networks doesn't restart it.
+  - **Volumes** (`volume` kind): `disk` volumes (qcow2, thin, grow live) attach to one VM at a time (`VOLUME_ATTACHED`). `filesystem` volumes (engine volumes) mount into apps and jobs with `volumes`, are shared by replicas and kept across deploys.
+  - **Snapshots** (`snapshot` kind): full copies kept on the machine. Disks are copied live with QMP `drive-backup`; filesystems through the engine's archive API. New volumes and VMs can start from them, and either side can be deleted afterwards.
+  - **Surfaces**:
+    - API `L3-002` §8, `api/openapi.yaml`;
+    - CLI `vm` (create, update, start, stop, restart, ssh, console), `volume`, `snapshot`, and `--volume` on apps and jobs;
+    - OpenTofu `enclave_vm`, `enclave_volume`, `enclave_snapshot`, and `volumes` on apps and jobs;
+    - console sections VMs, Volumes and Snapshots, with an SSH card, a boot console tab, power buttons, a restart confirmation, Take snapshot, Create volume and Launch VM, a volumes editor on apps and jobs, VM availability, and "Use from code".
+  - **Metrics**: `enclave_vms`, `enclave_vm_starts_total`, `enclave_image_downloads_total`, `enclave_snapshots_total`, `enclave_snapshot_seconds`.
+  - **Tested**:
+    - unit and integration on the fake engine and the new fake hypervisor;
+    - real Docker (volumes, link containers);
+    - real QEMU (`make engine-qemu`);
+    - built-binary e2e with OpenTofu, including a VM;
+    - provider acceptance, console Vitest and Playwright;
+    - a live walk-through on an Apple M4 (`L5-001` §2c).
+  - **Found live and fixed**: a recreated link container got a new device address, which the VM kept for about three minutes; the link device now has a fixed address, and traffic returns in 10 s.
+  - **Not built**: domains and load balancers in front of a VM (`L2-007` VMN-06, a Should).
+  - **Not yet observed**: the new CI step that runs QEMU with KVM on Linux.
+- **CI**: Engine E2E opens `/dev/kvm`, installs QEMU and runs `make engine-qemu`; `make lint` vets the `qemu`-tagged tests (`L4-002` §4).
+- **CLI**: whole numbers in `get` output print as integers (sizes showed as `4.9152e+06`).
+- **v0.5 "VMs and Volumes" specified before any code (2026-10-21, doc-first).**
+  - **Product**: `L2-007` covers virtual machines (images, size, SSH keys, first-boot script, power, boot console, SSH from the machine), VMs in networks with private DNS and firewalls, volumes (disks for VMs; folders for apps and jobs, kept across deploys) and snapshots that new volumes and VMs start from. Decided with the owner: QEMU on both macOS and Linux; volumes for both VMs and apps. Surface requirements: `L2-001` CON-32 – CON-36, `L2-002` CLI-24 – CLI-28, `L2-003` TF-22 – TF-26; console patterns `L2.5-002` §12. `L1-002` marks v0.5 specified.
+  - **Decisions**: DAR-017 – DAR-020 and ADR-025 – ADR-028, spiked on an Apple M4 (macOS 26.4, QEMU 11.1.2, Docker Desktop 29.7.2):
+    - QEMU processes on the host with HVF or KVM, driven over QMP. Debian 12 arm64 booted in 25 – 27 s from a NoCloud seed written in pure Go (go-diskfs).
+    - A link container per VM gives it a private IP, a `.internal` name, firewalls and `internet: false`. QEMU streams Ethernet frames to the container over a loopback port. The VM and containers reached each other by name at about 160 MB/s, and recovered within 1 s when the container was recreated. Firewall rules in a `forward` chain allowed one container and blocked another.
+    - Two findings shaped the design. Link-local link addresses aren't forwarded, so the link uses `198.18.0.0/30`. Docker Desktop delivers unfilled TCP and UDP checksums, so the helper recomputes them.
+    - Volumes are qcow2 files for disks and engine volumes for filesystems. Snapshots are full copies; a live `drive-backup` copied 1.13 GiB in 0.8 s without pausing the VM.
+    - QEMU accepts one QMP client at a time, and macOS limits socket paths to 104 bytes. Both are handled in ADR-025.
+  - **Specifications, marked planned**:
+    - API contract `L3-002` §8 (`VOLUME_ATTACHED`, `GROW_ONLY`);
+    - data model `L3-005` §7;
+    - security `L3-006` §7;
+    - reliability `L3-007` §10;
+    - components `L3-001`;
+    - walk-throughs and suites `L5-001` §2c and `L5-002` §8;
+    - prerequisites `L4-001` (QEMU per platform, service-manager kill mode).
+- **v0.4 "Networking" — built on every surface (2026-10-21, `L2-006`, ADR-020 – ADR-024).**
+  - **Networks** (`network` kind): a private IPv4 range with named subnets, isolated from other networks, optionally without internet. Apps, databases, caches and image jobs take `network` and `subnet`; every resource answers to `<name>.<kind>.internal` (`privateDns`) and reports its `privateIp`. The edge, the probe helper and the object store join every network. Migration `0008_network_kinds`.
+  - **Firewalls** (`firewall` kind): allow rules (sources: any, CIDRs, networks, resources) loaded as nftables into each target's network namespace by a one-off helper with `NET_ADMIN` only, before a new revision takes traffic (about 0.1 s measured). Several firewalls add up; egress can be denied; rules follow sources across redeploys and are restored after restarts. Published host ports stay reachable.
+  - **Replicas and load balancers**: apps run 1–10 replicas; domains spread requests across them (Caddy dynamic upstreams). The `loadbalancer` kind runs HAProxy 3.2 (pinned) for HTTP or TCP with weights, algorithms, health checks and graceful reloads, and reports healthy replicas.
+  - **DNS zones and records** (`zone`, `record` kinds) at **Cloudflare** and **Route 53** through a plug-in interface (our own clients; SigV4 checked against AWS's published signatures). Records can point at the machine and follow its public address, identical records are adopted, others are never overwritten, and changes made at the provider are put back.
+  - **Certificates through DNS-01 and wildcard domains**: a domain with `zone` gets its certificate through ACME DNS-01 (lego v4.35.2 core) — no inbound port needed, `*.example.com` allowed. Keys are encrypted in the new `certificates` table (migration `0009_certificates`) and served by the edge as loaded certificates; renewal at a third of the lifetime left.
+  - **Surfaces**: API `L3-002` §7 and `api/openapi.yaml`; CLI `network`, `firewall` (`fw`), `lb`, `zone`, `record`, `--network/--subnet/--replicas`, `db update`, `domain --zone`; OpenTofu `enclave_network`, `enclave_firewall`, `enclave_load_balancer`, `enclave_zone` (`dns_provider`), `enclave_record` (`record_name`), placement and `replicas` on existing resources, `zone` on `enclave_domain`; console sections Networks, Firewalls, Load balancers and DNS (each zone lists its records and adds new ones), network and replica fields, rules as sentences, and "Use from code".
+  - **Metrics**: `enclave_firewall_apply_total`, `enclave_firewall_apply_seconds`, `enclave_lb_healthy_targets`, `enclave_dns_calls_total`, `enclave_acme_orders_total`.
+  - **Tested**: unit, integration on the fake engine, real Docker (isolation, enforcement, HAProxy, edge spread, Pebble DNS-01), OpenTofu acceptance, built-binary e2e with OpenTofu on Docker, console Vitest and Playwright. Not yet run against live Cloudflare, Route 53 or Let's Encrypt.
+- **v0.4 "Networking" specified before any code (2026-10-21, doc-first).**
+  - **Product**: `L2-006` covers private networks with subnets and private DNS names, firewalls, app replicas and load balancers, DNS zones and records at Cloudflare and Route 53, and certificates through DNS (DNS-01) with wildcard domains. Surface requirements: `L2-001` CON-26 – CON-31, `L2-002` CLI-18 – CLI-23, `L2-003` TF-16 – TF-21, and `L2-004` §5. `L1-002` moves DNS-01 and wildcards into v0.4.
+  - **Decisions**: DAR-012 – DAR-016 and ADR-020 – ADR-024, with spikes on Docker Desktop 29.7.2:
+    - one bridge network per network, subnets as ranges inside it (static addresses outside the automatic range work, `.internal` aliases resolve);
+    - firewall rules as nftables in each target's network namespace, applied by a one-off helper (a drop policy loaded this way blocks traffic);
+    - one HAProxy 3.2 container per load balancer, finding replicas through Docker's DNS (two replicas found, balanced and reported `UP`);
+    - our own Cloudflare and Route 53 clients behind one plug-in interface;
+    - DNS-01 through lego's ACME core in the control plane, with certificates loaded into the edge.
+  - **Specifications, marked planned**: API contract `L3-002` §7; data model `L3-005` §6; security `L3-006` §6; reliability `L3-007` §9; components `L3-001`; console patterns `L2.5-002` §11; walk-throughs and suites `L5-001` §2b and `L5-002` §7; prerequisites `L4-001`.
+- **v0.3 phase 5 — builds from Git (2026-10-21, `L2-005` BLD-01 – BLD-05, ADR-019).**
+  - **Apps can be built from a Git repository** (`source`) instead of an image: https or ssh, private repositories through a credentials secret (`{"token"}` or `{"privateKey","knownHosts"}`, never trust on first use), with any Dockerfile and context, plus build arguments.
+  - **Builds run on the machine's own BuildKit**, with the context sent over the build session as the Docker CLI does. Nothing else is installed.
+  - **Every build is recorded**: commit, result and the end of its log, for the last 10 builds; `logs --build` reads them.
+  - **Builds only when something changed**: a redeploy resolves the ref again and skips the build when the commit and build settings are unchanged. Drift repair never deploys a new commit by itself.
+  - **A failing build names the step and keeps the serving revision**; Retry builds again. Only the serving and previous images are kept, and deleting the app removes them.
+  - **Jobs** that run with a source app use its built image.
+  - **Spike gate passed** (ADR-019): BuildKit through the Go SDK on Docker Desktop 29.7 and Linux Docker Engine 29.9.
+  - **Surfaces**:
+    - API: `AppSpec.source`, outputs `builtCommit`, `builtImage` and `lastBuild`, and `GET …/logs?build=true`.
+    - CLI: `enclave app create|update --git URL --ref REF [--dockerfile] [--context] [--git-credentials] [--build-arg]`, and `logs app NAME --build`.
+    - OpenTofu: a `source` block on `enclave_app`, with `built_commit`.
+    - Console: "Deploy from" an image or a Git repository, source facts, and a Build log tab.
+  - **Schema**: migration `0007_builds`.
+- **v0.3 phase 4 — backups and restore (2026-10-21, `L2-005` BAK-01 – BAK-09, ADR-018).**
+  - **New `backup` kind** for a database (`pg_dump`, custom format) or a cache (Redis RDB).
+    - Destinations: a EnclaveStack bucket, or any S3-compatible service (`https://` endpoint, credentials from a secret).
+    - Runs on a cron schedule in any time zone (default 03:00 daily).
+  - **Streamed**: a dump goes straight into a multipart upload, never into the control plane's memory or disk. The SHA-256 is computed on the way, and a failed upload leaves no object or multipart upload behind.
+  - **Retention**:
+    - keeps the newest `keep` (default 7), with an optional age limit, and never deletes the newest backup;
+    - counts only this backup's own runs, so two backups of one source into the same place don't delete each other's;
+    - never deletes a run a restore is waiting for;
+    - a run whose backup was removed says so and can't be restored.
+  - **Restore**:
+    - **Into a new database or cache** (the default; the source is untouched).
+    - **Over the source**: needs its name typed, and a safety backup is taken first. If that fails, nothing changes.
+    - Every restore checks the object's SHA-256 before anything changes.
+    - Redis restores go through a fresh AOF, so the data survives restarts.
+    - A failed replace leaves the source as it was, and Retry brings it back.
+  - **Failures**: three in a row put a backup in `failed`; Retry resumes it. Deleting a backup keeps its stored backups and says so. Its source, bucket and credentials secret can't be deleted while it uses them.
+  - **Surfaces**:
+    - API: the `restore` action, `Run.artifact`, outputs `lastSuccessAt` and `restoredFrom`, `RUN_NOT_RESTORABLE`.
+    - CLI: `enclave backup create --source database/NAME|cache/NAME|update|run|runs|restore`.
+    - OpenTofu: `enclave_backup` (`source = { database = … }`, `bucket` or an `s3` block; changing the source replaces it).
+    - Console: a Backups section; a Backups tab on databases and caches with "Set up backups"; Back up now; Runs with size and details; a Restore drawer offering "Into a new …" first.
+  - **Design system**: `Choice`, a radio option shown as a card; and the `History` and `ArchiveRestore` icons.
+  - **Schema**: migration `0006_backup_kind` (table rebuild).
+- **v0.3 phase 3 — scheduled jobs (2026-10-21, `L2-005` JOB-01 – JOB-08, ADR-017).**
+  - **New `job` kind**: a command on a cron schedule (5 fields or `@hourly`/`@daily`/`@weekly`/`@monthly`) in any IANA time zone. It runs with an app's image, command, environment and secrets (its own entries win) or with its own image.
+  - **Every run is kept**: trigger, status, exit code, duration and the last 64 KiB of output, for 30 days or the newest 100.
+  - **Run behaviour**:
+    - Timeouts stop a run.
+    - Overlap is `forbid` (skip, or `409 RUN_IN_PROGRESS` for a manual run) or `allow`.
+    - After downtime, one catch-up run starts and the missed ones are recorded as one skipped entry.
+    - Runs survive control-plane restarts: they are adopted and started at most once per claim.
+  - **Surfaces**:
+    - API: the `run` action, `GET …/runs` and `GET …/runs/{id}` (output needs session or write access).
+    - CLI: `enclave job create|update|run [--wait]|runs|logs`.
+    - OpenTofu: `enclave_job` (with plan-time app/image validation).
+    - Console: a Jobs section, a schedule described in words with a next-runs preview, Run now, and a Runs tab with an output drawer.
+  - **Schema**: migration `0004_jobs` (table rebuild plus `runs`).
+- **v0.3 phase 2 — domains with automatic HTTPS (2026-10-21, `L2-005` DOM-01 – DOM-09, ADR-015).**
+  - **New `domain` kind**: a hostname is routed to an app through a Caddy edge proxy (pinned by digest) that the reconciler configures.
+  - **Certificates**: Let's Encrypt (`auto`, HTTP-01) or this machine's own CA (`internal`, the default for `*.localhost`), with a downloadable root certificate. Plain HTTP (`off`) is also available. HTTP redirects to HTTPS by default.
+  - **Zero-drop deploys behind a domain**: domain traffic goes to the app's stable alias with dial retries, so app deploys drop nothing. Measured: 0 failed of 16,192 HTTPS requests during a rolling deploy.
+  - **Safe by default**: the edge binds 127.0.0.1 unless the server is started with `--edge-address 0.0.0.0` (`--edge-http-port` and `--edge-https-port` are also available). A public domain on a loopback edge stops with that instruction.
+  - **Clear failures**:
+    - a domain waiting for DNS names the record to create;
+    - a port conflict is reported on every domain and on the machine;
+    - edge drift is repaired;
+    - certificate expiry is tracked.
+  - **Machine settings**: `publicAddress` (never auto-detected) and `acmeEmail`.
+  - **Rules**: hostnames are unique (`HOSTNAME_TAKEN`) and immutable. Apps can't be deleted, or lose the port a domain uses, while a domain routes to them.
+  - **Surfaces**:
+    - API: `PATCH /machine` and `GET /machine/ca`.
+    - CLI: `enclave domain create|update|ca` and `enclave machine set`.
+    - OpenTofu: `enclave_domain`, `enclave_machine_settings` and the `enclave_ca` data source.
+    - Console: a Domains section, "Add domain" on apps, the DNS record to create, a root-certificate download with steps, and settings for all domains.
+  - **Tests**: the ACME path runs against Pebble, so no public internet is needed.
+  - **Schema**: migration `0003_domain_kind` rebuilds `resources` with foreign keys off and verified.
+- **v0.3 phase 1 — zero-downtime deploys with health checks (2026-10-21, `L2-005` DEP-01 – DEP-06, ADR-016).**
+  - **Revisions**: every app deploy is a numbered revision (`es-app-<name>-r<N>`). A new revision takes traffic only after its health check passes. A revision that fails is discarded with the probe result and its last log lines, while the previous revision keeps serving. Numbers never repeat.
+  - **Health checks**: `http`, `tcp`, `command` or `none`, with interval, timeout, retries and start period. They run from a pinned busybox probe container on the internal network, so they work with any image and on macOS. The default is TCP on the app's port.
+  - **Strategies**: `rolling` (default) or `recreate`. Published apps always recreate and keep their host port.
+  - **Recovery**: interrupted deploys are discarded and restarted after a crash, and v0.2 app containers are adopted.
+  - **Progress**: each health-check attempt is shown as the resource's message, and deploy events are recorded.
+  - **Surfaces**:
+    - API: `healthCheck`, `strategy`, and the outputs `servingRevision`, `latestRevision` and `lastDeploy`.
+    - CLI: `--health`, `--health-interval`, `--health-timeout`, `--health-retries`, `--health-start-period` and `--strategy`.
+    - OpenTofu: a `health_check` block, `strategy` and `serving_revision`.
+    - Console: a Deploys section in the app form, plus strategy, health check, serving revision and last deploy shown on the app.
+  - **Schema**: migration `0002_app_revisions`.
+- **v0.3 "Run a Real Product" specified, ahead of any code (2026-10-20, doc-first).**
+  - **Product**: `L2-005` covers domains with automatic HTTPS, zero-downtime deploys with health checks, scheduled jobs, backups with restore, and builds from Git. Surface requirements: `L2-001` CON-19 – CON-25, `L2-002` CLI-13 – CLI-17, `L2-003` TF-11 – TF-15, and `L2-004` §4.
+  - **Decisions**: DAR-008 – DAR-011 and ADR-015 – ADR-019.
+    - The edge proxy is a Caddy container configured by the reconciler.
+    - Health checks run from a probe-helper container, and app revisions roll over.
+    - A scheduler keeps run history.
+    - Backups are logical dumps streamed to S3.
+    - Builds use the engine build API, gated on a spike.
+  - **Specifications, marked planned**:
+    - API contract: `L3-002` §6;
+    - data model: `L3-005` §5;
+    - security: `L3-006` §5;
+    - reliability: `L3-007` §8;
+    - components: `L3-001`;
+    - console patterns: `L2.5-002` §10;
+    - test walk-throughs and suites: `L5-001` §2a and `L5-002` §6;
+    - prerequisites: `L4-001`.
+- `L1-002` Coolify study and service roadmap (2026-10-20): what Coolify's subsystems do and which ideas EnclaveStack adopts (no code or templates reused), and the phased path to common AWS/GCP services: v0.3 domains/HTTPS, zero-downtime deploys, backups, schedules, builds; v0.4 networking; v0.5 VMs; v0.6 data and messaging; v0.7 operations; v0.8 many machines.
+- **EnclaveStack v0.2 — "our own AWS" (2026-10-20).** One control-plane API with three equal surfaces: web console, `enclave` CLI and the OpenTofu provider `enclavestack/enclave` (L1-001 v2, ADR-003).
+  - Control plane (Go): apps, databases (PostgreSQL 16/17), caches (Redis 7), buckets (S3-compatible) and secrets; declarative spec/status with an asynchronous reconciler — retries with exponential backoff and jitter, permanent-failure detection, crash recovery, drift repair every 60 s, engine-outage queuing (ADR-004, ADR-012, L3-007).
+  - Engine drivers: Docker (real containers, volumes, network, health checks, preserved ports, buckets on Chainguard MinIO pinned by digest — ADR-013) and an in-memory fake with fault injection (ADR-006).
+  - Store: embedded SQLite (WAL) with migrations (ADR-005, L3-005). Secrets AES-256-GCM encrypted at rest.
+  - Auth: one-time setup code, argon2id passwords, sessions with CSRF header, scoped and revocable API tokens, sign-in throttling, per-client rate limiting (ADR-007, L3-006).
+  - API: L0-003 error envelope, idempotency keys, ETag/If-Match, cursor pagination, request IDs, structured redacted logs, Prometheus metrics, health/readiness probes (L3-002 v2, ADR-010, ADR-011); `api/openapi.yaml` kept equal to the router by a test.
+  - CLI: `enclave server` plus `login`, `token`, `db`/`cache`/`bucket`/`app`/`secret` create/update/delete, `ls`, `get`, `logs`, `events`, `retry`, `--wait`, `-o json`, stable exit codes (L2-002, ADR-008).
+  - OpenTofu provider: five resources, two data sources, waits, replacements, import by name, drift removal, sensitive values, timeouts (L2-003, ADR-009); `examples/opentofu`.
+  - Console v0.2 on the real API: create/edit/delete every kind, API tokens page, audited secret reveal, retry, events, "Use from code" (CLI + OpenTofu), engine banner, background refresh; contract types generated from `pkg/api` (L2-001 v2, L2.5-002).
+- Tests (L5-002): unit, store/API/reconciler integration on real SQLite + HTTP, auth & security suite, CLI suite, OpenTofu acceptance (real `tofu`), Docker driver suite (real Docker), built-binary e2e (Docker + OpenTofu + SIGKILL recovery + drift), Playwright console e2e (real Chrome + real server), k6 load test with thresholds, architecture import rules, generated-contract freshness, OpenAPI/route parity.
+- Tooling: `Makefile`, `.github/workflows/go.yml` (Go Quality, Go Tests, Provider Acceptance, Console E2E, Engine E2E, Load Test), `tests/load/run.sh`.
+- Docs: L1-001 v2; L2-001 v2, L2-002, L2-003, L2-004; L2.5-002; L3-001 v4, L3-002 v3, L3-003 (ADR-003 – ADR-013), L3-004 (DAR-001 – DAR-007), L3-005, L3-006, L3-007; L4-001 v4, L4-002; L5-001 v4, L5-002, L5-003.
+- Web console v0.1 (`console/`, 2026-10-20): sign-in and first-run setup, resource sections with live counts, searchable lists (`/` to focus), resource detail with deploy stages and Overview / Logs / Environment tabs, Restart and Redeploy with Undo, light/dark themes, phone layout. Runs against an in-memory mock behind the `EnclaveApi` interface until the Go control plane exists (L2-001, L3-002, ADR-002).
+- Docs: `L1-001` product brief, `L2-001` console PRD, `L2.5-001` visual language and tokens, `L3-002` console API contract, `L3-001` v2 (components, ADR-001 Go + TypeScript, ADR-002 API adapters), `L4-001` v2 console setup, `L5-001` v2 console test section.
+- pnpm workspace root (`package.json`, `pnpm-workspace.yaml`) so CI's lint / type-check / test jobs run the console.
 - Governance scaffold from soupler-governance-template v1.2.1 (2026-10-20): doc layers, Statutory Integrity gate, hooks, workflows, rulesets, agent instructions.
+
+### Fixed
+- **Tests**: `TestFirewallsResolveSourcesAndFollowRedeploys` failed about once in five runs with `-race`. A redeploy reports ready just before it re-syncs firewalls, and a container restart in that gap was repaired without the event the test waited for. The test now waits for that sync. Staticcheck SA4000 in two v0.5 tests is also fixed.
+- **Console**: the database form names the engine in the version label ("MySQL version").
+- **Found and fixed while building v0.4 (2026-10-21).** DNS record names now accept underscores (`_dmarc`, `_acme-challenge`); the probe helper is created before firewall rules are rendered, so health checks aren't blocked; an app's firewall is re-applied once its domain's edge starts; the zone form loads secrets; a load balancer's healthy-replica count is refreshed when a target's deploy finishes, after HAProxy has settled; the delete dialog names a load balancer in words. Rolling deploys behind a load balancer dropped 0.8 % of requests (a stopped replica's address doesn't answer, and HAProxy's 5 s connect timeout outlasted clients); a 1 s connect timeout with retries on another replica brought it to 0 of about 36,000 over nine deploys (`make load-lb`).
+- **Damaged documents reconstructed (2026-10-21).** `L3-001` §3 – §5 (data ownership, runtime flows, ADR-001, ADR-002), `L2-001` CON-09 – CON-11, and the lost oldest history rows of `L2-001`, `L2-002`, `L2-003` and `L3-001` are rewritten from DAR-001, the code, the scaffold commit and references across the repository; every reconstruction is marked as such. The stale `internal/edge` path in `L3-001` now names the real renderer.
+- **Damaged documents repaired in structure (2026-10-21).** `L2-001`, `L2-002`, `L2-003` and `L3-001` had their version-history rows run into the preceding table, and had lost text in an earlier edit: the "Version history" heading and its oldest rows everywhere, and in `L3-001` sections 3 onward (data ownership, runtime flows, ADR-001 – ADR-002). No intact copy exists (the files were never committed), so the headings are restored and the loss is recorded in each file's history; the lost text is not reconstructed.
+- Builds of real repositories failed on Docker Desktop with "failed to read dockerfile: archive/tar: invalid tar header". The context was sent as a chunked request body, which Docker Desktop's API proxy truncates past one chunk (Linux Engine was fine). Contexts now go through the build session, as the Docker CLI sends them. Found in the live check against GitHub; the driver test now builds a 2 MiB context.
+- Retry after a failed build fell back to the old image and reported Ready with nothing new deployed. Retry now builds again.
+- A missing public repository was reported as "check the credentials secret" when no credentials were set. It now says the repository doesn't exist or is private and needs a credentials secret.
+- A source app's `redeployed` event said "Image pulled again". It now says what was built, or that nothing changed.
+- `enclave get` printed nested spec fields in Go's `map[…]` syntax (a backup's destination, an app's source). They are compact JSON now.
+- Action routes ignored a request body that L3-002 §6.3 says they reject: a body sent to `restart`, `redeploy`, `reconcile` or `run` was silently accepted. These now answer `400 MALFORMED_REQUEST`; only `restore` takes a body. Found while writing the backup contract tests.
+- The protected-routes auth test used a hand-kept list that had missed every route added since v0.2 (runs, machine settings, the CA). It now reads the routes from `server.go`, so a new route is covered the day it is added.
+- Backup retention problems found in review and the live check, each fixed with a regression test confirmed to fail without the fix:
+  - Retention deleted objects from any backup of the same source in the same bucket and prefix.
+  - A safety backup before a replace could evict the very run being restored.
+  - A replace that failed permanently left the source database failing on every Retry.
+- Test runs left the `es-system-probe` container running. The Docker and e2e suites now remove it when they created it.
+- Stored times sorted wrongly as text. RFC3339Nano drops trailing zeros, so "…40.1Z" came after "…40.100182Z" in SQLite, which affected ordering, `next_attempt_at`/`next_run_at` due checks (up to a second late) and cursors. Times are now written with a fixed nine fractional digits, and migration `0005_fixed_width_timestamps` rewrote existing rows. Found by the job tests.
+- Domains with internal certificates re-entered provisioning on every drift pass, because Caddy's internal certificates live 12 hours and the overdue check used a fixed 7-day window. The check is now relative to each certificate's lifetime (less than a tenth left). Found in the live check; regression test `TestCertificateRefreshIsRelativeToTheCertificatesLifetime`.
+- The store reported every constraint failure as a conflict: a CHECK violation (a control-plane bug) reached users as "name already taken". Only UNIQUE violations are conflicts now, and only FOREIGN KEY violations are "in use"; anything else is an internal error.
+- The CLI's exit codes came from a hand-kept list of error codes, so new conflict codes exited 1 instead of 5. They now follow each code's HTTP status (CLI-06).
+- Console: a deleted resource made the page refresh in a loop (unstable callback identity), flooding the API until rate-limited; delete now settles in ~1.5 s instead of ~8 s.
+- Every CLI command computed a 64 MiB argon2id timing hash at start-up (89 MB peak for `enclave version`); it is now lazy (22 MB), and password operations return their working set to the OS.
+
+### Changed
+- **Docs: v0.3 recorded as built in every layer (2026-10-21).**
+  - The roadmap (`L1-002`) now says v0.3 is built but not yet released, and names the `backup` kind as built.
+  - The v0.3 PRD (`L2-005`) has a delivery-status table.
+  - Shipped requirements are marked in the PRDs: console CON-19 – CON-25 and CLI-13 – CLI-14 (the rest were marked when they shipped).
+  - ADR-017 is marked implemented for backups too.
+  - `L3-002` §6 lists the phases in order.
+  - The README separates v0.2 (released) from v0.3 (built, unreleased).
+- **Console redesigned in the Tandem layout with EnclaveStack's blue palette, on a new design system package `@enclavestack/ui` (2026-10-20, ADR-014, L2.5-001 §5, L2.5-002 §9).**
+  - **Shared package**: tokens, typography, components and application layout now live in `packages/ui`. The console keeps behaviour and copy only, with no stylesheets, inline styles, colour literals or hand-written class names, and `console/src/design-system.test.ts` enforces this.
+  - **Layout**: sidebar on the page ground with icon-circle navigation and counts; rounded list column of avatar cards; detail panel with a wash header, large avatar, numbered stage pill and segmented dark-pill tabs; a side drawer for create and edit; split sign-in and setup pages.
+  - **Type**: Plus Jakarta Sans in the console.
+  - **Tests**: 21 design-system tests (component behaviour, keyboard tabs, focus, token parity).
+  - **Renamed buttons**: "+ New app" is now "New app", and "+ Add variable" is now "Add variable" (the icon carries the plus).
+- Console: no eyebrow labels (`L2.5-001` v2) — the resource subtitle no longer sits above the detail heading, the "Last deploy" label above the stage track is gone (the track keeps an accessible name), and on the sign-in page the machine name now leads its card with the host below it.
