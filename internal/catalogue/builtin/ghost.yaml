@@ -1,0 +1,34 @@
+name: ghost
+title: Ghost
+description: A Ghost publication with its MySQL database and a volume for images and themes.
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "Ghost needs the address readers open it at.", type: hostname, required: true }
+resources:
+  - kind: database
+    name: db
+    spec: { engine: mysql, version: "8.4" }
+  - kind: volume
+    name: content
+    spec: { type: filesystem }
+  - kind: app
+    name: ""
+    spec:
+      image: ghost:6.72.0
+      port: 2368
+      memoryMiB: 512
+      env:
+        url: "https://${param:domain}"
+        database__client: mysql
+        database__connection__host: "${host:database/db}"
+        database__connection__user: "${ident:db}"
+        database__connection__database: "${ident:db}"
+      secretEnv:
+        database__connection__password: "${name:db}-password"
+      volumes: [{ volume: "${name:content}", path: /var/lib/ghost/content }]
+  - kind: domain
+    name: site
+    spec: { hostname: "${param:domain}", app: "${name:}" }
+outputs:
+  url: "https://${param:domain}"
+  admin: "https://${param:domain}/ghost/"

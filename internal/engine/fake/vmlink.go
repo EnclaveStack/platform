@@ -47,7 +47,7 @@ func (d *Driver) EnsureVMLink(ctx context.Context, in engine.EnsureInput) (engin
 			d.mu.Unlock()
 			return nil, err
 		}
-		rt = &runtime{placement: in.Placement, ip: ip}
+		rt = (&runtime{placement: in.Placement, ip: ip}).named(r)
 		d.runtimes[r.ID] = rt
 	}
 	rt.generation, rt.running = r.Generation, true

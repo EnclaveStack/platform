@@ -25,9 +25,9 @@ Registry of every artifact in layer **L5 — Operations & GTM** (test playbook, 
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v20 | Soupler Labs | 2026-10-22 |
-| L5-002-test-strategy-v1 | Test Strategy | Draft | v17 | Soupler Labs | 2026-10-22 |
-| L5-003-performance-baseline-v1 | Performance Baseline | Draft | v2 | Soupler Labs | 2026-10-20 |
+| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v22 | Soupler Labs | 2026-10-22 |
+| L5-002-test-strategy-v1 | Test Strategy | Draft | v19 | Soupler Labs | 2026-10-22 |
+| L5-003-performance-baseline-v1 | Performance Baseline | Draft | v3 | Soupler Labs | 2026-10-22 |
 
 ## Version history
 

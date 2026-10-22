@@ -20,11 +20,17 @@ func (r *Reconciler) ensureNetwork(ctx context.Context, res *domain.Resource, re
 		return nil, engine.Permanent(fmt.Errorf("stored spec unreadable: %w", err))
 	}
 	report.Step("network", api.StepActive)
+	// With several machines, the new network's address pools go out first: making it connects the system
+	// containers on every machine, and each takes an address of its machine's pool (ADR-045).
+	if err := r.SyncMesh(ctx); err != nil {
+		return nil, err
+	}
 	out, err := r.Driver.EnsureNetwork(ctx, engine.NetworkInput{Resource: res, Spec: raw.(api.NetworkSpec)})
 	if err != nil {
 		return nil, err
 	}
 	report.Step("network", api.StepDone)
+	r.MeshChanged() // the meshes join it
 	report.Step("attach", api.StepDone)
 	return out, nil
 }

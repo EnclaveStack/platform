@@ -246,6 +246,147 @@ paths:
       responses:
         '204': { description: Revoked }
         '404': { $ref: '#/components/responses/Error' }
+  /api/v1/machines:
+    get:
+      operationId: listMachines
+      tags: [machines]
+      summary: Every machine of this EnclaveStack, the main machine first (L3-002 §11.2)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/MachineSummary' } } } } } } }
+    post:
+      operationId: addMachine
+      tags: [machines]
+      summary: Add a machine (machine admins); returns a one-time join code and the command to run on it
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AddMachine' } } } }
+      responses:
+        '201': { description: Added, waiting for its agent, content: { application/json: { schema: { $ref: '#/components/schemas/AddedMachine' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/join:
+    post:
+      operationId: joinMachine
+      tags: [machines]
+      summary: Join with a one-time code (called by `enclave agent join`); throttled like sign-in
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JoinRequest' } } } }
+      responses:
+        '200': { description: Joined, content: { application/json: { schema: { $ref: '#/components/schemas/JoinResponse' } } } }
+        '410': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getMachineByName
+      tags: [machines]
+      summary: One machine
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MachineSummary' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateMachineByName
+      tags: [machines]
+      summary: Change a machine's labels, or whether it takes new resources (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMachine' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MachineSummary' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeMachine
+      tags: [machines]
+      summary: Remove a machine with nothing on it; force removes an offline one, failing what ran there (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }, { name: force, in: query, schema: { type: boolean } }]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/join-code:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: newJoinCode
+      tags: [machines]
+      summary: A new join code for a machine still waiting for its agent (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AddedMachine' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/drain:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: drainMachine
+      tags: [machines]
+      summary: Mark a machine not schedulable and move everything on it that isn't pinned there (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '202': { description: Moving, content: { application/json: { schema: { type: object, required: [moving, pinned], properties: { moving: { type: array, items: { type: string } }, pinned: { type: array, items: { type: string } } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/events:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: machineEvents
+      tags: [machines]
+      summary: A machine's events, newest first
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Event' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue:
+    get:
+      operationId: listCatalogue
+      tags: [catalogue]
+      summary: The catalogue's entries, built-ins first (L3-002 §11.5)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/CatalogueEntry' } } } } } } }
+    post:
+      operationId: addTemplate
+      tags: [catalogue]
+      summary: Add one of the machine's own templates, or a newer version of one (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], additionalProperties: false, properties: { body: { type: string, maxLength: 65536 } } } } } }
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogueEntry' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getCatalogueEntry
+      tags: [catalogue]
+      summary: One entry, at its newest version or ?version=
+      parameters: [{ name: version, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogueEntry' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeTemplate
+      tags: [catalogue]
+      summary: Remove one of the machine's own templates, refused while stacks use it (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue/{name}/template:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getTemplateSource
+      tags: [catalogue]
+      summary: An entry's template as written
+      parameters: [{ name: version, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: The template, content: { text/yaml: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
   /api/v1/machine:
     get:
       operationId: getMachine
@@ -284,6 +425,8 @@ paths:
         - { name: project, in: query, description: One project; without it, every project you can see, schema: { type: string } }
         - { name: kind, in: query, schema: { $ref: '#/components/schemas/Kind' } }
         - { name: name, in: query, schema: { type: string } }
+        - { name: machine, in: query, description: What runs on this machine (v0.8), schema: { type: string } }
+        - { name: stack, in: query, description: The members of this stack of the project (v0.8), schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
         - { name: cursor, in: query, schema: { type: string } }
       responses:
@@ -554,6 +697,16 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricData' } } } }
         '422': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/metrics:
+    get:
+      operationId: machineMetricsOf
+      tags: [machines]
+      summary: One machine's metrics; disk metrics are the main machine's only (L3-002 §11.2)
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { $ref: '#/components/parameters/Metric' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricData' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /api/v1/resources/{id}/metrics:
     get:
       operationId: resourceMetrics
@@ -594,7 +747,7 @@ paths:
 
 components:
   securitySchemes:
-    bearer: { type: http, scheme: bearer, description: 'API token, "hc_pat_…"' }
+    bearer: { type: http, scheme: bearer, description: 'API token, "es_pat_…"' }
     session: { type: apiKey, in: cookie, name: es_session, description: Browser session; writes also need X-Enclave-CSRF }
   parameters:
     ResourceID: { name: id, in: path, required: true, schema: { type: string, examples: [db_abcdefghijklmnop] } }
@@ -611,7 +764,7 @@ components:
       description: Error envelope (L0-003)
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
-    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore] }
+    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack] }
     Role: { type: string, enum: [viewer, editor, admin] }
     Phase: { type: string, enum: [pending, provisioning, ready, updating, deleting, failed] }
     ErrorEnvelope:
@@ -627,7 +780,7 @@ components:
               enum: [MALFORMED_REQUEST, UNAUTHENTICATED, INVALID_CREDENTIALS, FORBIDDEN, CSRF_REQUIRED, INVALID_SETUP_CODE, NOT_FOUND, METHOD_NOT_ALLOWED,
                 NAME_TAKEN, HOSTNAME_TAKEN, RUN_IN_PROGRESS, RUN_NOT_RESTORABLE, RESOURCE_IN_USE, VOLUME_ATTACHED, RESOURCE_BUSY, ACTION_NOT_SUPPORTED, SETUP_COMPLETE, SETUP_REQUIRED, PRECONDITION_FAILED, PAYLOAD_TOO_LARGE,
                 UNSUPPORTED_MEDIA_TYPE, VALIDATION_FAILED, IMMUTABLE_FIELD, IDEMPOTENCY_KEY_REUSED, TOO_MANY_ATTEMPTS, RATE_LIMITED, INTERNAL, ENGINE_UNAVAILABLE,
-                PROJECT_NOT_EMPTY, LAST_ADMIN, EMAIL_TAKEN, INVITE_INVALID]
+                PROJECT_NOT_EMPTY, LAST_ADMIN, EMAIL_TAKEN, INVITE_INVALID, MACHINE_NOT_EMPTY, MACHINE_ONLINE, MACHINE_OFFLINE, JOIN_CODE_INVALID, PART_OF_STACK]
             message: { type: string }
             requestId: { type: string }
             details:
@@ -740,6 +893,99 @@ components:
             required: [id, at, actor, action, target, detail, clientIp]
             properties: { id: { type: integer }, at: { type: string, format: date-time }, actor: { type: string }, action: { type: string }, target: { type: string }, detail: { type: string }, clientIp: { type: string } }
     CreatedToken: { type: object, required: [token, secret], properties: { token: { $ref: '#/components/schemas/Token' }, secret: { type: string } } }
+    CatalogueEntry:
+      type: object
+      required: [name, title, description, version, versions, builtIn, parameters, members, outputs]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        version: { type: string }
+        versions: { type: array, items: { type: string } }
+        builtIn: { type: boolean }
+        parameters:
+          type: array
+          items:
+            type: object
+            required: [name, title, type]
+            properties:
+              name: { type: string }
+              title: { type: string }
+              description: { type: string }
+              type: { type: string, enum: [string, number, boolean, secret, hostname] }
+              default: {}
+              required: { type: boolean }
+        members:
+          type: array
+          items: { type: object, required: [kind, name, optional], properties: { kind: { $ref: '#/components/schemas/Kind' }, name: { type: string }, optional: { type: boolean } } }
+        outputs: { type: array, items: { type: string } }
+    MachineLink:
+      type: object
+      required: [machine, connected, lastHandshakeAt]
+      properties: { machine: { type: string }, connected: { type: boolean }, lastHandshakeAt: { type: [string, 'null'], format: date-time } }
+    MachineSummary:
+      type: object
+      required: [id, name, title, main, state, since, labels, schedulable, address, os, arch, agentVersion, engine, cpus, memoryTotalBytes, memoryReservedBytes, vms, lastSeenAt, resources, versionMismatch, links, message]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: string, description: "The main machine's title is the machine name given at setup" }
+        main: { type: boolean }
+        state: { type: string, enum: [waiting, online, offline] }
+        since: { type: string, format: date-time }
+        labels: { type: object, additionalProperties: { type: string } }
+        schedulable: { type: boolean }
+        address: { type: [string, 'null'] }
+        os: { type: string }
+        arch: { type: string }
+        agentVersion: { type: string }
+        engine:
+          type: object
+          required: [driver, available, version, message]
+          properties: { driver: { type: string }, available: { type: boolean }, version: { type: string }, message: { type: string } }
+        cpus: { type: integer }
+        memoryTotalBytes: { type: integer }
+        memoryReservedBytes: { type: integer }
+        vms: { type: object }
+        lastSeenAt: { type: [string, 'null'], format: date-time }
+        resources: { type: integer, description: Resources placed here, in the projects you can see }
+        versionMismatch: { type: boolean }
+        links: { type: array, items: { $ref: '#/components/schemas/MachineLink' } }
+        message: { type: string }
+    AddMachine:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties: { name: { type: string }, labels: { type: object, maxProperties: 10, additionalProperties: { type: string } } }
+    AddedMachine:
+      type: object
+      required: [machine, joinCode, joinCommand, expiresAt]
+      properties:
+        machine: { $ref: '#/components/schemas/MachineSummary' }
+        joinCode: { type: string, description: Shown once }
+        joinCommand: { type: string }
+        expiresAt: { type: string, format: date-time }
+    UpdateMachine:
+      type: object
+      additionalProperties: false
+      properties: { labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }, schedulable: { type: boolean } }
+    JoinRequest:
+      type: object
+      required: [code, csr, advertise, agentPort, tunnelPort]
+      additionalProperties: false
+      properties:
+        code: { type: string }
+        csr: { type: string, description: A PEM certificate request for the agent's ECDSA P-256 key }
+        advertise: { type: string, description: An IPv4 address or host name the main machine reaches the agent at }
+        agentPort: { type: integer, minimum: 1, maximum: 65535 }
+        tunnelPort: { type: integer, minimum: 1, maximum: 65535 }
+        os: { type: string }
+        arch: { type: string }
+        agentVersion: { type: string }
+    JoinResponse:
+      type: object
+      required: [machineId, name, certificate, ca, server]
+      properties: { machineId: { type: string }, name: { type: string }, certificate: { type: string }, ca: { type: string }, server: { type: string } }
     Machine:
       type: object
       required: [name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
@@ -1379,6 +1625,7 @@ components:
         name: { type: string }
         generation: { type: integer }
         ownerId: { type: [string, 'null'] }
+        stack: { type: [string, 'null'], description: 'The ID of the stack this resource is a member of (v0.8)' }
         spec: { type: object, description: "The kind's spec; a secret returns an empty object, or its source when synced from a secret store" }
         status:
           type: object

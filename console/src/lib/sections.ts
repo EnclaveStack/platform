@@ -1,7 +1,9 @@
 import type { Kind } from '../api/types';
 
-/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52). The slug is the URL segment. */
+/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52, CON-60). The slug is the URL segment. */
 export const SECTIONS = [
+  // v0.8 (CON-60): products installed from the catalogue.
+  { slug: 'stacks', kind: 'stack', label: 'Stacks', noun: 'stack', blurb: 'Products installed from the catalogue — an app with its database, storage and domain — changed and deleted as one.', group: 'install' },
   { slug: 'apps', kind: 'app', label: 'Apps', noun: 'app', blurb: 'Long-running containers from any image — your services, APIs and workers.' },
   { slug: 'databases', kind: 'database', label: 'Databases', noun: 'database', blurb: 'PostgreSQL, MySQL, MongoDB or ClickHouse, with a managed owner password, kept on a persistent volume.' },
   { slug: 'caches', kind: 'cache', label: 'Caches', noun: 'cache', blurb: 'Redis for sessions, rate limits and queues, persisted to disk.' },
@@ -31,7 +33,7 @@ export const SECTIONS = [
   { slug: 'secret-stores', kind: 'secretstore', label: 'Secret stores', noun: 'secret store', blurb: 'Vault, 1Password, AWS Secrets Manager, Doppler or Infisical: secrets read from them and kept in sync.', group: 'operate' },
   // Records are reached from their zone (L2.5-002 §11); the section keeps their pages addressable.
   { slug: 'records', kind: 'record', label: 'DNS records', noun: 'record', blurb: 'DNS records kept at your zone’s provider — or pointed at this machine — and put back if changed elsewhere.', inZone: true },
-] as const satisfies readonly { slug: string; kind: Kind; label: string; noun: string; blurb: string; inZone?: boolean; group?: 'operate' }[];
+] as const satisfies readonly { slug: string; kind: Kind; label: string; noun: string; blurb: string; inZone?: boolean; group?: 'operate' | 'install' }[];
 
 export type Section = (typeof SECTIONS)[number];
 
@@ -39,7 +41,10 @@ export type Section = (typeof SECTIONS)[number];
 export const NAV_SECTIONS = SECTIONS.filter((s) => !('inZone' in s) && !('group' in s));
 
 /** The sidebar's Operate group (v0.7). */
-export const OPERATE_SECTIONS = SECTIONS.filter((s) => 'group' in s);
+export const OPERATE_SECTIONS = SECTIONS.filter((s) => 'group' in s && s.group === 'operate');
+
+/** The sidebar's Install group (v0.8): the catalogue's stacks. */
+export const INSTALL_SECTIONS = SECTIONS.filter((s) => 'group' in s && s.group === 'install');
 
 export function sectionBySlug(slug: string | undefined): Section | undefined {
   return SECTIONS.find((s) => s.slug === slug);

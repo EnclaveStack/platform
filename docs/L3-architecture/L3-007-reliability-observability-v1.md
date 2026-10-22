@@ -6,7 +6,7 @@
 | Document ID | L3-007-reliability-observability-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v12 |
+| Version | v13 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -137,6 +137,24 @@ slog JSON (text on a TTY). Every HTTP request logs once on completion: `request_
 | Timeouts | Engine stats 10 s per pass; edge metrics exec 5 s; notification request 10 s; SMTP 30 s; log batch request 30 s; secret store request 15 s |
 | Metrics (of EnclaveStack itself) | `enclave_samples_total{result}` (`ok`, `skipped`), `enclave_sample_duration_seconds`, `enclave_alert_transitions_total{to}`, `enclave_notifications_total{type,result}`, `enclave_log_lines_exported_total{destination}`, `enclave_log_export_errors_total{destination}`, `enclave_secret_syncs_total{provider,result}`, plus `enclave_resource_value{project,kind,name,metric}` (MET-07) |
 
+## 13 · v0.8 behaviour (planned)
+
+| Topic | Rule |
+|---|---|
+| Machine health (ADR-046) | `info` every 10 s per machine, 5 s timeout; offline after 30 s without an answer; online at the first answer, after `Sweep`. Facts (CPUs, memory, VM support, versions, tunnel key) refresh with each answer |
+| Calls to an offline machine | Fail at once with `ErrMachineOffline`; the reconciler retries every 30 s without counting an attempt, as for an unavailable engine; drift skips the machine |
+| Restarting elsewhere | 60 s after a machine went offline; at most once per outage per app; the new revision is a normal deploy with health checks |
+| Mesh sync (ADR-045) | Every 5 s and at once after a placed resource's containers change; the whole configuration is applied idempotently. A machine that can't be configured keeps its last configuration; the error is an event on the machine, once per change |
+| Address pools | Topped up before each placement and each sync to 8 free per machine, network and subnet in use (fewer in small subnets); an empty pool makes the placement wait (transient) |
+| Agent calls | Deadline of the reconciler's operation, passed to the agent; streams carry their own error trailer. A dropped connection is transient and retried. The agent refuses calls when its engine is down with `unavailable`, as the local driver does |
+| Agent restart | The agent starts with no state but its identity; the next mesh sync configures it again. Containers keep running across agent restarts |
+| Control-plane restart | Machines are marked by their last state; the first health round decides. Moves interrupted mid-copy start again from the copy: the old machine's data is untouched until the switch |
+| Moves (ADR-047) | Copy before switch; on failure the source is started again and the resource stays where it was, with `move_failed`. Data is never deleted on the old machine before the new one is healthy |
+| Join | A machine `waiting` for more than its code's hour stays listed with "The join code expired"; a new code can be issued |
+| Timeouts | Agent `info` 5 s; join 30 s; file upload and data copies bounded by the operation (30 min); mesh configuration 30 s per machine |
+| Metrics | `enclave_machines{state}`, `enclave_machine_up{machine}`, `enclave_agent_calls_total{machine,method,result}`, `enclave_agent_call_duration_seconds{machine}`, `enclave_moves_total{kind,result}`, `enclave_move_bytes_total`, `enclave_rescheduled_total`, `enclave_mesh_sync_total{result}`, `enclave_mesh_peers_connected{machine}` |
+| Logs | Every call to an agent logs its machine, method, duration and result at debug, and failures at warn; machine state changes at info |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -153,3 +171,4 @@ slog JSON (text on a TTY). Every HTTP request logs once on completion: `request_
 | v10 | 2026-10-21 | Soupler Labs | §11 v0.6 behaviour (planned): broker drift, deliveries, slow starts, transcoder and CDN recovery, timeouts, metrics |
 | v11 | 2026-10-22 | Soupler Labs | §11 metrics as built: `enclave_purges_total{kind}` for queues and CDNs; transcodes counted by the shared run metrics |
 | v12 | 2026-10-22 | Soupler Labs | §12 v0.7 behaviour (planned): sampler, metric storage, alert evaluation, notification retries, log export, secret sync, timeouts, metrics |
+| v13 | 2026-10-22 | Soupler Labs | §13 v0.8 behaviour (planned): machine health, offline calls, restarting elsewhere, mesh sync, address pools, agent calls and restarts, moves, join expiry, timeouts, metrics, logs |

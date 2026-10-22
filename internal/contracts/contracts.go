@@ -151,6 +151,11 @@ func TypeScript() string {
 	w("  secretStoreProviders: %s,\n  storeRefreshMin: %d,\n  storeRefreshMax: %d,\n  storeRefreshDefault: %d,\n  vaultMountDefault: %s,\n  infisicalSiteDefault: %s,\n",
 		q(api.SecretStoreProviders), api.StoreRefreshMin, api.StoreRefreshMax, api.StoreRefreshDefault, q(api.VaultMountDefault), q(api.InfisicalSiteDefault))
 	w("  secretKeyMax: %d,\n  secretFieldMax: %d,\n", api.SecretKeyMaxLen, api.SecretFieldMaxLen)
+	// v0.8 (L3-002 §11.9).
+	w("  mainMachine: %s,\n  machineStates: %s,\n  placedKinds: %s,\n  dataKinds: %s,\n", q(api.MainMachine), q(api.MachineStates), q(api.PlacedKinds), q(api.DataKinds))
+	w("  machineRef: %s,\n  machineRefPrefix: %s,\n", q(api.MachineRef), q(api.MachineRefPrefix))
+	w("  machineLabelsMax: %d,\n  labelKeyPattern: %s,\n  labelValuePattern: %s,\n  agentPortDefault: %d,\n  tunnelPortDefault: %d,\n",
+		api.MachineLabelsMax, q(api.LabelKeyPatternSource), q(api.LabelValuePatternSource), api.AgentPortDefault, api.TunnelPortDefault)
 	w("} as const;\n\n")
 	w("export const ROLES = %s as const;\n", q(api.Roles))
 	w("export const METRIC_UNITS = %s as const;\nexport type MetricUnit = (typeof METRIC_UNITS)[number];\n",

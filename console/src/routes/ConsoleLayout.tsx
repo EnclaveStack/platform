@@ -10,7 +10,7 @@ import { SectionIcon } from '../components/SectionIcon';
 import { formatBytes, percentOf } from '../lib/format';
 import { ProjectProvider, useProject } from '../lib/project';
 import { adminProjects, isMachineAdmin } from '../lib/roles';
-import { NAV_SECTIONS, OPERATE_SECTIONS, SECTIONS } from '../lib/sections';
+import { INSTALL_SECTIONS, NAV_SECTIONS, OPERATE_SECTIONS, SECTIONS } from '../lib/sections';
 import { useTheme } from '../lib/theme';
 import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
@@ -68,8 +68,8 @@ function ConsoleShell() {
   };
   const m = machine.data;
   const current = SECTIONS.find((s) => location.pathname.startsWith(`/${s.slug}`));
-  const SETTINGS: Record<string, string> = { '/settings/tokens': 'API tokens', '/settings/people': 'People', '/settings/projects': 'Projects', '/settings/audit': 'Audit log', '/settings/account': 'Your account' };
-  const crumb = current?.label ?? SETTINGS[location.pathname] ?? '';
+  const SETTINGS: Record<string, string> = { '/catalogue': 'Catalogue', '/settings/tokens': 'API tokens', '/settings/people': 'People', '/settings/projects': 'Projects', '/settings/audit': 'Audit log', '/settings/account': 'Your account' };
+  const crumb = current?.label ?? SETTINGS[location.pathname] ?? (location.pathname.startsWith('/machines') ? 'Machines' : '');
   const close = () => setMenuOpen(false);
   const ThemeIcon = THEME_ICON[theme];
 
@@ -104,8 +104,24 @@ function ConsoleShell() {
           ))}
         </NavList>
       </SidebarSection>
+      <SidebarSection heading="Install">
+        <NavList label="Install">
+          <NavLink to="/catalogue" className={navItemClass} onClick={close}>
+            <NavItemContent icon={<Icons.Store />} label="Catalogue" />
+          </NavLink>
+          {INSTALL_SECTIONS.map((s) => (
+            <NavLink key={s.slug} to={{ pathname: `/${s.slug}`, search: projectSearch }} className={navItemClass} onClick={close}>
+              <NavItemContent icon={<SectionIcon kind={s.kind} />} label={s.label} count={counts.data ? counts.data[s.slug] : '·'}
+                countLabel={`${counts.data?.[s.slug] ?? 0} ${s.label.toLowerCase()}`} />
+            </NavLink>
+          ))}
+        </NavList>
+      </SidebarSection>
       <SidebarSection heading="Operate">
         <NavList label="Operate">
+          <NavLink to="/machines" className={navItemClass} onClick={close}>
+            <NavItemContent icon={<Icons.Server />} label="Machines" />
+          </NavLink>
           {OPERATE_SECTIONS.map((s) => (
             <NavLink key={s.slug} to={{ pathname: `/${s.slug}`, search: projectSearch }} className={navItemClass} onClick={close}>
               <NavItemContent icon={<SectionIcon kind={s.kind} />} label={s.label} count={counts.data ? counts.data[s.slug] : '·'}

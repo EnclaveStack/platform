@@ -433,7 +433,7 @@ func (a *app) searchCmd() *cobra.Command {
 	var cp placementFlags
 	create := &cobra.Command{Use: "create NAME", Short: "Create a search service", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.create(cmd.Context(), api.KindSearch, args[0], api.SearchSpec{Version: version, MemoryMiB: memory, Network: cp.network, Subnet: cp.subnet}, wait)
+			return a.create(cmd.Context(), api.KindSearch, args[0], api.SearchSpec{Version: version, MemoryMiB: memory, Network: cp.network, Subnet: cp.subnet, Placed: cp.placed()}, wait)
 		}}
 	create.Flags().StringVar(&version, "version", api.SearchVersion3, "OpenSearch major version: 3 or 2 (can't change later)")
 	create.Flags().IntVar(&memory, "memory", 0, "memory in MiB (1024–16384 in steps of 256, default 2048; half is the heap)")

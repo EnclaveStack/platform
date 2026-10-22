@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 )
 
@@ -58,7 +57,7 @@ func (q *Queries) DeleteAlertStatesExcept(ctx context.Context, alertID string, k
 	query := `DELETE FROM alert_states WHERE alert_id = ?`
 	args := []any{alertID}
 	if len(keep) > 0 {
-		query += ` AND subject_id NOT IN (` + strings.TrimSuffix(strings.Repeat("?, ", len(keep)), ", ") + `)`
+		query += ` AND subject_id NOT IN (` + placeholders(len(keep)) + `)`
 		for _, k := range keep {
 			args = append(args, k)
 		}
@@ -190,7 +189,7 @@ func (q *Queries) IncidentNotifications(ctx context.Context, incidentIDs []strin
 	for i, id := range incidentIDs {
 		args[i] = id
 	}
-	return q.notifications(ctx, `WHERE incident_id IN (`+strings.TrimSuffix(strings.Repeat("?, ", len(incidentIDs)), ", ")+`) ORDER BY created_at, id`, args...)
+	return q.notifications(ctx, `WHERE incident_id IN (`+placeholders(len(incidentIDs))+`) ORDER BY created_at, id`, args...)
 }
 
 // GetNotification returns one notification.

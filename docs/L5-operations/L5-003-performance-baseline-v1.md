@@ -6,9 +6,9 @@
 | Document ID | L5-003-performance-baseline-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v2 |
+| Version | v3 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-20 |
+| Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
 | Reviewers | Soupler Labs |
 | Copyright | © 2026 Soupler Labs |
@@ -32,6 +32,8 @@ The control plane's performance targets (`L1-001` §5), how they are measured, a
 
 `enclave server --driver fake --data-dir <tmp>` on the developer machine; `k6 run tests/load/api.js` (scenarios `reads`, `writes`, thresholds encoded in the script so k6 exits non-zero on a miss). Throughput: `go test -run TestReconcileThroughput ./internal/reconciler`. Footprint: `ps -o rss` after the throughput test.
 
+**In CI** the Load Test job runs the same script and thresholds at 10 read and 2 write virtual users for 30 s (`READ_VUS`, `WRITE_VUS`, `DURATION`). The scenarios send requests back to back with no pause, so at a fixed number of users p95 is set by how many requests per second the machine can serve: a shared GitHub runner served about 850 requests/s against about 6,960 here, and at 50 + 10 users its read p95 swung between 96 ms and 126 ms on the same commit. A fifth of the users keeps the job a regression check (a server several times slower still fails it) without the result depending on the runner it lands on. The full-load targets in §1 are measured on a developer machine and recorded in §3.
+
 ## 3 · Baseline
 
 Run 2026-10-20 on an Apple M4 (10 cores, 16 GB), macOS, Go 1.27.3, k6 2.3.0, fake engine, 60 s.
@@ -52,3 +54,4 @@ Notes: macOS `ps` RSS read 90 MB because it still counts pages Go has returned t
 |---|---|---|---|
 | v1 | 2026-10-20 | Soupler Labs | Targets and method |
 | v2 | 2026-10-20 | Soupler Labs | First measured baseline (Apple M4, 2026-10-20): every target met |
+| v3 | 2026-10-22 | Soupler Labs | §2: CI runs the thresholds at 10 + 2 virtual users; at 50 + 10 a shared runner passed or failed the read p95 by chance |

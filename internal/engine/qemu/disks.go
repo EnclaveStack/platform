@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -208,6 +209,64 @@ func copyImage(ctx context.Context, t tools, src, dest string, sizeGiB int) erro
 	if want := int64(sizeGiB) * gib; info.VirtualSize < want {
 		if _, err := run(ctx, commandTimeout, t.img, "resize", "-q", partial, strconv.Itoa(sizeGiB)+"G"); err != nil {
 			return err
+		}
+	}
+	return os.Rename(partial, dest)
+}
+
+// ExportDisk implements engine.Hypervisor: a flat copy, as a snapshot is, streamed (ADR-047).
+func (h *Hypervisor) ExportDisk(ctx context.Context, d engine.DiskRef, w io.Writer) error {
+	tmp, err := os.CreateTemp(filepath.Join(h.opts.DataDir), "export-*.qcow2")
+	if err != nil {
+		return err
+	}
+	path := tmp.Name()
+	tmp.Close()
+	defer os.Remove(path)
+	if _, err := h.SnapshotDisk(ctx, d, path); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(w, f)
+	return err
+}
+
+// ImportDisk implements engine.Hypervisor: the copy becomes the disk volume's file, or the root disk of a
+// VM that is made here next (EnsureVM keeps a root disk that exists).
+func (h *Hypervisor) ImportDisk(ctx context.Context, d engine.DiskRef, src io.Reader) error {
+	dest := h.diskPath(d.DiskID)
+	if d.DiskID == "" {
+		dest = h.paths(d.VMID).root
+	}
+	if d.DiskID != "" {
+		defer h.lock("disk-" + d.DiskID)()
+	} else {
+		defer h.lock(d.VMID)()
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return err
+	}
+	partial := dest + ".partial"
+	f, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, src)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(partial)
+		return err
+	}
+	if t, err := h.readyTools(ctx); err == nil {
+		if _, err := diskInfo(ctx, t, partial); err != nil {
+			os.Remove(partial)
+			return engine.Permanent(fmt.Errorf("the copied disk isn't a qcow2 file: %w", err))
 		}
 	}
 	return os.Rename(partial, dest)

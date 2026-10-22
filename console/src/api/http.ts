@@ -2,7 +2,11 @@ import type { EnclaveApi } from './client';
 import { HEADERS, type ErrorCode } from './generated';
 import {
   ApiError,
+  type AddedMachine,
   type AuditEntry,
+  type CatalogueEntry,
+  type DrainResult,
+  type MachineSummary,
   type Incident,
   type Invitation,
   type InviteInfo,
@@ -195,6 +199,23 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
     test: (id) => call<TestResult>({ method: 'POST', path: `/resources/${enc(id)}/actions/test` }),
     listIncidents: async (id) => (await call<{ items: Incident[] }>({ method: 'GET', path: `/resources/${enc(id)}/incidents?limit=50` })).items,
     listNotifications: async (id) => (await call<{ items: NotificationRecord[] }>({ method: 'GET', path: `/resources/${enc(id)}/notifications?limit=50` })).items,
+    listMachines: async () => (await call<{ items: MachineSummary[] }>({ method: 'GET', path: '/machines' })).items,
+    getMachineByName: (name) => call<MachineSummary>({ method: 'GET', path: `/machines/${enc(name)}` }),
+    addMachine: (name, labels) => call<AddedMachine>({ method: 'POST', path: '/machines', body: { name, ...(labels ? { labels } : {}) } }),
+    updateMachineByName: (name, input) => call<MachineSummary>({ method: 'PATCH', path: `/machines/${enc(name)}`, body: input }),
+    removeMachine: async (name, force = false) => {
+      await call<unknown>({ method: 'DELETE', path: `/machines/${enc(name)}${force ? '?force=true' : ''}` });
+    },
+    newJoinCode: (name) => call<AddedMachine>({ method: 'POST', path: `/machines/${enc(name)}/join-code` }),
+    drainMachine: (name) => call<DrainResult>({ method: 'POST', path: `/machines/${enc(name)}/drain` }),
+    getMachineEvents: async (name) => (await call<{ items: Event[] }>({ method: 'GET', path: `/machines/${enc(name)}/events` })).items,
+    getMachineMetricsOf: (name, metrics, from, to) => call<MetricData>({ method: 'GET', path: `/machines/${enc(name)}/metrics?${metricQuery(metrics, from, to)}` }),
+    listCatalogue: async () => (await call<{ items: CatalogueEntry[] }>({ method: 'GET', path: '/catalogue' })).items,
+    getCatalogueEntry: (name, version) => call<CatalogueEntry>({ method: 'GET', path: `/catalogue/${enc(name)}${version ? `?version=${enc(version)}` : ''}` }),
+    addTemplate: (body) => call<CatalogueEntry>({ method: 'POST', path: '/catalogue', body: { body } }),
+    removeTemplate: async (name) => {
+      await call<unknown>({ method: 'DELETE', path: `/catalogue/${enc(name)}` });
+    },
   };
 }
 

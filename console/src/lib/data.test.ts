@@ -5,7 +5,7 @@ import { normalizePrefix, validateCDN, validateDatabase, validateEmailService, v
 
 // v0.6 in the console's own logic (L3-002 §9.4, CON-44): the same rules as pkg/api, and "Use from code".
 
-const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'default', generation: 1, ownerId: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
+const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'default', generation: 1, ownerId: null, stack: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
 const res = (kind: Resource['kind'], name: string, spec: object) => ({ ...base, kind, name, spec }) as Resource;
 
 describe('v0.6 validation', () => {

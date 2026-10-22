@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestNormalizeRejectsUnknownFields(t *testing.T) {
 
 func TestNormalizeDatabaseCacheBucketSecret(t *testing.T) {
 	s, errs, _ := NormalizeSpec(KindDatabase, nil)
-	if len(errs) != 0 || s.(DatabaseSpec) != (DatabaseSpec{Engine: "postgres", Version: "16"}) {
+	if len(errs) != 0 || !reflect.DeepEqual(s, DatabaseSpec{Engine: "postgres", Version: "16"}) {
 		t.Errorf("database defaults: %+v %v", s, errs)
 	}
 	if _, errs, _ := NormalizeSpec(KindDatabase, json.RawMessage(`{"version":"15"}`)); codes(errs)["spec.version"] != FieldNotAllowed {

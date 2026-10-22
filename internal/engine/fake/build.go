@@ -63,8 +63,8 @@ func (d *Driver) Build(ctx context.Context, in engine.BuildInput, log io.Writer)
 	return engine.BuildResult{ImageID: id}, nil
 }
 
-// ImageExists implements engine.Driver: built images exist once built; any other image "pulls".
-func (d *Driver) ImageExists(_ context.Context, ref string) (bool, error) {
+// HasImage implements engine.Driver: built images exist once built; any other image "pulls".
+func (d *Driver) HasImage(_ context.Context, _ *domain.Resource, ref string) (bool, error) {
 	if !strings.HasPrefix(ref, "enclave.local/") {
 		return true, nil
 	}

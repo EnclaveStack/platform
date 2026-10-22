@@ -82,7 +82,7 @@ describe('roles in the interface (ADR-036)', () => {
 });
 
 describe('use from code, v0.7 (CON-53)', () => {
-  const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'shop', generation: 1, ownerId: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
+  const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'shop', generation: 1, ownerId: null, stack: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
   const alert = { ...base, kind: 'alert', name: 'api-cpu', spec: { condition: { type: 'metric', resources: ['app/api'], metric: 'cpu', operator: 'above', threshold: 0.9, forMinutes: 5 }, channels: ['ops'], repeatMinutes: 60 } } as Resource;
 
   it('names the project and the condition in both forms', () => {

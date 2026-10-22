@@ -157,12 +157,12 @@ func (a *app) dashboardCmd() *cobra.Command {
 
 // alertFlags are an alert's condition and delivery settings.
 type alertFlags struct {
-	crashLoop, failed, runFailed, resources, channels []string
-	metric                                            string
-	above, below                                      float64
-	forDur, window, repeat                            time.Duration
-	restarts                                          int
-	disabled, enabled, wait                           bool
+	crashLoop, failed, runFailed, offline, resources, channels []string
+	metric                                                     string
+	above, below                                               float64
+	forDur, window, repeat                                     time.Duration
+	restarts                                                   int
+	disabled, enabled, wait                                    bool
 }
 
 func (f *alertFlags) bind(c *cobra.Command, update bool) {
@@ -170,6 +170,7 @@ func (f *alertFlags) bind(c *cobra.Command, update bool) {
 	fl.StringArrayVar(&f.crashLoop, "crash-loop", nil, "fire when this resource (kind/name) keeps restarting (repeatable)")
 	fl.StringArrayVar(&f.failed, "failed", nil, "fire when this resource fails (repeatable)")
 	fl.StringArrayVar(&f.runFailed, "run-failed", nil, "fire when a run of this job, backup or transcoder fails (repeatable)")
+	fl.StringArrayVar(&f.offline, "machine-offline", nil, "fire when this machine goes offline for --for (default 1m; repeatable)")
 	fl.StringVar(&f.metric, "metric", "", "fire on this metric of --resource")
 	fl.StringArrayVar(&f.resources, "resource", nil, "a resource the metric is read from (kind/name or machine; repeatable)")
 	fl.Float64Var(&f.above, "above", 0, "fire when the metric is above this")
@@ -202,6 +203,13 @@ func (f *alertFlags) condition(changed func(string) bool) (api.AlertCondition, b
 		set++
 		c = api.AlertCondition{Type: api.ConditionRunFailed, Resources: f.runFailed}
 	}
+	if len(f.offline) > 0 {
+		set++
+		c = api.AlertCondition{Type: api.ConditionMachineOffline, ForMinutes: int(f.forDur / time.Minute)}
+		for _, m := range f.offline {
+			c.Resources = append(c.Resources, api.MachineRefPrefix+strings.TrimPrefix(m, api.MachineRefPrefix))
+		}
+	}
 	if f.metric != "" {
 		set++
 		c = api.AlertCondition{Type: api.ConditionMetric, Metric: f.metric, Resources: f.resources, ForMinutes: int(f.forDur / time.Minute)}
@@ -215,7 +223,7 @@ func (f *alertFlags) condition(changed func(string) bool) (api.AlertCondition, b
 		}
 	}
 	if set > 1 {
-		return c, false, usagef("use one of --crash-loop, --failed, --run-failed or --metric")
+		return c, false, usagef("use one of --crash-loop, --failed, --run-failed, --machine-offline or --metric")
 	}
 	return c, set == 1, nil
 }
@@ -230,7 +238,7 @@ func (a *app) alertCmd() *cobra.Command {
 				return err
 			}
 			if !ok {
-				return usagef("pass a condition: --crash-loop, --failed, --run-failed or --metric with --resource")
+				return usagef("pass a condition: --crash-loop, --failed, --run-failed, --machine-offline or --metric with --resource")
 			}
 			s := api.AlertSpec{Condition: cond, Channels: cf.channels, RepeatMinutes: int(cf.repeat / time.Minute)}
 			if cf.disabled {

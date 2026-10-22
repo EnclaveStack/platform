@@ -138,6 +138,20 @@ func DecodeStrict(raw []byte, v any) error {
 // NormalizeSpec decodes a kind's spec, applies defaults and validates it. It returns the typed spec
 // (AppSpec, DatabaseSpec, …), field errors, or a decode error for malformed JSON.
 func NormalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
+	spec, errs, err := normalizeSpec(kind, raw)
+	if err != nil {
+		return spec, errs, err
+	}
+	if p, ok := PlacementOf(spec); ok {
+		errs = append(errs, validatePlaced(p)...)
+		if j, isJob := spec.(JobSpec); isJob && j.App != "" && p.Machine != "" {
+			errs = append(errs, FieldError{Field: "spec.machine", Code: FieldNotAllowed, Message: "A job of an app runs where the app runs. Leave machine out."})
+		}
+	}
+	return spec, errs, nil
+}
+
+func normalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 	switch kind {
 	case KindApp:
 		var s AppSpec
@@ -396,6 +410,13 @@ func NormalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 		}
 		s = normalizeSecretStore(s)
 		return s, validateSecretStore(s), nil
+	case KindStack:
+		var s StackSpec
+		if err := DecodeStrict(raw, &s); err != nil {
+			return nil, nil, err
+		}
+		s = normalizeStack(s)
+		return s, validateStack(s), nil
 	case KindSecret:
 		var s SecretSpec
 		if err := DecodeStrict(raw, &s); err != nil {
@@ -873,6 +894,11 @@ func ImmutableViolations(kind Kind, before, after any) []FieldError {
 		b, a := before.(CacheSpec), after.(CacheSpec)
 		if b.Engine != a.Engine || b.Version != a.Version {
 			return []FieldError{{Field: "spec.version", Code: FieldImmutable, Message: "The engine and version can't change."}}
+		}
+	case KindStack:
+		b, a := before.(StackSpec), after.(StackSpec)
+		if b.Template != a.Template || b.TemplateBody != a.TemplateBody {
+			return []FieldError{{Field: "spec.template", Code: FieldImmutable, Message: "A stack's template can't change. Change its version or parameters, or make a new stack."}}
 		}
 	case KindBackup:
 		if before.(BackupSpec).Source != after.(BackupSpec).Source {

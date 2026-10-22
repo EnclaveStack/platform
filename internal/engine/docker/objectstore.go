@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/go-connections/nat"
 	"github.com/minio/minio-go/v7"
@@ -54,7 +53,10 @@ func (d *Driver) ensureObjectStore(ctx context.Context, creds engine.ObjectStore
 		host := &container.HostConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 			PortBindings: nat.PortMap{port: {{HostIP: d.opts.PublishAddress, HostPort: hp}}}, Binds: []string{objectStoreVolume + ":/data"},
 			Resources: container.Resources{Memory: 512 << 20}}
-		netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{engine.NetworkName: {Aliases: []string{engine.ObjectStoreName}}}}
+		netCfg, err := d.systemNetworking(ctx, engine.ObjectStoreName)
+		if err != nil {
+			return nil, 0, err
+		}
 		cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 		_, err = d.cli.ContainerCreate(cctx, cfg, host, netCfg, nil, engine.ObjectStoreName)
 		cancel()

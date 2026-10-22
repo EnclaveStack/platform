@@ -44,6 +44,8 @@ type VMSpec struct {
 	// Publish lists VM ports published on the same host port (VM-10).
 	Publish []int  `json:"publish,omitempty"`
 	Power   string `json:"power,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // VolumeSpec is storage that lives on its own (ADR-027).
@@ -53,6 +55,8 @@ type VolumeSpec struct {
 	SizeGiB int `json:"sizeGiB,omitempty"`
 	// Snapshot names a snapshot to start from (VOL-08).
 	Snapshot string `json:"snapshot,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // SnapshotSpec copies a volume or a VM's root disk (ADR-028).

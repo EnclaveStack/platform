@@ -491,10 +491,15 @@ const (
 	ConditionCrashLoop = "crash_loop"
 	ConditionFailed    = "failed"
 	ConditionRunFailed = "run_failed"
+	// ConditionMachineOffline watches machines, named "machine/<name>" (L2-010 MCH-06).
+	ConditionMachineOffline = "machine_offline"
 )
 
 // ConditionTypes lists the condition types.
-var ConditionTypes = []string{ConditionMetric, ConditionCrashLoop, ConditionFailed, ConditionRunFailed}
+var ConditionTypes = []string{ConditionMetric, ConditionCrashLoop, ConditionFailed, ConditionRunFailed, ConditionMachineOffline}
+
+// MachineRefPrefix starts a machine in a machine_offline condition's resources.
+const MachineRefPrefix = "machine/"
 
 // Operators for metric conditions.
 const (
@@ -549,6 +554,10 @@ func normalizeAlert(s AlertSpec) AlertSpec {
 		if c.ForMinutes == 0 {
 			c.ForMinutes = AlertForMinutesDefault
 		}
+	case ConditionMachineOffline:
+		if c.ForMinutes == 0 {
+			c.ForMinutes = 1
+		}
 	case ConditionCrashLoop:
 		if c.Restarts == 0 {
 			c.Restarts = AlertRestartsDefault
@@ -587,10 +596,23 @@ func validateAlert(s AlertSpec) []FieldError {
 		errs = append(errs, validateRefs(c.Resources, "spec.condition.resources", 1, AlertResourceMax, nil)...)
 	case ConditionRunFailed:
 		errs = append(errs, validateRefs(c.Resources, "spec.condition.resources", 1, AlertResourceMax, RunKinds)...)
+	case ConditionMachineOffline:
+		if len(c.Resources) < 1 || len(c.Resources) > AlertResourceMax {
+			errs = append(errs, FieldError{Field: "spec.condition.resources", Code: FieldOutOfRange, Message: fmt.Sprintf("Name 1–%d machines, as machine/NAME.", AlertResourceMax)})
+		}
+		for i, r := range c.Resources {
+			name, ok := strings.CutPrefix(r, MachineRefPrefix)
+			if !ok || ValidateName(name) != nil {
+				errs = append(errs, FieldError{Field: fmt.Sprintf("spec.condition.resources[%d]", i), Code: FieldInvalidFormat, Message: "Name a machine as machine/NAME."})
+			}
+		}
+		if c.ForMinutes < AlertForMinutesMin || c.ForMinutes > AlertForMinutesMax {
+			errs = append(errs, FieldError{Field: "spec.condition.forMinutes", Code: FieldOutOfRange, Message: "Use 1–60 minutes."})
+		}
 	default:
-		errs = append(errs, FieldError{Field: "spec.condition.type", Code: FieldNotAllowed, Message: "Choose metric, crash_loop, failed or run_failed."})
+		errs = append(errs, FieldError{Field: "spec.condition.type", Code: FieldNotAllowed, Message: "Choose metric, crash_loop, failed, run_failed or machine_offline."})
 	}
-	if c.Type != ConditionMetric && (c.Metric != "" || c.Operator != "" || c.Threshold != nil || c.ForMinutes != 0) {
+	if c.Type != ConditionMetric && (c.Metric != "" || c.Operator != "" || c.Threshold != nil || c.ForMinutes != 0 && c.Type != ConditionMachineOffline) {
 		errs = append(errs, FieldError{Field: "spec.condition.metric", Code: FieldNotAllowed, Message: "Metric, operator, threshold and duration are for metric conditions only."})
 	}
 	if c.Type != ConditionCrashLoop && (c.Restarts != 0 || c.WindowMinutes != 0) {

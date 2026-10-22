@@ -1,6 +1,6 @@
 # A small stack on one EnclaveStack machine: a database, a cache, a secret and an app that uses all three.
 #   make provider-dev && export TF_CLI_CONFIG_FILE=$HOME/.tofurc.enclave
-#   export ENCLAVE_SERVER=http://127.0.0.1:7070 ENCLAVE_TOKEN=hc_pat_...   # enclave token create --name opentofu
+#   export ENCLAVE_SERVER=http://127.0.0.1:7070 ENCLAVE_TOKEN=es_pat_...   # enclave token create --name opentofu
 #   tofu init && tofu apply
 
 terraform {

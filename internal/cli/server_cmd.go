@@ -10,6 +10,7 @@ import (
 
 	"github.com/enclavestack/platform/internal/server"
 	"github.com/enclavestack/platform/internal/version"
+	"github.com/enclavestack/platform/pkg/api"
 )
 
 func (a *app) serverCmd() *cobra.Command {
@@ -81,6 +82,11 @@ func (a *app) serverCmd() *cobra.Command {
 	f.DurationVar(&cfg.PollInterval, "poll-interval", 0, "how often the reconciler polls for due work (default 2s)")
 	f.DurationVar(&cfg.MetricInterval, "metric-interval", 0, "how often metrics are sampled and alerts evaluated (default 30s)")
 	f.StringVar(&cfg.ConsoleURL, "console-url", "", "the address people open the console at (e.g. https://enclave.example.com), used for links in alerts and invites")
+	f.DurationVar(&cfg.MachineCheck, "machine-check-interval", 0, "how often other machines' agents are checked (default 10s)")
+	f.DurationVar(&cfg.MachineOffline, "machine-offline-after", 0, "how long an agent may not answer before its machine is offline (default 30s)")
+	f.DurationVar(&cfg.RescheduleAfter, "reschedule-after", 0, "how long a machine is offline before its apps start elsewhere (default 60s)")
+	f.StringVar(&cfg.TunnelAddress, "tunnel-address", "", "where other machines reach this one's tunnel (default: the address they join through)")
+	f.IntVar(&cfg.TunnelPort, "tunnel-port", api.TunnelPortDefault, "the UDP port of the tunnel between machines")
 	f.StringVar(&cfg.TelegramAPI, "telegram-api", "", "Telegram Bot API base URL for alert channels (default https://api.telegram.org)")
 	_ = f.MarkHidden("metric-interval")
 	_ = f.MarkHidden("telegram-api")

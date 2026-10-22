@@ -40,9 +40,14 @@ type Resource struct {
 	// ConsecutiveFailures counts failed runs in a row; a success resets it.
 	ConsecutiveFailures int
 	NextAttemptAt       *time.Time
-	LastTransitionAt    time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// Machine is the ID of the machine the resource runs on (ADR-044); "" is read as the main machine, and a
+	// placed kind that isn't placed yet has "" until the reconciler chooses.
+	Machine string
+	// Stack is the ID of the stack the resource is a member of (ADR-048), or "".
+	Stack            string
+	LastTransitionAt time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ToAPI converts to the wire representation.
@@ -72,8 +77,25 @@ func (r *Resource) ToAPI() api.Resource {
 			Phase: r.Phase, Message: r.Message, ObservedGeneration: r.ObservedGeneration, Attempts: r.Attempts,
 			Steps: steps, LastTransitionAt: r.LastTransitionAt,
 		},
-		Outputs: outputs, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		Outputs: outputs, Stack: r.StackRef(), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
+}
+
+// StackRef is the stack's ID, or nil when the resource isn't a member of one.
+func (r *Resource) StackRef() *string {
+	if r.Stack == "" {
+		return nil
+	}
+	s := r.Stack
+	return &s
+}
+
+// MachineID is the machine the resource runs on, the main machine when unset.
+func (r *Resource) MachineID() string {
+	if r.Machine == "" {
+		return api.MainMachine
+	}
+	return r.Machine
 }
 
 // ProjectName is the resource's project, "default" when unset (rows built in tests).
@@ -205,6 +227,8 @@ var StepNames = map[api.Kind][]string{
 	api.KindChannel:     {"check"},
 	api.KindLogExport:   {"check", "start"},
 	api.KindSecretStore: {"credentials", "connect"},
+	// v0.8 (L2-010).
+	api.KindStack: {"members"},
 }
 
 // SecretRefs returns the secret names an app spec references, in key order.

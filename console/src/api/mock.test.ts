@@ -69,7 +69,7 @@ describe('mock api', () => {
   it('keeps token secrets out of listings and reveals secrets with an event', async () => {
     const api = await signedIn();
     const t = await api.createToken({ name: 'ci', role: 'viewer' });
-    expect(t.secret).toMatch(/^hc_pat_/);
+    expect(t.secret).toMatch(/^es_pat_/);
     expect(JSON.stringify(await api.listTokens())).not.toContain(t.secret);
     const sec = await api.createResource('secret', 'k1x', { value: 'shh' });
     expect(JSON.stringify(await api.getResource(sec.id))).not.toContain('shh');

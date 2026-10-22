@@ -222,3 +222,6 @@ func isUnique(err error) bool {
 func isForeignKey(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }
+
+// placeholders returns n comma-separated "?" for an IN list.
+func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?, ", n), ", ") }

@@ -47,7 +47,11 @@ func (s *Server) machineMetrics(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	out, err := s.resources.MachineMetrics(r.Context(), q)
+	name := r.PathValue("name")
+	if name == "" {
+		name = api.MainMachine // GET /machine/metrics
+	}
+	out, err := s.resources.MachineMetricsOf(r.Context(), name, q)
 	if err != nil {
 		s.writeError(w, r, err)
 		return

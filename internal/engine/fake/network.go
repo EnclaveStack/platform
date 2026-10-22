@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
+	"time"
 
 	"github.com/enclavestack/platform/internal/domain"
 	"github.com/enclavestack/platform/internal/engine"
@@ -100,11 +102,28 @@ func (d *Driver) address(p engine.Placement) (string, error) {
 	for _, rt := range d.runtimes {
 		used[rt.ip] = true
 	}
+	if p.Address != "" { // a move keeps its address (ADR-047)
+		if used[p.Address] {
+			return "", fmt.Errorf("the address %s is taken on this machine", p.Address)
+		}
+		return p.Address, nil
+	}
+	// With a mesh, only this machine's pool may be used in the networks it spans (ADR-045).
+	var pool map[string]bool
+	if _, spans := d.meshNetworks()[p.NetworkName()]; spans || (d.mesh != nil && d.mesh.Enabled && p.NetworkName() == engine.NetworkName) {
+		pool = map[string]bool{}
+		for _, a := range d.mesh.Pools[p.NetworkName()] {
+			pool[a] = true
+		}
+	}
 	gateway := rng.Addr().Next()
 	for a := gateway.Next(); rng.Contains(a); a = a.Next() {
-		if !used[a.String()] {
+		if !used[a.String()] && (pool == nil || pool[a.String()]) {
 			return a.String(), nil
 		}
+	}
+	if pool != nil {
+		return "", fmt.Errorf("this machine has no free addresses left in %s; waiting for more", rng)
 	}
 	return "", engine.Permanent(fmt.Errorf("the subnet %s has no free addresses left", rng))
 }
@@ -113,4 +132,92 @@ func (d *Driver) address(p engine.Placement) (string, error) {
 func (d *Driver) publishes(p engine.Placement) bool {
 	n := d.networks[p.Network]
 	return n == nil || n.spec.HasInternet()
+}
+
+// ConfigureMesh implements engine.Driver: it records the configuration (tests read it with Mesh), and
+// its pools bound the addresses handed out from then on.
+func (d *Driver) ConfigureMesh(ctx context.Context, cfg engine.MeshConfig) (engine.MeshStatus, error) {
+	if err := d.Ping(ctx); err != nil {
+		return engine.MeshStatus{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c := cfg
+	d.mesh = &c
+	return d.meshStatus(), nil
+}
+
+// MeshStatus implements engine.Driver: every peer was heard from just now.
+func (d *Driver) MeshStatus(ctx context.Context) (engine.MeshStatus, error) {
+	if err := d.Ping(ctx); err != nil {
+		return engine.MeshStatus{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.meshStatus(), nil
+}
+
+func (d *Driver) meshStatus() engine.MeshStatus {
+	st := engine.MeshStatus{PublicKey: fmt.Sprintf("fake-key-%p", d), Handshakes: map[string]time.Time{}}
+	if d.mesh != nil {
+		for _, p := range d.mesh.Peers {
+			st.Handshakes[p.PublicKey] = time.Now()
+		}
+	}
+	return st
+}
+
+// Mesh returns the last mesh configuration applied, or nil.
+func (d *Driver) Mesh() *engine.MeshConfig {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.mesh
+}
+
+// NetworkEndpoints implements engine.Driver: the runtimes, by network, with the names they answer to.
+func (d *Driver) NetworkEndpoints(ctx context.Context) ([]engine.NetworkInfo, error) {
+	if err := d.Ping(ctx); err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	byNet := map[string]*engine.NetworkInfo{engine.NetworkName: {Name: engine.NetworkName, Subnet: defaultRange.String()}}
+	if d.mesh != nil && d.mesh.DefaultRange != "" {
+		byNet[engine.NetworkName].Subnet = d.mesh.DefaultRange
+	}
+	for name, n := range d.networks {
+		byNet[name] = &engine.NetworkInfo{Name: name, Subnet: n.spec.CIDR}
+	}
+	ids := make([]string, 0, len(d.runtimes))
+	for id := range d.runtimes {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		rt := d.runtimes[id]
+		if !rt.running || rt.ip == "" {
+			continue
+		}
+		if n := byNet[rt.placement.NetworkName()]; n != nil {
+			n.Members = append(n.Members, engine.NetworkMember{Container: rt.container, Address: rt.ip, Aliases: rt.aliases, ResourceID: id})
+		}
+	}
+	names := make([]string, 0, len(byNet))
+	for n := range byNet {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	out := make([]engine.NetworkInfo, 0, len(names))
+	for _, n := range names {
+		out = append(out, *byNet[n])
+	}
+	return out, nil
+}
+
+// meshNetworks are the networks the mesh spans, or none without a mesh.
+func (d *Driver) meshNetworks() map[string]string {
+	if d.mesh == nil || !d.mesh.Enabled {
+		return nil
+	}
+	return d.mesh.Networks
 }

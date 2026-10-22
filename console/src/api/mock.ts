@@ -1,5 +1,6 @@
 import type { EnclaveApi } from './client';
 import { mockMetrics, normalizeOperate, operateOutputs } from './mock-operate';
+import { BUILTIN_CATALOGUE, choose, joined, mainMachine, parseTemplate, renderStack, waitingMachine } from './mock-machines';
 import { ID_PREFIX, MANAGED, ROLES, RULES, STEP_NAMES } from './generated';
 import {
   ApiError,
@@ -56,10 +57,16 @@ import {
   type TestResult,
   type UserSummary,
   type InviteEmail,
+  type CatalogueEntry,
+  type MachineSummary,
+  type MachineState,
+  type Placed,
+  type StackMember,
+  type StackSpec,
 } from './types';
 import { can, roleIn } from '../lib/roles';
 import { nextRuns } from '../lib/schedule';
-import { normalizePrefix, validateEmail, validateName, validateSpec } from '../lib/validation';
+import { normalizePrefix, validateEmail, validateLabels, validateName, validateSpec } from '../lib/validation';
 
 // In-memory stand-in for the control plane (ADR-002), used by UI tests and offline demos. It follows
 // L3-002: same shapes, same error codes, same phase transitions, same managed-resource rules.
@@ -81,6 +88,10 @@ export interface MockOptions {
   noVMs?: boolean;
   /** The signed-in person's roles (ADR-036); machine admin when left out. */
   as?: { machineRole: Role | null; projectRoles?: Record<string, Role> };
+  /** Other machines (v0.8), joined already unless a state is given. */
+  machines?: { name: string; labels?: Record<string, string>; state?: MachineState; offlineAfterMs?: number }[];
+  /** How long a machine added with addMachine waits before its agent joins; 0 keeps it waiting. */
+  joinAfterMs?: number;
 }
 
 interface Stored {
@@ -99,6 +110,8 @@ interface Stored {
   deliveries?: Record<string, number>;
   /** An email service's kept messages, newest last (EML-03). */
   emails?: Email[];
+  /** Set by a drain: the next reconcile moves it to another machine. */
+  moveOff?: boolean;
 }
 
 interface Admin {
@@ -372,7 +385,31 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   function reconcile(s: Stored, from: Phase) {
     if (s.timer) clearTimeout(s.timer);
     const r = s.r;
-    r.status = { ...r.status, phase: from, message: '', attempts: 0, steps: STEP_NAMES[r.kind].map((name) => ({ name, state: 'pending' as const })), lastTransitionAt: now() };
+    // Placed kinds go to a machine first (ADR-044); one that changes machine moves (MOVE-*).
+    const placedKind = (RULES.placedKinds as readonly Kind[]).includes(r.kind);
+    const current = placedKind ? (r.outputs.machine as string | undefined) : undefined;
+    let target = current;
+    let movingFrom = '';
+    if (placedKind) {
+      const want = r.spec as Placed;
+      const here = machineList().find((m) => m.name === current);
+      const keep = here && !s.moveOff && (!want.machine || want.machine === current) && Object.entries(want.machineLabels ?? {}).every(([k, v]) => here.labels[k] === v);
+      s.moveOff = false;
+      if (!keep) {
+        const c = choose(want, machineList(), reservedOf(r));
+        if ('reason' in c) {
+          r.status = { ...r.status, phase: from === 'updating' ? 'updating' : 'pending', message: `Waiting for a machine: ${c.reason}`, steps: [], lastTransitionAt: now() };
+          return;
+        }
+        target = c.machine;
+        if (current && current !== target) {
+          movingFrom = current;
+          addEvent(s, 'move_started', `Moving from ${current} to ${target}.`);
+        }
+      }
+    }
+    const steps = movingFrom ? ['move', ...STEP_NAMES[r.kind]] : STEP_NAMES[r.kind];
+    r.status = { ...r.status, phase: from, message: '', attempts: 0, steps: steps.map((name) => ({ name, state: 'pending' as const })), lastTransitionAt: now() };
     let i = 0;
     const tick = () => {
       if (r.status.phase === 'deleting') return;
@@ -404,8 +441,24 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         addEvent(s, r.outputs.builtCommit === commit ? 'build_skipped' : 'built', r.outputs.builtCommit === commit
           ? `Commit ${commit.slice(0, 7)} and the build settings are unchanged; build skipped.` : `Built ${commit.slice(0, 7)} from ${src.ref}.`);
       }
+      if (i === r.status.steps.length && r.kind === 'stack') {
+        // A stack is ready when its members are (ADR-048).
+        const members = membersOf(r.id);
+        const bad = members.find((m) => m.r.status.phase === 'failed');
+        if (bad) {
+          r.status = { ...r.status, phase: 'failed', message: `${bad.r.kind} ${bad.r.name} failed: ${bad.r.status.message}`, lastTransitionAt: now() };
+          addEvent(s, 'failed', r.status.message);
+          return;
+        }
+        if (members.some((m) => m.r.status.phase !== 'ready')) {
+          s.timer = setTimeout(tick, stepMs);
+          return;
+        }
+      }
       if (i === r.status.steps.length) {
         r.outputs = within(r.project, () => withPrivate(r, outputs(r)));
+        if (target) r.outputs.machine = target;
+        if (movingFrom) addEvent(s, 'moved', `Moved to ${target ?? ''} in ${Math.round((stepMs * r.status.steps.length) / 1000)} s; unavailable for ${Math.round(stepMs / 1000)} s.`);
         r.status = { ...r.status, phase: 'ready', observedGeneration: r.generation, lastTransitionAt: now() };
         r.updatedAt = now();
         addEvent(s, 'ready', 'Ready.');
@@ -425,7 +478,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     // A secret keeps only its source; its value never shows in the spec (EXT-03).
     const shown = kind === 'secret' ? (spec.source ? { source: spec.source } : {}) : spec;
     const r: Resource = {
-      id: newId(kind), kind, name, project, generation: 1, ownerId, spec: shown as SpecByKind[Kind],
+      id: newId(kind), kind, name, project, generation: 1, ownerId, stack: null, spec: shown as SpecByKind[Kind],
       status: { phase: 'pending', message: '', observedGeneration: 0, attempts: 0, steps: [], lastTransitionAt: t }, outputs: {}, createdAt: t, updatedAt: t,
     };
     const s: Stored = { r, secret, events: [] };
@@ -519,6 +572,8 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
 
   function checkSpec(kind: Kind, spec: Record<string, unknown>): FieldError[] {
     const details: FieldError[] = Object.entries(validateSpec(kind, spec)).map(([field, message]) => ({ field, code: 'INVALID_FORMAT', message }));
+    const machine = (spec as Placed).machine;
+    if ((RULES.placedKinds as readonly Kind[]).includes(kind) && typeof machine === 'string' && machine && !machineList().some((m) => m.name === machine)) details.push({ field: 'spec.machine', code: 'NOT_FOUND', message: `There's no machine named ${machine}.` });
     if (kind === 'app') {
       for (const [k, name] of Object.entries((spec as unknown as AppSpec).secretEnv ?? {})) {
         if (!byName('secret', name)) details.push({ field: `spec.secretEnv.${k}`, code: 'NOT_FOUND', message: `There's no secret named ${name}.` });
@@ -623,7 +678,12 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     if (kind === 'record') exists('zone', (spec as unknown as RecordSpec).zone, 'spec.zone');
     // v0.7: names inside the project (ADR-035).
     const refExists = (ref: string, field: string) => {
-      if (ref === 'machine') return;
+      if (ref === RULES.machineRef) return;
+      if (ref.startsWith(RULES.machineRefPrefix)) {
+        const m = ref.slice(RULES.machineRefPrefix.length);
+        if (!machineList().some((x) => x.name === m)) details.push({ field, code: 'NOT_FOUND', message: `There's no machine named ${m}.` });
+        return;
+      }
       const [k = '', name] = ref.split('/');
       exists(k as Kind, name, field);
     };
@@ -762,8 +822,28 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     return err('HOSTNAME_TAKEN', msg, 409, [{ field: 'spec.hostname', code: 'NOT_ALLOWED', message: msg }]);
   }
   const settings: { publicAddress: string | null; acmeEmail: string | null; inviteEmail: InviteEmail | null } = { publicAddress: null, acmeEmail: null, inviteEmail: null };
+  // v0.8: machines besides main, and the machine's own catalogue templates (newest version first).
+  const machines: MachineSummary[] = [];
+  /** The main machine's labels and schedulability: it can carry labels and be cordoned like any other. */
+  const mainSettings: Pick<MachineSummary, 'labels' | 'schedulable'> = { labels: {}, schedulable: true };
+  const ownTemplates = new Map<string, (CatalogueEntry & { body: string })[]>();
+  let machineSeq = 0;
+  const seedMachine = (name: string, labels: Record<string, string> = {}, state: MachineState = 'online') => {
+    const m = waitingMachine(`mch_${String(++machineSeq).padStart(16, '0')}`, name, labels);
+    machines.push(state === 'waiting' ? m : { ...joined(m, `10.0.0.${10 + machineSeq}`), state });
+  };
+  for (const m of options.machines ?? []) {
+    seedMachine(m.name, m.labels, m.state);
+    if (m.offlineAfterMs !== undefined) {
+      setTimeout(() => {
+        const x = machines.find((y) => y.name === m.name);
+        if (x) Object.assign(x, { state: 'offline', since: now(), message: "Its agent hasn't answered since it went offline." });
+      }, m.offlineAfterMs);
+    }
+  }
 
   if (options.seed === 'demo') {
+    seedMachine('rack-1', { disk: 'ssd' });
     insert('secret', 'stripe-key', {}, null, 'sk_demo');
     projects.set('shop', { name: 'shop', description: 'The online shop', createdAt: now(), resources: 0 });
     const db = insert('database', 'orders', { engine: 'postgres', version: '16' }, null);
@@ -834,6 +914,162 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     return details;
   }
 
+  /** The memory a resource reserves on its machine, as the server counts it. */
+  function reservedOf(r: Resource): number {
+    switch (r.kind) {
+      case 'app': return ((r.spec as AppSpec).memoryMiB ?? RULES.appMemoryDefault) * 2 ** 20;
+      case 'database': return { postgres: 512, mysql: 1024, mongodb: 1024, clickhouse: 2048 }[(r.spec as DatabaseSpec).engine] * 2 ** 20;
+      case 'search': return ((r.spec as SearchSpec).memoryMiB ?? RULES.searchMemoryDefault) * 2 ** 20;
+      case 'email':
+      case 'cdn': return 128 * 2 ** 20;
+      case 'transcoder': return ((r.spec as TranscoderSpec).memoryMiB ?? RULES.transcodeMemoryDefault) * ((r.spec as TranscoderSpec).concurrency ?? 1) * 2 ** 20;
+      case 'cache': return (((r.spec as { maxMemoryMiB?: number }).maxMemoryMiB ?? RULES.cacheMemoryDefault) + 64) * 2 ** 20;
+      case 'vm': return (r.spec as VMSpec).power === 'stopped' ? 0 : (((r.spec as VMSpec).memoryMiB ?? RULES.vmMemoryDefault) + 64) * 2 ** 20;
+    }
+    return 0;
+  }
+  /** Where a resource runs: its placed machine, or main for what isn't placed (system services, CDNs, transcoders). */
+  function onMachine(r: Resource): string {
+    return String(r.outputs.machine ?? ((RULES.placedKinds as readonly Kind[]).includes(r.kind) ? '' : RULES.mainMachine));
+  }
+  function reservedOn(machine: string): number {
+    let n = 0;
+    if (machine === RULES.mainMachine && [...store.values()].some((o) => (o.r.kind === 'queue' || o.r.kind === 'topic') && o.r.status.phase !== 'deleting')) n += 512 * 2 ** 20;
+    for (const { r } of store.values()) if (r.status.phase !== 'deleting' && onMachine(r) === machine) n += reservedOf(r);
+    return n;
+  }
+  function machineList(): MachineSummary[] {
+    const count = (name: string) => [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.outputs.machine === name).length;
+    return [{ ...mainMachine(admin?.machineName ?? '', reservedOn(RULES.mainMachine), count(RULES.mainMachine)), ...mainSettings },
+      ...machines.map((m) => ({ ...m, memoryReservedBytes: reservedOn(m.name), resources: count(m.name),
+        links: m.state === 'online' ? [RULES.mainMachine, ...machines.filter((o) => o !== m && o.state === 'online').map((o) => o.name)].map((n) => ({ machine: n, connected: true, lastHandshakeAt: now() })) : [] }))];
+  }
+  function membersOf(stackId: string): Stored[] {
+    return [...store.values()].filter((o) => o.r.stack === stackId);
+  }
+  const machineEvents = new Map<string, Event[]>();
+  const machineEvent = (name: string, type: string, message: string) => {
+    const list = machineEvents.get(name) ?? [];
+    list.unshift({ id: eventId++, type, message, createdAt: now() });
+    machineEvents.set(name, list);
+  };
+  const machineNotFound = (name: string) => fail(err('NOT_FOUND', `There's no machine named ${name}.`, 404));
+  const adminOnly = (what: string) => (session().machineRole === 'admin' ? null : fail(err('FORBIDDEN', `Only machine admins can ${what}.`, 403)));
+  const newest = (versions: (CatalogueEntry & { body: string })[]): CatalogueEntry | undefined => {
+    const [first] = versions;
+    return first && { ...first, body: undefined, versions: versions.map((v) => v.version) } as CatalogueEntry;
+  };
+  const catalogue = (): CatalogueEntry[] => [...BUILTIN_CATALOGUE, ...[...ownTemplates.values()].flatMap((v) => newest(v) ?? [])];
+  /** A stack's outputs (L3-002 §11.7): its template, members with their phases and the template's outputs. */
+  function stackOutputs(r: Resource): Resource['outputs'] {
+    const members: StackMember[] = membersOf(r.id).map((m) => ({ kind: m.r.kind, name: m.r.name, id: m.r.id, phase: m.r.status.phase }));
+    const st = r.spec as StackSpec;
+    return { ...r.outputs, template: st.template ?? String(r.outputs.template ?? ''), version: String(r.outputs.version ?? st.version ?? ''),
+      members: members as unknown as string, ready: members.filter((m) => m.phase === 'ready').length, total: members.length };
+  }
+  const view = (st: Stored): Resource => clone(st.r.kind === 'stack' ? { ...st.r, outputs: stackOutputs(st.r) } : st.r);
+  const partOfStack = (r: Resource) => {
+    const st = r.stack ? store.get(r.stack) : undefined;
+    return st ? fail(err('PART_OF_STACK', `${r.name} is part of the stack ${st.r.name}. Change or delete the stack instead.`, 409)) : null;
+  };
+
+  /** Inserts a validated resource with what comes with it: managed passwords, broker and object store credentials. */
+  function materialize(kind: Kind, name: string, full: Record<string, unknown>, value?: string): Stored {
+    const src = kind === 'secret' ? (full as { source?: SecretSource }).source : undefined;
+    const answer = src ? storeAnswer(byName('secretstore', src.store), src) : undefined;
+    const secretValue = kind === 'secret' ? (answer && 'value' in answer ? answer.value : value) : undefined;
+    const managed = managedName(kind, name);
+    const s = insert(kind, name, full, null, secretValue);
+    if (answer && 'refused' in answer) failSoon(s, answer.refused);
+    if (managed) insert('secret', managed, {}, s.r.id, Math.random().toString(36).slice(2) + '-Hc7');
+    if ((kind === 'queue' || kind === 'topic') && !byName('secret', MANAGED.brokerCredentials)) insert('secret', MANAGED.brokerCredentials, {}, MANAGED.systemOwner, 'mock');
+    if (kind === 'queue') s.messages = [];
+    if (kind === 'topic') Object.assign(s, { published: 0, deliveries: {} });
+    if (kind === 'email') s.emails = [];
+    if (kind === 'bucket' && !byName('secret', MANAGED.objectStoreCredentials)) insert('secret', MANAGED.objectStoreCredentials, {}, MANAGED.systemOwner, '{"accessKey":"mock","secretKey":"mock"}');
+    return s;
+  }
+
+  /** Managed passwords: <name>-password for databases, <name>-<kind>-password for the v0.6 kinds (L3-005 §8). */
+  const managedName = (kind: Kind, name: string) => (kind === 'database' ? name + MANAGED.passwordSecretSuffix
+    : ['queue', 'topic', 'search', 'email'].includes(kind) ? `${name}-${kind}${MANAGED.passwordSecretSuffix}` : '');
+
+  /** The entry a stack spec names: a catalogue entry at a version, or its own template body. */
+  function entryOf(st: StackSpec): CatalogueEntry | FieldError[] {
+    if (st.templateBody) return parseTemplate(st.templateBody);
+    const own = ownTemplates.get(st.template ?? '');
+    const entry = own ? (st.version ? own.find((v) => v.version === st.version) : own[0]) : BUILTIN_CATALOGUE.find((e) => e.name === st.template);
+    if (!entry || (st.version && entry.version !== st.version)) {
+      return [{ field: 'spec.template', code: 'NOT_FOUND', message: st.version ? `${st.template ?? ''} has no version ${st.version}.` : `There's no catalogue entry named ${st.template ?? ''}.` }];
+    }
+    return entry;
+  }
+
+  /** Creates a stack and its members in one go: any problem creates nothing (L3-002 §11.7). */
+  function createStack(name: string, st: StackSpec) {
+    const nameErr = validateName(name);
+    const details: FieldError[] = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
+      ...Object.entries(validateSpec('stack', st)).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }))];
+    if (details.length) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, details));
+    const entry = entryOf(st);
+    if (Array.isArray(entry)) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, entry));
+    const out = renderStack(entry, name, st.parameters ?? {}, st.secretParameters ?? {});
+    if (Array.isArray(out)) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, out));
+    for (const [k, n] of [['stack', name], ...out.members.flatMap((m) => [[m.kind, m.name], ...(managedName(m.kind, m.name) ? [['secret', managedName(m.kind, m.name)]] : [])])] as [Kind, string][]) {
+      if (byName(k, n)) return fail(err('NAME_TAKEN', `A ${k} named ${n} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A ${k} named ${n} already exists, so the stack can't make it.` }]));
+    }
+    const shown: StackSpec = { ...st };
+    delete shown.secretParameters;
+    const stack = insert('stack', name, shown as Record<string, unknown>, null);
+    stack.r.outputs = { template: entry.name, version: entry.version, outputs: out.outputs as unknown as string };
+    for (const m of out.members) materialize(m.kind, m.name, normalize(m.kind, m.spec), m.value).r.stack = stack.r.id;
+    return wait(view(stack));
+  }
+
+  /** Re-renders a stack with new parameters or version: members are created, changed and deleted to match. */
+  function updateStack(s: Stored, patch: Record<string, unknown>) {
+    const prior = s.r.spec as StackSpec;
+    if ('template' in patch || 'templateBody' in patch) return fail(err('IMMUTABLE_FIELD', "A stack's template can't change. Create a new stack instead.", 409));
+    const params = Object.fromEntries(Object.entries({ ...(prior.parameters ?? {}), ...((patch.parameters as Record<string, unknown> | undefined) ?? {}) }).filter(([, v]) => v !== null));
+    const next: StackSpec = { ...prior, parameters: params as StackSpec['parameters'], ...(patch.version ? { version: String(patch.version) } : {}) };
+    const entry = entryOf(next);
+    if (Array.isArray(entry)) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, entry));
+    const secrets = Object.fromEntries(membersOf(s.r.id).filter((m) => m.r.kind === 'secret' && m.secret !== undefined).map((m) => [m.r.name.slice(s.r.name.length + 1), m.secret ?? '']));
+    const out = renderStack(entry, s.r.name, params, { ...Object.fromEntries(entry.parameters.filter((p) => p.type === 'secret').map((p) => [p.name, secrets[p.name.toLowerCase()] ?? ''])),
+      ...((patch.secretParameters as Record<string, string> | undefined) ?? {}) });
+    if (Array.isArray(out)) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, out));
+    const members = membersOf(s.r.id);
+    for (const m of out.members) {
+      const have = members.find((x) => x.r.kind === m.kind && x.r.name === m.name);
+      if (!have) {
+        materialize(m.kind, m.name, normalize(m.kind, m.spec), m.value).r.stack = s.r.id;
+      } else if (m.kind !== 'secret' && JSON.stringify(normalize(m.kind, m.spec)) !== JSON.stringify(have.r.spec)) {
+        have.r.spec = normalize(m.kind, m.spec) as unknown as SpecByKind[Kind];
+        have.r.generation++;
+        addEvent(have, 'updated', `Changed with the stack ${s.r.name}.`);
+        reconcile(have, 'updating');
+      }
+    }
+    for (const x of members) if (!out.members.some((m) => m.kind === x.r.kind && m.name === x.r.name)) removeNow(x);
+    s.r.spec = next as unknown as SpecByKind[Kind];
+    s.r.generation++;
+    s.r.outputs = { ...s.r.outputs, version: entry.version, outputs: out.outputs as unknown as string };
+    addEvent(s, 'updated', `Spec changed to generation ${s.r.generation}.`);
+    reconcile(s, 'updating');
+    return wait(view(s));
+  }
+
+  /** Marks a resource deleting and removes it with what it owns after a step. */
+  function removeNow(x: Stored) {
+    if (x.timer) clearTimeout(x.timer);
+    x.r.status = { ...x.r.status, phase: 'deleting', lastTransitionAt: now() };
+    addEvent(x, 'deleting', 'Deletion requested.');
+    setTimeout(() => {
+      store.delete(x.r.id);
+      for (const [cid, child] of store) if (child.r.ownerId === x.r.id) store.delete(cid);
+    }, stepMs);
+  }
+
   const api: EnclaveApi = {
     getSetupRequired: () => wait(admin === null),
     setup: (input) => {
@@ -872,7 +1108,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const blocked = guard();
       if (blocked) return blocked;
       if (!input.name.trim()) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, [{ field: 'name', code: 'OUT_OF_RANGE', message: 'Use 1–64 characters.' }]));
-      const secret = 'hc_pat_' + Math.random().toString(36).slice(2).padEnd(26, 'x');
+      const secret = 'es_pat_' + Math.random().toString(36).slice(2).padEnd(26, 'x');
       const unknown = (input.projects ?? []).findIndex((p) => !projects.has(p));
       if (unknown >= 0) return validationFailed([{ field: `projects[${unknown}]`, code: 'NOT_FOUND', message: `There's no project named ${input.projects?.[unknown] ?? ''}.` }]);
       const role: Role = input.role ?? 'admin';
@@ -1017,21 +1253,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     getMachine: () => {
       const blocked = guard();
       if (blocked) return blocked;
-      let reserved = 0;
-      let reservedCpus = 0;
       const broker = [...store.values()].some((o) => (o.r.kind === 'queue' || o.r.kind === 'topic') && o.r.status.phase !== 'deleting');
-      if (broker) reserved += 512 * 2 ** 20;
+      const reserved = reservedOn(RULES.mainMachine);
+      let reservedCpus = 0;
       for (const { r } of store.values()) {
-        if (r.kind === 'app') reserved += ((r.spec as AppSpec).memoryMiB ?? RULES.appMemoryDefault) * 2 ** 20;
-        if (r.kind === 'database') reserved += { postgres: 512, mysql: 1024, mongodb: 1024, clickhouse: 2048 }[(r.spec as DatabaseSpec).engine] * 2 ** 20;
-        if (r.kind === 'search') reserved += ((r.spec as SearchSpec).memoryMiB ?? RULES.searchMemoryDefault) * 2 ** 20;
-        if (r.kind === 'email' || r.kind === 'cdn') reserved += 128 * 2 ** 20;
-        if (r.kind === 'transcoder') reserved += ((r.spec as TranscoderSpec).memoryMiB ?? RULES.transcodeMemoryDefault) * ((r.spec as TranscoderSpec).concurrency ?? 1) * 2 ** 20;
-        if (r.kind === 'cache') reserved += (((r.spec as { maxMemoryMiB?: number }).maxMemoryMiB ?? RULES.cacheMemoryDefault) + 64) * 2 ** 20;
-        if (r.kind === 'vm' && (r.spec as VMSpec).power !== 'stopped') {
-          reserved += (((r.spec as VMSpec).memoryMiB ?? RULES.vmMemoryDefault) + 64) * 2 ** 20;
-          reservedCpus += (r.spec as VMSpec).cpus ?? RULES.vmCpusDefault;
-        }
+        if (r.kind === 'vm' && (r.spec as VMSpec).power !== 'stopped' && onMachine(r) === RULES.mainMachine) reservedCpus += (r.spec as VMSpec).cpus ?? RULES.vmCpusDefault;
       }
       const vms = [...store.values()].filter((o) => o.r.kind === 'vm');
       const imageNames = [...new Set(vms.map((o) => (o.r.spec as VMSpec).image).filter((i) => !i.startsWith(RULES.snapshotImagePrefix)))];
@@ -1076,17 +1302,18 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     },
     listResources: (kind, project) => {
       if (project && !projects.has(project)) return fail(err('NOT_FOUND', `There's no project named ${project}.`, 404));
-      return guard() ?? wait([...store.values()].filter((s) => (!kind || s.r.kind === kind) && (!project || s.r.project === project)).map((s) => clone(s.r)));
+      return guard() ?? wait([...store.values()].filter((s) => (!kind || s.r.kind === kind) && (!project || s.r.project === project)).map(view));
     },
     getResource: (id) => {
       const blocked = guard();
       if (blocked) return blocked;
       const s = store.get(id);
-      return s ? wait(clone(s.r)) : notFound();
+      return s ? wait(view(s)) : notFound();
     },
     createResource: (kind, name, spec) => {
       const blocked = guard();
       if (blocked) return blocked;
+      if (kind === 'stack') return createStack(name, spec as StackSpec);
       const full = normalize(kind, spec as unknown as Record<string, unknown>);
       const nameErr = validateName(name);
       const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []), ...checkSpec(kind, full)];
@@ -1097,22 +1324,9 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         const dup = hostnameTaken((full as unknown as DomainSpec).hostname);
         if (dup) return fail(dup);
       }
-      // Managed passwords: <name>-password for databases, <name>-<kind>-password for the v0.6 kinds (L3-005 §8).
-      const managed = kind === 'database' ? name + MANAGED.passwordSecretSuffix
-        : ['queue', 'topic', 'search', 'email'].includes(kind) ? `${name}-${kind}${MANAGED.passwordSecretSuffix}` : '';
+      const managed = managedName(kind, name);
       if (managed && byName('secret', managed)) return fail(taken('secret', managed));
-      const src = kind === 'secret' ? (spec as { source?: SecretSource }).source : undefined;
-      const answer = src ? storeAnswer(byName('secretstore', src.store), src) : undefined;
-      const secretValue = kind === 'secret' ? (answer && 'value' in answer ? answer.value : (spec as { value?: string }).value) : undefined;
-      const s = insert(kind, name, full, null, secretValue);
-      if (answer && 'refused' in answer) failSoon(s, answer.refused);
-      if (managed) insert('secret', managed, {}, s.r.id, Math.random().toString(36).slice(2) + '-Hc7');
-      if ((kind === 'queue' || kind === 'topic') && !byName('secret', MANAGED.brokerCredentials)) insert('secret', MANAGED.brokerCredentials, {}, MANAGED.systemOwner, 'mock');
-      if (kind === 'queue') s.messages = [];
-      if (kind === 'topic') Object.assign(s, { published: 0, deliveries: {} });
-      if (kind === 'email') s.emails = [];
-      if (kind === 'bucket' && !byName('secret', MANAGED.objectStoreCredentials)) insert('secret', MANAGED.objectStoreCredentials, {}, MANAGED.systemOwner, '{"accessKey":"mock","secretKey":"mock"}');
-      return wait(clone(s.r));
+      return wait(clone(materialize(kind, name, full, (spec as { value?: string }).value).r));
     },
     updateResource: (id, patch, ifMatch) => {
       const blocked = guard();
@@ -1123,6 +1337,14 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (r.status.phase === 'deleting') return fail(err('RESOURCE_BUSY', 'This resource is being deleted.', 409));
       if (ifMatch !== r.generation) return fail(err('PRECONDITION_FAILED', 'This resource changed since you read it. Reload and try again.', 412));
       if (r.ownerId) return fail(err('IMMUTABLE_FIELD', 'EnclaveStack manages this secret; it changes with its owner.', 422));
+      const inStack = partOfStack(r);
+      if (inStack) return inStack;
+      if (r.kind === 'stack') return updateStack(s, patch);
+      // Moving data off an offline machine can't read the data (MOVE-*, FAIL-03).
+      const from = machineList().find((m) => m.name === r.outputs.machine);
+      if (typeof patch.machine === 'string' && patch.machine !== r.outputs.machine && from?.state === 'offline' && (RULES.dataKinds as readonly Kind[]).includes(r.kind)) {
+        return fail(err('MACHINE_OFFLINE', `${from.name} is offline, so the data of ${r.name} can't be read. Restore a backup to a new ${r.kind} instead.`, 409));
+      }
       const prior: Record<string, unknown> = r.kind === 'secret' ? ((r.spec as { source?: SecretSource }).source ? { ...r.spec } : { value: s.secret }) : { ...(r.spec as unknown as Record<string, unknown>) };
       // Fields present replace; null clears (L3-002 §2).
       const base = Object.fromEntries(Object.entries({ ...prior, ...patch }).filter(([, v]) => v !== null));
@@ -1198,6 +1420,13 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (r.ownerId) {
         const owner = r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : `the ${store.get(r.ownerId)?.r.kind ?? ''} ${store.get(r.ownerId)?.r.name ?? ''}`;
         return fail(err('RESOURCE_IN_USE', `This secret is managed by ${owner} and is deleted with it.`, 409));
+      }
+      const inStack = partOfStack(r);
+      if (inStack) return inStack;
+      if (r.kind === 'stack') {
+        for (const m of membersOf(r.id)) removeNow(m);
+        removeNow(s);
+        return wait(view(s));
       }
       const jobUsers = [...store.values()].filter((o) => o.r.kind === 'job' && (o.r.spec as JobSpec).app === r.name);
       if (r.kind === 'app' && jobUsers.length) {
@@ -1605,6 +1834,143 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         s.r.outputs = { ...s.r.outputs, lastRunStatus: run.status, lastRunAt: run.finishedAt ?? now() };
       }, stepMs);
       return wait(toRun(run));
+    },
+
+    listMachines: () => guard() ?? wait(clone(machineList())),
+    getMachineByName: (name) => {
+      const m = machineList().find((x) => x.name === name);
+      return guard() ?? (m ? wait(clone(m)) : machineNotFound(name));
+    },
+    addMachine: (name, labels = {}) => {
+      const blocked = guard() ?? adminOnly('add machines');
+      if (blocked) return blocked;
+      const nameErr = validateName(name);
+      const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
+        ...(name === RULES.mainMachine ? [{ field: 'name', code: 'NOT_ALLOWED' as const, message: 'main is the main machine\'s name. Choose another.' }] : []),
+        ...Object.entries(validateLabels(labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }))];
+      if (details.length) return validationFailed(details);
+      if (machineList().some((m) => m.name === name)) return fail(err('NAME_TAKEN', `A machine named ${name} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A machine named ${name} already exists.` }]));
+      seedMachine(name, labels, 'waiting');
+      machineEvent(name, 'added', 'Added; waiting for its agent.');
+      const joinAfter = options.joinAfterMs ?? stepMs * 5;
+      if (joinAfter > 0) {
+        setTimeout(() => {
+          const i = machines.findIndex((m) => m.name === name && m.state === 'waiting');
+          const m = machines[i];
+          if (!m) return;
+          machines[i] = joined(m, `10.0.0.${10 + i}`);
+          machineEvent(name, 'joined', `Joined from 10.0.0.${10 + i}.`);
+        }, joinAfter);
+      }
+      return api.newJoinCode(name);
+    },
+    updateMachineByName: (name, input) => {
+      const blocked = guard() ?? adminOnly('change machines');
+      if (blocked) return blocked;
+      const m = name === RULES.mainMachine ? mainSettings : machines.find((x) => x.name === name);
+      if (!m) return machineNotFound(name);
+      const details = Object.entries(validateLabels(input.labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }));
+      if (details.length) return validationFailed(details);
+      if (input.labels) m.labels = { ...input.labels };
+      if (input.schedulable !== undefined && input.schedulable !== m.schedulable) {
+        m.schedulable = input.schedulable;
+        machineEvent(name, input.schedulable ? 'schedulable' : 'not_schedulable', input.schedulable ? 'Schedulable again.' : 'Not schedulable: nothing new is placed here.');
+      }
+      return api.getMachineByName(name);
+    },
+    removeMachine: (name, force = false) => {
+      const blocked = guard() ?? adminOnly('remove machines');
+      if (blocked) return blocked;
+      if (name === RULES.mainMachine) return fail(err('ACTION_NOT_SUPPORTED', "The main machine runs EnclaveStack itself and can't be removed.", 409));
+      const i = machines.findIndex((x) => x.name === name);
+      const m = machines[i];
+      if (!m) return machineNotFound(name);
+      if (force && m.state === 'online') return fail(err('MACHINE_ONLINE', `${name} is online. Move what runs there, then remove it without force.`, 409));
+      const there = [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.outputs.machine === name);
+      if (there.length && !force) {
+        return fail(err('MACHINE_NOT_EMPTY', `${name} still runs ${there.length} resources. Move or delete them first.`, 409,
+          there.map((o) => ({ field: `${o.r.kind}/${o.r.name}`, code: 'NOT_ALLOWED' as const, message: `Runs on ${name}.` }))));
+      }
+      for (const o of there) {
+        o.r.status = { ...o.r.status, phase: 'failed', message: `Its machine ${name} was removed.`, lastTransitionAt: now() };
+        addEvent(o, 'failed', o.r.status.message);
+      }
+      machines.splice(i, 1);
+      machineEvents.delete(name);
+      return wait(undefined);
+    },
+    newJoinCode: (name) => {
+      const blocked = guard() ?? adminOnly('add machines');
+      if (blocked) return blocked;
+      const m = machines.find((x) => x.name === name);
+      if (!m) return machineNotFound(name);
+      if (m.state !== 'waiting') return fail(err('ACTION_NOT_SUPPORTED', `${name} has joined already; a join code is only for a machine waiting for its agent.`, 409));
+      const code = Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 6).toUpperCase()).join('-');
+      return wait({ machine: clone(m), joinCode: code, joinCommand: `enclave agent join http://${window.location.host} --code ${code}`, expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+    },
+    drainMachine: (name) => {
+      const blocked = guard() ?? adminOnly('drain machines');
+      if (blocked) return blocked;
+      if (name === RULES.mainMachine) return fail(err('ACTION_NOT_SUPPORTED', "The main machine keeps EnclaveStack's own services and can't be drained.", 409));
+      const m = machines.find((x) => x.name === name);
+      if (!m) return machineNotFound(name);
+      m.schedulable = false;
+      machineEvent(name, 'drain_started', 'Draining: moving what isn\'t pinned here to other machines.');
+      const out = { moving: [] as string[], pinned: [] as string[] };
+      for (const o of store.values()) {
+        if (o.r.status.phase === 'deleting' || o.r.outputs.machine !== name) continue;
+        const ref = `${o.r.project === RULES.defaultProject ? '' : `${o.r.project}/`}${o.r.kind}/${o.r.name}`;
+        if ((o.r.spec as Placed).machine) {
+          out.pinned.push(ref);
+          continue;
+        }
+        out.moving.push(ref);
+        o.moveOff = true;
+        reconcile(o, 'updating');
+      }
+      return wait(out);
+    },
+    getMachineEvents: (name) => {
+      if (!machineList().some((m) => m.name === name)) return guard() ?? machineNotFound(name);
+      return guard() ?? wait(clone(machineEvents.get(name) ?? []));
+    },
+    getMachineMetricsOf: (name, metrics, from, to) => {
+      if (!machineList().some((m) => m.name === name)) return guard() ?? machineNotFound(name);
+      return api.getMachineMetrics(metrics, from, to);
+    },
+    listCatalogue: () => guard() ?? wait(clone(catalogue())),
+    getCatalogueEntry: (name, version) => {
+      const blocked = guard();
+      if (blocked) return blocked;
+      const own = ownTemplates.get(name);
+      const e = own ? (version ? own.find((v) => v.version === version) : newest(own)) : BUILTIN_CATALOGUE.find((x) => x.name === name && (!version || x.version === version));
+      return e ? wait(clone({ ...e, body: undefined } as CatalogueEntry)) : fail(err('NOT_FOUND', `There's no catalogue entry named ${name}.`, 404));
+    },
+    addTemplate: (body) => {
+      const blocked = guard() ?? adminOnly('add templates');
+      if (blocked) return blocked;
+      const e = parseTemplate(body);
+      if (Array.isArray(e)) return validationFailed(e);
+      if (BUILTIN_CATALOGUE.some((b) => b.name === e.name)) return fail(err('NAME_TAKEN', `${e.name} is a built-in entry. Name your template differently.`, 409));
+      const versions = ownTemplates.get(e.name) ?? [];
+      if (versions.some((v) => v.version === e.version)) return fail(err('NAME_TAKEN', `${e.name} ${e.version} exists already. Raise the version to add a new one.`, 409));
+      versions.unshift({ ...e, body });
+      ownTemplates.set(e.name, versions);
+      record('template_added', `catalogue/${e.name}`, e.version);
+      return api.getCatalogueEntry(e.name);
+    },
+    removeTemplate: (name) => {
+      const blocked = guard() ?? adminOnly('remove templates');
+      if (blocked) return blocked;
+      if (BUILTIN_CATALOGUE.some((b) => b.name === name)) return fail(err('ACTION_NOT_SUPPORTED', `${name} is built in and can't be removed.`, 409));
+      if (!ownTemplates.has(name)) return fail(err('NOT_FOUND', `There's no catalogue entry named ${name}.`, 404));
+      const users = [...store.values()].filter((o) => o.r.kind === 'stack' && (o.r.spec as StackSpec).template === name && o.r.status.phase !== 'deleting');
+      if (users.length) {
+        return fail(err('RESOURCE_IN_USE', `${name} is used by ${users.length} stack(s). Delete them first.`, 409,
+          users.map((u) => ({ field: `stack/${u.r.name}`, code: 'NOT_ALLOWED' as const, message: `Installed from ${name}.` }))));
+      }
+      ownTemplates.delete(name);
+      return wait(undefined);
     },
   };
 

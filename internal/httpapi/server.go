@@ -29,6 +29,8 @@ type Config struct {
 	SecureCookies bool
 	// Assets are the console files; nil serves a "not built" page.
 	Assets fs.FS
+	// Machines serves /machines (v0.8).
+	Machines *service.Machines
 }
 
 // Server wires handlers to services.
@@ -84,6 +86,23 @@ func New(a *service.Auth, res *service.Resources, idem *service.Idempotency, rea
 	s.route(mux, "POST /api/v1/users/{userId}/reset", signedIn, s.resetUser)
 	s.route(mux, "GET /api/v1/audit", signedIn, s.listAudit)
 
+	// v0.8 (L3-002 §11.2).
+	s.route(mux, "GET /api/v1/machines", signedIn, s.listMachines)
+	s.route(mux, "POST /api/v1/machines", signedIn, s.addMachine)
+	s.route(mux, "POST /api/v1/machines/join", public, s.joinMachine)
+	s.route(mux, "GET /api/v1/machines/{name}", signedIn, s.getMachineByName)
+	s.route(mux, "PATCH /api/v1/machines/{name}", signedIn, s.updateMachine)
+	s.route(mux, "DELETE /api/v1/machines/{name}", signedIn, s.removeMachine)
+	s.route(mux, "POST /api/v1/machines/{name}/join-code", signedIn, s.machineJoinCode)
+	s.route(mux, "POST /api/v1/machines/{name}/drain", signedIn, s.drainMachine)
+	s.route(mux, "GET /api/v1/machines/{name}/events", signedIn, s.machineEvents)
+	s.route(mux, "GET /api/v1/machines/{name}/metrics", signedIn, s.machineMetrics)
+	// v0.8 (L3-002 §11.5).
+	s.route(mux, "GET /api/v1/catalogue", signedIn, s.listCatalogue)
+	s.route(mux, "POST /api/v1/catalogue", signedIn, s.addTemplate)
+	s.route(mux, "GET /api/v1/catalogue/{name}", signedIn, s.getCatalogueEntry)
+	s.route(mux, "GET /api/v1/catalogue/{name}/template", signedIn, s.getTemplateSource)
+	s.route(mux, "DELETE /api/v1/catalogue/{name}", signedIn, s.removeTemplate)
 	s.route(mux, "GET /api/v1/machine", signedIn, s.getMachine)
 	s.route(mux, "PATCH /api/v1/machine", signedIn, s.patchMachine)
 	s.route(mux, "GET /api/v1/machine/ca", signedIn, s.getRootCA)
@@ -366,7 +385,8 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	out, err := s.resources.List(r.Context(), principal(r.Context()), q.Get("project"), store.ListFilter{Kind: api.Kind(q.Get("kind")), Name: q.Get("name"), Limit: limit, Cursor: q.Get("cursor")})
+	out, err := s.resources.List(r.Context(), principal(r.Context()), q.Get("project"), store.ListFilter{Kind: api.Kind(q.Get("kind")), Name: q.Get("name"),
+		Machine: q.Get("machine"), Stack: q.Get("stack"), Limit: limit, Cursor: q.Get("cursor")})
 	if err != nil {
 		s.writeError(w, r, err)
 		return

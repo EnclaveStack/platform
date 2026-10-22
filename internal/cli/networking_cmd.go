@@ -18,16 +18,60 @@ func nilIfEmpty(s string) any {
 	return s
 }
 
-// placementFlags place an app, database, cache or job in a network (CLI-18).
-type placementFlags struct{ network, subnet string }
+// placementFlags place an app, database, cache or job in a network (CLI-18) and on a machine (CLI-48).
+type placementFlags struct {
+	network, subnet string
+	machineFlags
+}
 
 func (p *placementFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&p.network, "network", "", `network to place it in ("" is the default network)`)
 	cmd.Flags().StringVar(&p.subnet, "subnet", "", "subnet of the network (default: its first)")
+	p.machineFlags.bind(cmd)
+}
+
+// machineFlags choose the machine a resource runs on (L2-002 CLI-48); without them EnclaveStack chooses.
+type machineFlags struct {
+	machine string
+	labels  []string
+}
+
+func (m *machineFlags) bind(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&m.machine, "machine", "", "the machine to run on (default: EnclaveStack chooses; on update, moves it)")
+	cmd.Flags().StringArrayVar(&m.labels, "machine-label", nil, "a label its machine must have, as key=value (repeat)")
+}
+
+// placed is the spec's placement; a malformed label is reported by the server, so it's passed on as given.
+func (m *machineFlags) placed() api.Placed {
+	p := api.Placed{Machine: m.machine}
+	if len(m.labels) > 0 {
+		p.MachineLabels = map[string]string{}
+		for _, l := range m.labels {
+			k, v, _ := strings.Cut(l, "=")
+			p.MachineLabels[k] = v
+		}
+	}
+	return p
+}
+
+// patch adds the changed machine flags: --machine "" lets EnclaveStack choose again.
+func (m *machineFlags) patch(changed func(string) bool, patch map[string]any) {
+	p := m.placed()
+	if changed("machine") {
+		patch["machine"] = nilIfEmpty(p.Machine)
+	}
+	if changed("machine-label") {
+		if p.MachineLabels == nil {
+			patch["machineLabels"] = nil
+		} else {
+			patch["machineLabels"] = p.MachineLabels
+		}
+	}
 }
 
 // patch adds the changed placement flags; moving to the default network also clears the subnet.
 func (p *placementFlags) patch(changed func(string) bool, patch map[string]any) {
+	p.machineFlags.patch(changed, patch)
 	if changed("network") {
 		patch["network"] = nilIfEmpty(p.network)
 		if p.network == "" {
@@ -217,9 +261,11 @@ type lbFlags struct {
 	protocol, algorithm, health string
 	targets                     []string
 	publish, wait               bool
+	machineFlags
 }
 
 func (f *lbFlags) bind(cmd *cobra.Command) {
+	f.machineFlags.bind(cmd)
 	cmd.Flags().IntVar(&f.port, "port", 0, "port the load balancer listens on")
 	cmd.Flags().StringVar(&f.protocol, "protocol", "", "http (default) or tcp")
 	cmd.Flags().StringArrayVar(&f.targets, "target", nil, "app to send traffic to: APP[:PORT][@WEIGHT] (repeatable)")
@@ -251,7 +297,7 @@ func (a *app) lbCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			spec := api.LoadBalancerSpec{Port: cf.port, Protocol: cf.protocol, Targets: targets, Algorithm: cf.algorithm, Publish: cf.publish}
+			spec := api.LoadBalancerSpec{Port: cf.port, Protocol: cf.protocol, Targets: targets, Algorithm: cf.algorithm, Publish: cf.publish, Placed: cf.placed()}
 			if cf.health != "" {
 				if spec.HealthCheck, err = parseLBHealth(cf.health); err != nil {
 					return err
@@ -281,6 +327,7 @@ func (a *app) lbCmd() *cobra.Command {
 			if ch("publish") {
 				patch["publish"] = uf.publish
 			}
+			uf.machineFlags.patch(ch, patch)
 			if ch("target") {
 				targets, err := uf.targetList()
 				if err != nil {

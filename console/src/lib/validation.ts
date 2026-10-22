@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 import { validateAlert, validateChannel, validateDashboard, validateLogExport, validateSecretSource, validateSecretStore } from './operate';
 import { parseCron } from './schedule';
 
@@ -446,7 +446,45 @@ export function validateBucket(): FieldErrors {
 }
 
 export function validateSpec(kind: Kind, spec: unknown): FieldErrors {
+  const own = validateKind(kind, spec);
+  return (RULES.placedKinds as readonly Kind[]).includes(kind) ? { ...validatePlaced(spec as Placed), ...own } : own;
+}
+
+const labelKey = new RegExp(RULES.labelKeyPattern);
+const labelValue = new RegExp(RULES.labelValuePattern);
+
+/** Machine labels, as pkg/api ValidateLabels: up to 10, key and value patterns (L3-002 §11.3). */
+export function validateLabels(labels: Record<string, string> | undefined, field: string): FieldErrors {
+  const e: FieldErrors = {};
+  const entries = Object.entries(labels ?? {});
+  if (entries.length > RULES.machineLabelsMax) e[field] = `Use at most ${RULES.machineLabelsMax} labels.`;
+  if (e[field]) return e;
+  for (const [k, v] of entries) {
+    if (!labelKey.test(k)) e[`${field}.${k}`] = "A label's key is lowercase letters, digits, dots, hyphens and underscores, up to 63 characters, starting with a letter or digit.";
+    else if (!labelValue.test(v)) e[`${field}.${k}`] = "A label's value is letters, digits, dots, hyphens and underscores, up to 63 characters.";
+  }
+  return e;
+}
+
+/** A placed kind's machine and labels (ADR-044). */
+export function validatePlaced(p: Placed): FieldErrors {
+  const e = validateLabels(p.machineLabels, 'spec.machineLabels');
+  const bad = p.machine ? validateName(p.machine) : undefined;
+  if (bad) e['spec.machine'] = `Name a machine: ${bad}`;
+  return e;
+}
+
+/** A stack names exactly one of a catalogue entry and a template body (L3-002 §11.7). */
+export function validateStack(s: StackSpec): FieldErrors {
+  const e: FieldErrors = {};
+  if (Boolean(s.template) === Boolean(s.templateBody)) e['spec.template'] = 'Choose a catalogue entry, or give a template of your own.';
+  return e;
+}
+
+function validateKind(kind: Kind, spec: unknown): FieldErrors {
   switch (kind) {
+    case 'stack':
+      return validateStack(spec as StackSpec);
     case 'app':
       return validateApp(spec as AppSpec);
     case 'database':

@@ -555,3 +555,36 @@ func TestLogExportKeepsLinesThatShareATimeAndReportsRotationGaps(t *testing.T) {
 		t.Errorf("gap events: %d", n)
 	}
 }
+
+// Each machine has its own series of what runs on it (L3-002 §11.2, v0.8).
+func TestEachMachineHasItsOwnMetrics(t *testing.T) {
+	env := testenv.Start(t)
+	c, _ := env.Token(t, "")
+	rack := env.AddAgent(t, c, "rack-1", nil)
+	env.WaitMachine(t, c, "rack-1", api.MachineOnline)
+	there := create(t, c, api.KindApp, "far", api.AppSpec{Image: "nginx", Placed: api.Placed{Machine: "rack-1"}})
+	here := create(t, c, api.KindApp, "near", api.AppSpec{Image: "nginx", Placed: api.Placed{Machine: api.MainMachine}})
+	m := env.Monitor
+	clk := &clock{t: time.Now().Add(-5 * time.Minute)}
+	m.Now = clk.now
+	rack.Driver.SetStats(there.ID, engine.ContainerStats{ID: "c1", CPUSeconds: 10, MemoryBytes: 300 << 20})
+	env.Fake.SetStats(here.ID, engine.ContainerStats{ID: "c2", CPUSeconds: 10, MemoryBytes: 100 << 20})
+	if err := m.SampleOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	from, to := clk.now().Add(-time.Minute), clk.now().Add(time.Minute)
+	far, err := c.MachineMetricsOf(ctx, "rack-1", []string{"memory", "diskFree"}, from, to)
+	if err != nil || last(t, far, "memory") != 300<<20 || len(far.Items[1].Points) != 0 {
+		t.Errorf("rack-1: %+v %v", far, err)
+	}
+	main, err := c.MachineMetricsOf(ctx, api.MainMachine, []string{"memory"}, from, to)
+	if err != nil || last(t, main, "memory") != 100<<20 {
+		t.Errorf("main: %+v %v", main, err)
+	}
+	if old, err := c.MachineMetrics(ctx, []string{"memory"}, from, to); err != nil || last(t, old, "memory") != 100<<20 {
+		t.Errorf("/machine/metrics is still the main machine's: %+v %v", old, err)
+	}
+	if _, err := c.MachineMetricsOf(ctx, "nowhere", nil, from, to); client.Code(err) != api.CodeNotFound {
+		t.Errorf("an unknown machine: %v", err)
+	}
+}

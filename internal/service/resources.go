@@ -54,6 +54,8 @@ type Resources struct {
 	Messaging *messaging.Pool
 	Mail      mail.Client
 	Metrics   *observability.Metrics
+	// MachineOnline tells whether a machine takes calls now (moves, L2-010 FAIL-03); nil means every machine.
+	MachineOnline func(machineID string) bool
 }
 
 func notFound() error { return api.NewError(api.CodeNotFound, "That resource doesn't exist.") }
@@ -102,6 +104,27 @@ func (s *Resources) List(ctx context.Context, p Principal, project string, f sto
 	if f.Kind != "" && !f.Kind.Valid() {
 		return api.ResourceList{}, api.Validation([]api.FieldError{{Field: "kind", Code: api.FieldNotAllowed, Message: api.KindChoiceMessage}})
 	}
+	// ?machine= and ?stack= name a machine and a stack of the project (L3-002 §11.3, §11.7).
+	if f.Machine != "" {
+		m, err := s.Store.GetMachineByName(ctx, f.Machine)
+		if errors.Is(err, store.ErrNotFound) {
+			return api.ResourceList{}, api.NewError(api.CodeNotFound, "There's no machine named "+f.Machine+".")
+		}
+		if err != nil {
+			return api.ResourceList{}, err
+		}
+		f.Machine = m.ID
+	}
+	if f.Stack != "" {
+		st, err := s.Store.GetResourceByName(ctx, project, api.KindStack, f.Stack)
+		if errors.Is(err, store.ErrNotFound) || err == nil && p.RoleIn(st.ProjectName()) == "" {
+			return api.ResourceList{}, notFound()
+		}
+		if err != nil {
+			return api.ResourceList{}, err
+		}
+		f.Stack = st.ID
+	}
 	rows, next, err := s.Store.ListResources(ctx, f)
 	if errors.Is(err, store.ErrBadCursor) {
 		return api.ResourceList{}, api.Validation([]api.FieldError{{Field: "cursor", Code: api.FieldInvalidFormat, Message: "Use the cursor from the previous page."}})
@@ -127,95 +150,15 @@ func (s *Resources) Create(ctx context.Context, p Principal, req api.CreateResou
 // create makes a resource; initialOutputs pre-set its outputs (a restore marker), and note is added to
 // its created event.
 func (s *Resources) create(ctx context.Context, p Principal, req api.CreateResourceRequest, initialOutputs map[string]any, note string) (api.Resource, error) {
-	if !req.Kind.Valid() {
-		return api.Resource{}, api.Validation([]api.FieldError{{Field: "kind", Code: api.FieldNotAllowed, Message: api.KindChoiceMessage}})
+	if req.Kind == api.KindStack {
+		return s.createStack(ctx, p, req)
 	}
-	project := strings.TrimSpace(req.Project)
-	if project == "" {
-		project = api.DefaultProject
-	}
-	if err := requireProject(p, project, api.RoleEditor); err != nil {
-		return api.Resource{}, err
-	}
-	details := api.ValidateName(req.Name)
-	spec, specErrs, err := api.NormalizeSpec(req.Kind, req.Spec)
-	if err != nil {
-		return api.Resource{}, api.NewError(api.CodeMalformedRequest, "The spec isn't valid JSON for a "+string(req.Kind)+": "+err.Error())
-	}
-	details = append(details, specErrs...)
-	if len(details) > 0 {
-		return api.Resource{}, api.Validation(details)
-	}
-	now := s.Now()
-	r := &domain.Resource{ID: domain.NewResourceID(req.Kind), Project: project, Kind: req.Kind, Name: req.Name, Generation: 1, Phase: api.PhasePending,
-		Steps: domain.NewSteps(domain.StepNames[req.Kind]...), LastTransitionAt: now, CreatedAt: now, UpdatedAt: now, Outputs: initialOutputs}
-	if err := s.setSpec(r, spec); err != nil {
-		return api.Resource{}, err
-	}
+	var r *domain.Resource
 	var created []string
-	err = s.Store.WithTx(ctx, func(q *store.Queries) error {
-		if _, err := q.GetProject(ctx, project); errors.Is(err, store.ErrNotFound) {
-			return api.Validation([]api.FieldError{{Field: "project", Code: api.FieldNotFound, Message: "There's no project named " + project + "."}})
-		} else if err != nil {
-			return err
-		}
-		if err := s.checkName(ctx, q, r, "name"); err != nil {
-			return err
-		}
-		refs, err := s.resolveRefs(ctx, q, r, spec)
-		if err != nil {
-			return err
-		}
-		if err := insert(ctx, q, r, now, "created", fmt.Sprintf("Created by %s.%s", p.Actor(), note)); err != nil {
-			return err
-		}
-		created = append(created, r.ID)
-		if err := q.SetRefs(ctx, r.ID, refs); err != nil {
-			return err
-		}
-		if domain.HasManagedPassword(r.Kind) {
-			pw := strongPassword()
-			if r.Kind == api.KindDatabase {
-				pw = randomPassword()
-			}
-			id, err := s.createManagedSecret(ctx, q, r.Project, domain.PasswordSecretFor(r.Kind, r.Name), r.ID, pw, now)
-			if err != nil {
-				return err
-			}
-			created = append(created, id)
-		}
-		if domain.UsesBroker(r.Kind) { // the broker's own password, once (ADR-029)
-			if _, err := q.GetResourceByName(ctx, api.DefaultProject, api.KindSecret, domain.BrokerCredentialsSecret); errors.Is(err, store.ErrNotFound) {
-				id, err := s.createManagedSecret(ctx, q, api.DefaultProject, domain.BrokerCredentialsSecret, domain.SystemOwner, randomPassword(), now)
-				if err != nil {
-					return err
-				}
-				created = append(created, id)
-			} else if err != nil {
-				return err
-			}
-		}
-		if r.Kind == api.KindBucket {
-			// The store's root credentials live in default (ADR-035); every other project gets its own
-			// user, limited to its buckets by the reconciler.
-			for _, proj := range slices.Compact([]string{api.DefaultProject, r.Project}) {
-				if _, err := q.GetResourceByName(ctx, proj, api.KindSecret, domain.ObjectStoreCredentialsSecret); errors.Is(err, store.ErrNotFound) {
-					access := "enclave-" + randomPassword()[:8]
-					if proj != api.DefaultProject {
-						access = domain.ProjectStoreUser(proj)
-					}
-					creds, _ := json.Marshal(map[string]string{"accessKey": access, "secretKey": randomPassword()})
-					id, err := s.createManagedSecret(ctx, q, proj, domain.ObjectStoreCredentialsSecret, domain.SystemOwner, string(creds), now)
-					if err != nil {
-						return err
-					}
-					created = append(created, id)
-				} else if err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
+		var err error
+		r, created, err = s.createIn(ctx, q, p, req, createOpts{outputs: initialOutputs, note: note})
+		return err
 	})
 	if err != nil {
 		return api.Resource{}, err
@@ -225,6 +168,113 @@ func (s *Resources) create(ctx context.Context, p Principal, req api.CreateResou
 	}
 	s.Log.Info("resource created", "resource_id", r.ID, "project", r.Project, "kind", r.Kind, "by", p.Key())
 	return r.ToAPI(), nil
+}
+
+// createOpts are what a create inside another one adds: outputs to start with, a note for the created
+// event, and the stack it is a member of (ADR-048).
+type createOpts struct {
+	outputs map[string]any
+	note    string
+	stack   string
+}
+
+// createIn validates and inserts a resource, with the managed resources it needs, in a transaction the
+// caller owns. It returns the resource and the IDs to enqueue once the transaction commits.
+func (s *Resources) createIn(ctx context.Context, q *store.Queries, p Principal, req api.CreateResourceRequest, o createOpts) (*domain.Resource, []string, error) {
+	if !req.Kind.Valid() {
+		return nil, nil, api.Validation([]api.FieldError{{Field: "kind", Code: api.FieldNotAllowed, Message: api.KindChoiceMessage}})
+	}
+	project := strings.TrimSpace(req.Project)
+	if project == "" {
+		project = api.DefaultProject
+	}
+	if err := requireProject(p, project, api.RoleEditor); err != nil {
+		return nil, nil, err
+	}
+	details := api.ValidateName(req.Name)
+	spec, specErrs, err := api.NormalizeSpec(req.Kind, req.Spec)
+	if err != nil {
+		return nil, nil, api.NewError(api.CodeMalformedRequest, "The spec isn't valid JSON for a "+string(req.Kind)+": "+err.Error())
+	}
+	details = append(details, specErrs...)
+	if len(details) > 0 {
+		return nil, nil, api.Validation(details)
+	}
+	now := s.Now()
+	r := &domain.Resource{ID: domain.NewResourceID(req.Kind), Project: project, Kind: req.Kind, Name: req.Name, Generation: 1, Phase: api.PhasePending,
+		Steps: domain.NewSteps(domain.StepNames[req.Kind]...), LastTransitionAt: now, CreatedAt: now, UpdatedAt: now, Outputs: o.outputs, Stack: o.stack}
+	if err := s.setSpec(r, spec); err != nil {
+		return nil, nil, err
+	}
+	if !domain.Placed(r.Kind) {
+		r.Machine = api.MainMachine // placed kinds get theirs from the reconciler (ADR-044)
+	}
+	var created []string
+	if _, err := q.GetProject(ctx, project); errors.Is(err, store.ErrNotFound) {
+		return nil, nil, api.Validation([]api.FieldError{{Field: "project", Code: api.FieldNotFound, Message: "There's no project named " + project + "."}})
+	} else if err != nil {
+		return nil, nil, err
+	}
+	if err := s.checkName(ctx, q, r, "name"); err != nil {
+		return nil, nil, err
+	}
+	if err := checkMachine(ctx, q, spec); err != nil {
+		return nil, nil, err
+	}
+	refs, err := s.resolveRefs(ctx, q, r, spec)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := insert(ctx, q, r, now, "created", fmt.Sprintf("Created by %s.%s", p.Actor(), o.note)); err != nil {
+		return nil, nil, err
+	}
+	created = append(created, r.ID)
+	if err := q.SetRefs(ctx, r.ID, refs); err != nil {
+		return nil, nil, err
+	}
+	if domain.HasManagedPassword(r.Kind) {
+		pw := strongPassword()
+		if r.Kind == api.KindDatabase {
+			pw = randomPassword()
+		}
+		id, err := s.createManagedSecret(ctx, q, r.Project, domain.PasswordSecretFor(r.Kind, r.Name), r.ID, pw, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		created = append(created, id)
+	}
+	if domain.UsesBroker(r.Kind) { // the broker's own password, once (ADR-029)
+		if _, err := q.GetResourceByName(ctx, api.DefaultProject, api.KindSecret, domain.BrokerCredentialsSecret); errors.Is(err, store.ErrNotFound) {
+			id, err := s.createManagedSecret(ctx, q, api.DefaultProject, domain.BrokerCredentialsSecret, domain.SystemOwner, randomPassword(), now)
+			if err != nil {
+				return nil, nil, err
+			}
+			created = append(created, id)
+		} else if err != nil {
+			return nil, nil, err
+		}
+	}
+	if r.Kind == api.KindBucket {
+		// The store's root credentials live in default (ADR-035); every other project gets its own
+		// user, limited to its buckets by the reconciler.
+		for _, proj := range slices.Compact([]string{api.DefaultProject, r.Project}) {
+			if _, err := q.GetResourceByName(ctx, proj, api.KindSecret, domain.ObjectStoreCredentialsSecret); errors.Is(err, store.ErrNotFound) {
+				access := "enclave-" + randomPassword()[:8]
+				if proj != api.DefaultProject {
+					access = domain.ProjectStoreUser(proj)
+				}
+				creds, _ := json.Marshal(map[string]string{"accessKey": access, "secretKey": randomPassword()})
+				id, err := s.createManagedSecret(ctx, q, proj, domain.ObjectStoreCredentialsSecret, domain.SystemOwner, string(creds), now)
+				if err != nil {
+					return nil, nil, err
+				}
+				created = append(created, id)
+			} else if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return r, created, nil
 }
 
 // setSpec stores the normalized spec; a secret's value goes to ciphertext, never to spec_json. A synced
@@ -543,80 +593,15 @@ func checkIfMatch(r *domain.Resource, ifMatch *int64) error {
 
 // Update applies a spec patch. It returns changed=false for a no-op patch (200 instead of 202).
 func (s *Resources) Update(ctx context.Context, p Principal, id string, req api.UpdateResourceRequest, ifMatch *int64) (api.Resource, bool, error) {
+	if r, err := s.Store.GetResource(ctx, id); err == nil && r.Kind == api.KindStack {
+		return s.updateStack(ctx, p, r, req, ifMatch)
+	}
 	var out *domain.Resource
 	changed := false
 	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
-		r, err := q.GetResource(ctx, id)
-		if errors.Is(err, store.ErrNotFound) {
-			return notFound()
-		}
-		if err != nil {
-			return err
-		}
-		if r.Phase == api.PhaseDeleting {
-			return api.NewError(api.CodeResourceBusy, "This resource is being deleted.")
-		}
-		if err := checkIfMatch(r, ifMatch); err != nil {
-			return err
-		}
-		if r.OwnerID != nil {
-			return &api.Error{Code: api.CodeImmutableField, Message: "EnclaveStack manages this secret; it changes with its owner.",
-				Details: []api.FieldError{{Field: "spec", Code: api.FieldImmutable, Message: "Managed secrets can't be edited."}}}
-		}
-		if len(bytes.TrimSpace(req.Spec)) == 0 || bytes.Equal(bytes.TrimSpace(req.Spec), []byte("null")) {
-			return api.Validation([]api.FieldError{{Field: "spec", Code: api.FieldRequired, Message: "Send the fields to change."}})
-		}
-		before, _, err := api.NormalizeSpec(r.Kind, s.storedSpecForMerge(r))
-		if err != nil {
-			return err
-		}
-		merged, err := api.MergeSpec(s.storedSpecForMerge(r), req.Spec)
-		if err != nil {
-			return api.NewError(api.CodeMalformedRequest, "The spec isn't valid JSON: "+err.Error())
-		}
-		after, details, err := api.NormalizeSpec(r.Kind, merged)
-		if err != nil {
-			return api.NewError(api.CodeMalformedRequest, "The spec isn't valid for a "+string(r.Kind)+": "+err.Error())
-		}
-		if len(details) > 0 {
-			return api.Validation(details)
-		}
-		if v := api.ImmutableViolations(r.Kind, before, after); len(v) > 0 {
-			return &api.Error{Code: api.CodeImmutableField, Message: v[0].Message, Details: v}
-		}
-		if v := api.GrowOnlyViolations(r.Kind, before, after); len(v) > 0 {
-			return api.Validation(v)
-		}
-		if specEqual(before, after) {
-			out = r
-			return nil
-		}
-		refs, err := s.resolveRefs(ctx, q, r, after)
-		if err != nil {
-			return err
-		}
-		if err := s.setSpec(r, after); err != nil {
-			return err
-		}
-		now := s.Now()
-		r.Generation++
-		target := api.PhaseUpdating
-		if r.ObservedGeneration == 0 {
-			target = api.PhaseProvisioning
-		}
-		if err := r.SetPhase(target, "", now); err != nil {
-			return err
-		}
-		r.Attempts, r.NextAttemptAt, r.UpdatedAt = 0, nil, now
-		r.Steps = domain.NewSteps(domain.StepNames[r.Kind]...)
-		if err := q.SaveResource(ctx, r); err != nil {
-			return err
-		}
-		if err := q.SetRefs(ctx, r.ID, refs); err != nil {
-			return err
-		}
-		changed, out = true, r
-		return q.AddEvent(ctx, r.ID, "updated", fmt.Sprintf("Spec changed to generation %d by %s.", r.Generation, p.Actor()), now)
+		var err error
+		out, changed, err = s.updateIn(ctx, q, p, id, req, ifMatch, false)
+		return err
 	})
 	if err != nil {
 		return api.Resource{}, false, err
@@ -626,6 +611,89 @@ func (s *Resources) Update(ctx context.Context, p Principal, id string, req api.
 		s.Log.Info("resource updated", "resource_id", out.ID, "generation", out.Generation, "by", p.Key())
 	}
 	return out.ToAPI(), changed, nil
+}
+
+// updateIn applies a spec patch in a transaction the caller owns; fromStack is the stack changing its own
+// member (ADR-048), which no one else may.
+func (s *Resources) updateIn(ctx context.Context, q *store.Queries, p Principal, id string, req api.UpdateResourceRequest, ifMatch *int64, fromStack bool) (*domain.Resource, bool, error) {
+	r, err := q.GetResource(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, false, notFound()
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if r.Phase == api.PhaseDeleting {
+		return nil, false, api.NewError(api.CodeResourceBusy, "This resource is being deleted.")
+	}
+	if err := checkIfMatch(r, ifMatch); err != nil {
+		return nil, false, err
+	}
+	if r.Stack != "" && !fromStack {
+		return nil, false, partOfStack(ctx, q, r)
+	}
+	if r.OwnerID != nil {
+		return nil, false, &api.Error{Code: api.CodeImmutableField, Message: "EnclaveStack manages this secret; it changes with its owner.",
+			Details: []api.FieldError{{Field: "spec", Code: api.FieldImmutable, Message: "Managed secrets can't be edited."}}}
+	}
+	if len(bytes.TrimSpace(req.Spec)) == 0 || bytes.Equal(bytes.TrimSpace(req.Spec), []byte("null")) {
+		return nil, false, api.Validation([]api.FieldError{{Field: "spec", Code: api.FieldRequired, Message: "Send the fields to change."}})
+	}
+	before, _, err := api.NormalizeSpec(r.Kind, s.storedSpecForMerge(r))
+	if err != nil {
+		return nil, false, err
+	}
+	merged, err := api.MergeSpec(s.storedSpecForMerge(r), req.Spec)
+	if err != nil {
+		return nil, false, api.NewError(api.CodeMalformedRequest, "The spec isn't valid JSON: "+err.Error())
+	}
+	after, details, err := api.NormalizeSpec(r.Kind, merged)
+	if err != nil {
+		return nil, false, api.NewError(api.CodeMalformedRequest, "The spec isn't valid for a "+string(r.Kind)+": "+err.Error())
+	}
+	if len(details) > 0 {
+		return nil, false, api.Validation(details)
+	}
+	if v := api.ImmutableViolations(r.Kind, before, after); len(v) > 0 {
+		return nil, false, &api.Error{Code: api.CodeImmutableField, Message: v[0].Message, Details: v}
+	}
+	if v := api.GrowOnlyViolations(r.Kind, before, after); len(v) > 0 {
+		return nil, false, api.Validation(v)
+	}
+	if specEqual(before, after) {
+		return r, false, nil
+	}
+	if err := checkMachine(ctx, q, after); err != nil {
+		return nil, false, err
+	}
+	if err := s.checkMove(ctx, q, r, before, after); err != nil {
+		return nil, false, err
+	}
+	refs, err := s.resolveRefs(ctx, q, r, after)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := s.setSpec(r, after); err != nil {
+		return nil, false, err
+	}
+	now := s.Now()
+	r.Generation++
+	target := api.PhaseUpdating
+	if r.ObservedGeneration == 0 {
+		target = api.PhaseProvisioning
+	}
+	if err := r.SetPhase(target, "", now); err != nil {
+		return nil, false, err
+	}
+	r.Attempts, r.NextAttemptAt, r.UpdatedAt = 0, nil, now
+	r.Steps = domain.NewSteps(domain.StepNames[r.Kind]...)
+	if err := q.SaveResource(ctx, r); err != nil {
+		return nil, false, err
+	}
+	if err := q.SetRefs(ctx, r.ID, refs); err != nil {
+		return nil, false, err
+	}
+	return r, true, q.AddEvent(ctx, r.ID, "updated", fmt.Sprintf("Spec changed to generation %d by %s.", r.Generation, p.Actor()), now)
 }
 
 // storedSpecForMerge returns the spec to merge a patch into; for secrets, the decrypted value, or the
@@ -655,6 +723,7 @@ func specEqual(a, b any) bool {
 // Delete starts deleting a resource after checking dependants (CP-12).
 func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch *int64) (api.Resource, error) {
 	var out *domain.Resource
+	queued := []string{id}
 	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
 		r, err := q.GetResource(ctx, id)
 		if errors.Is(err, store.ErrNotFound) {
@@ -669,6 +738,14 @@ func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch 
 		if r.Phase == api.PhaseDeleting {
 			out = r
 			return nil
+		}
+		if r.Stack != "" {
+			return partOfStack(ctx, q, r)
+		}
+		if r.Kind == api.KindStack {
+			ids, err := s.deleteStackIn(ctx, q, p, r)
+			queued, out = ids, r
+			return err
 		}
 		if r.OwnerID != nil {
 			owner := "EnclaveStack"
@@ -704,7 +781,9 @@ func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch 
 	if err != nil {
 		return api.Resource{}, err
 	}
-	s.Queue.Enqueue(out.ID)
+	for _, q := range queued {
+		s.Queue.Enqueue(q)
+	}
 	s.Log.Info("resource deletion requested", "resource_id", out.ID, "by", p.Key())
 	return out.ToAPI(), nil
 }
@@ -1086,16 +1165,12 @@ func (s *Resources) Machine(ctx context.Context, name string) (api.Machine, erro
 	if err != nil {
 		return m, err
 	}
-	broker := false
+	// GET /machine describes the main machine (L3-002 §11.2): what is placed there.
+	m.MemoryReservedBytes = int64(domain.ReservedByMachine(all)[api.MainMachine]) << 20
 	for _, r := range all {
-		if r.Phase != api.PhaseDeleting {
-			m.MemoryReservedBytes += int64(domain.MemoryReservedMiB(r)) << 20
+		if r.Phase != api.PhaseDeleting && r.MachineID() == api.MainMachine {
 			m.ReservedCPUs += domain.CPUsReserved(r)
-			broker = broker || domain.UsesBroker(r.Kind)
 		}
-	}
-	if broker { // one broker serves every queue and topic (ADR-029)
-		m.MemoryReservedBytes += int64(domain.BrokerMemoryMiB) << 20
 	}
 	s.vmFacts(ctx, &m)
 	s.brokerFacts(ctx, &m)

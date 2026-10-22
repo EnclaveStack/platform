@@ -6,7 +6,7 @@
 | Document ID | L3-004-decision-analysis-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v7 |
+| Version | v8 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -459,6 +459,87 @@ Resolution: **a shipper in the control plane**, reading the engine's log API wit
 
 Resolution: **plain HTTP clients**, with the last value cached encrypted like any secret (ADR-041). 1Password is read through a Connect server, whose REST API needs no SDK.
 
+## DAR-034 — How the control plane talks to other machines (→ ADR-042)
+
+| Criterion | Weight | The control plane calls an agent over mutual TLS | The agent dials the control plane and keeps one connection | SSH and shell commands (as Coolify) | The other machine's Docker API over TLS |
+|---|---|---|---|---|---|
+| The engine contract and its drivers are reused unchanged on the machine | 25 | 5 | 5 | 1 | 4 |
+| Security: both ends authenticated, no root shell handed out | 25 | 5 | 5 | 2 | 3 |
+| Can run QEMU and reach host files (VMs, disks, snapshots) | 20 | 5 | 5 | 4 | 1 |
+| Reachability (machines reach each other on UDP anyway, XNET) | 15 | 4 | 5 | 3 | 3 |
+| Implementation effort | 15 | 4 | 2 | 2 | 4 |
+| **Weighted total** | 100 | **4.70** | 4.55 | 2.30 | 3.00 |
+
+Resolution: **the control plane calls the agent**, one HTTPS request per engine call, with mutual TLS from an EnclaveStack certificate authority. An agent that dials out would only help machines that can't be reached, and those can't carry the tunnel either (XNET-04).
+
+## DAR-035 — How networks span machines (→ ADR-045)
+
+| Criterion | Weight | A mesh container per machine: WireGuard, answers ARP for remote addresses; stand-ins carry remote names | Docker Swarm overlay networks | VXLAN over WireGuard bridged into the engine's bridges | Routed: each machine gets its own slice of each network |
+|---|---|---|---|---|---|
+| Same addresses, names, isolation and firewalls as on one machine (XNET-01 – XNET-03) | 30 | 5 | 4 | 5 | 2 |
+| Works on Docker Desktop for Mac, where the engine runs in a VM behind NAT and its host namespace is out of reach | 25 | 5 | 1 | 2 | 5 |
+| Encrypted, with keys handed out by the control plane | 15 | 5 | 3 | 5 | 5 |
+| Networks made before v0.8 keep working, unchanged | 15 | 5 | 1 | 4 | 2 |
+| Effort and moving parts | 15 | 3 | 3 | 2 | 4 |
+| **Weighted total** | 100 | **4.70** | 2.50 | 3.65 | 3.50 |
+
+Resolution: **a mesh container per machine with stand-ins**. Spiked on 2026-10-22 on Docker Desktop 29.7.2 (kernel 7.0.12-linuxkit, which has WireGuard) with a Docker-in-Docker 28.5.1 engine as the second machine, the same network `10.77.0.0/24` on both:
+- a container reached the other machine's container by address, both ways, through the two mesh containers' WireGuard tunnel; the receiver saw the real source address (conntrack), so firewalls keep matching;
+- a 4 MB transfer arrived intact (checksums equal), so path-MTU discovery works through the tunnel's 1420-byte MTU;
+- a stand-in holding the remote address and name made `b1.internal` resolve on the first machine. Docker announces an endpoint's address when it starts, even with `com.docker.network.advertise_addr_nmsgs=0`, which pointed neighbours at the stand-in. A stand-in that drops its own copy of the address and forwards to the mesh works whichever device a neighbour cached, across three stand-in restarts.
+
+## DAR-036 — How private addresses stay unique across machines (→ ADR-045)
+
+| Criterion | Weight | Pools of addresses per machine, handed out by the control plane | A fixed range per machine, set when the network is created | Each engine chooses; duplicates repaired | The control plane picks each address during container creation |
+|---|---|---|---|---|---|
+| No duplicate address, ever (XNET-02) | 35 | 5 | 4 | 2 | 5 |
+| Networks made before v0.8 keep working (their engine ranges are fixed) | 20 | 5 | 2 | 5 | 5 |
+| Small subnets (/28, /29) still usable on several machines | 15 | 4 | 1 | 5 | 5 |
+| No round trip to the control plane per container | 15 | 5 | 5 | 5 | 1 |
+| Implementation effort | 15 | 3 | 4 | 4 | 2 |
+| **Weighted total** | 100 | **4.55** | 3.30 | 3.80 | 3.95 |
+
+Resolution: **pools per machine**. Each machine takes the lowest free address of its pool for every container it connects; the control plane keeps every pool topped up.
+
+## DAR-037 — How data moves to another machine (→ ADR-047)
+
+| Criterion | Weight | The engine volume as a tar stream, disks as qcow2 files, through the control plane | A logical dump and restore, as backups do | rsync between the machines over the tunnel | A backup to the object store, then a restore |
+|---|---|---|---|---|---|
+| An exact copy of everything (search indexes, captured email, owners and modes) | 30 | 5 | 3 | 5 | 3 |
+| Works for every kind with data: every database engine, caches, search, email, volumes, VM disks | 25 | 5 | 2 | 4 | 2 |
+| Uses paths that already exist and are tested (volume snapshots, disk copies) | 20 | 4 | 5 | 1 | 4 |
+| Speed | 15 | 4 | 3 | 5 | 2 |
+| Implementation effort | 10 | 4 | 4 | 2 | 3 |
+| **Weighted total** | 100 | **4.55** | 3.25 | 3.65 | 2.80 |
+
+Resolution: **the volume or disk itself, streamed through the control plane**, with the source stopped so the copy is consistent.
+
+## DAR-038 — How templates describe stacks (→ ADR-048)
+
+| Criterion | Weight | YAML or JSON of API specs, with `${…}` placeholders from a fixed list | Go `text/template` rendering text, then parsed | OpenTofu modules run by the control plane | Helm-style charts |
+|---|---|---|---|---|---|
+| A template can only build what a user could by hand (members are API specs, validated as such) | 30 | 5 | 4 | 4 | 3 |
+| Easy to write and read for someone who knows the API | 25 | 5 | 3 | 3 | 2 |
+| Errors shown before anything is created, with a line | 20 | 5 | 3 | 4 | 3 |
+| Safe: no code, loops, file or network access | 15 | 5 | 3 | 2 | 3 |
+| Implementation effort | 10 | 4 | 4 | 1 | 2 |
+| **Weighted total** | 100 | **4.90** | 3.40 | 3.15 | 2.65 |
+
+Resolution: **specs with placeholders**: `${stack}`, `${project}`, `${param:…}`, `${name:…}`, `${host:…}`, `${ident:…}`, and `when` to leave a member out.
+
+## DAR-039 — How a machine is chosen (→ ADR-044)
+
+| Criterion | Weight | The machine with the most free memory, among those that fit | Fill the main machine first | Round robin | The user always chooses |
+|---|---|---|---|---|---|
+| A resource fits where it lands (memory per machine, CP-16) | 30 | 5 | 5 | 2 | 3 |
+| Spreads risk: losing one machine takes less with it | 25 | 4 | 1 | 4 | 3 |
+| Predictable, and explainable in a message | 20 | 4 | 5 | 3 | 5 |
+| One-machine setups unchanged | 15 | 5 | 5 | 5 | 2 |
+| Implementation effort | 10 | 5 | 5 | 5 | 5 |
+| **Weighted total** | 100 | **4.55** | 4.00 | 3.45 | 3.45 |
+
+Resolution: **most free memory**, the main machine on a tie, filtered by version, labels, kind (VMs need VM support) and the volume a resource uses.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -470,3 +551,4 @@ Resolution: **plain HTTP clients**, with the last value cached encrypted like an
 | v5 | 2026-10-21 | Soupler Labs | DAR-021 – DAR-026 for v0.6: broker, database engines, search, email, CDN cache, transcoding (broker spike recorded) |
 | v6 | 2026-10-22 | Soupler Labs | DAR-027 – DAR-033 for v0.7: project separation, access model, metrics storage, alert evaluation, notification delivery, log export, outside secret managers |
 | v7 | 2026-10-22 | Soupler Labs | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |
+| v8 | 2026-10-22 | Soupler Labs | DAR-034 – DAR-039 for v0.8: agent transport, networks across machines (spike recorded), unique addresses, moving data, template language, choosing a machine |

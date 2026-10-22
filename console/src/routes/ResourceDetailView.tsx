@@ -14,6 +14,8 @@ import { DashboardCharts, ResourceMetrics } from '../components/MetricsPanel';
 import { AlertSummary, ChannelDeliveries, Incidents, LogExportCard, SyncedSecretCard, TestButton } from '../components/OperatePanels';
 import { ruleSentence } from '../components/NetworkingFields';
 import { inProgress, StatusBadge } from '../components/StatusBadge';
+import { isPlaced, MoveButton, OfflineBanner } from '../components/MachineFields';
+import { StackForm, StackMembers } from '../components/StackFields';
 import { cliCommand, tofuBlock } from '../lib/codegen';
 import { formatBytes } from '../lib/format';
 import { describeSchedule } from '../lib/schedule';
@@ -35,7 +37,7 @@ const POLL_MS = 1000;
 const REVEAL_MS = 30_000;
 
 const OUTPUT_LABELS: Record<string, string> = {
-  host: 'Host', port: 'Port', internalHost: 'Internal host', internalPort: 'Internal port', database: 'Database', username: 'Username',
+  machine: 'Machine', host: 'Host', port: 'Port', internalHost: 'Internal host', internalPort: 'Internal port', database: 'Database', username: 'Username',
   passwordSecret: 'Password secret', endpoint: 'S3 endpoint', internalEndpoint: 'Internal S3 endpoint', bucket: 'Bucket',
   credentialsSecret: 'Credentials secret', version: 'Version', valueUpdatedAt: 'Value updated',
   servingRevision: 'Serving revision', lastDeploy: 'Last deploy', builtCommit: 'Built commit', builtImage: 'Built image', lastBuild: 'Last build',
@@ -179,7 +181,8 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
   }
 
   const section = sectionByKind(r.kind);
-  const managed = r.ownerId !== null;
+  // A stack's member is changed through its stack (CAT-06): no edit, delete or move.
+  const managed = r.ownerId !== null || r.stack !== null;
   const canRestart = ['app', 'database', 'cache', 'search', 'email', 'cdn'].includes(r.kind) && r.status.phase === 'ready' || (r.kind === 'vm' && r.status.phase === 'ready' && r.outputs.power === 'running');
   const canRedeploy = r.kind === 'app' && r.status.phase === 'ready';
   const hasLogs = ['app', 'database', 'cache', 'vm', 'search', 'email', 'cdn'].includes(r.kind);
@@ -235,7 +238,11 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
               <Link to={`/${section.slug}`} className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All {section.label.toLowerCase()}</Link>
             </BackSlot>
             <Chip tone="accent">{section.noun}</Chip>
-            {managed && <Chip>Managed by {r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : 'its database'}</Chip>}
+            {r.ownerId !== null && <Chip>Managed by {r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : 'its database'}</Chip>}
+            {r.stack && <StackChip id={r.stack} />}
+            {typeof r.outputs.machine === 'string' && r.outputs.machine && (
+              <Link to={`/machines/${encodeURIComponent(r.outputs.machine)}`}><Chip mono icon={<Icons.Server />}>{r.outputs.machine}</Chip></Link>
+            )}
           </Inline>
           {!canEdit ? (
             <Inline gap={2} wrap>
@@ -275,8 +282,11 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
                 {r.outputs.type === 'disk' && <Button size="sm" icon={<Icons.Server />} disabled={busy} onClick={() => setSpawning({ kind: 'vm', title: 'Launch VM from snapshot', snapshot: r.name })}>Launch VM</Button>}
               </>
             )}
-            {r.kind === 'app' && r.status.phase !== 'deleting' && <Button size="sm" icon={<Icons.Globe />} disabled={busy} onClick={() => setAddingDomain(true)}>Add domain</Button>}
-            {!managed && r.status.phase !== 'deleting' && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setEditing(true)}>Edit</Button>}
+            {r.kind === 'app' && r.status.phase !== 'deleting' && !r.stack && <Button size="sm" icon={<Icons.Globe />} disabled={busy} onClick={() => setAddingDomain(true)}>Add domain</Button>}
+            {isPlaced(r.kind) && !managed && r.status.phase !== 'deleting' && !(r.kind === 'job' && (r.spec as JobSpec).app) && (
+              <MoveButton r={r} disabled={busy} onMoved={() => { toast(`Moving ${r.name}`); detail.reload(); onChanged(); }} />
+            )}
+            {!managed && r.status.phase !== 'deleting' && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setEditing(true)}>{r.kind === 'stack' ? 'Edit parameters' : 'Edit'}</Button>}
             {!managed && r.status.phase !== 'deleting' && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</Button>}
           </Inline>
           )}
@@ -303,6 +313,7 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
           </DetailProgress>
         )}
 
+        {isPlaced(r.kind) && <OfflineBanner r={r} />}
         {r.status.message && (
           <Alert tone={failed ? 'bad' : 'info'} role={failed ? 'alert' : undefined}>{r.status.message}</Alert>
         )}
@@ -313,7 +324,7 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
           <SegmentedTabs label="Details" tabs={tabs} selected={tab} onSelect={setTab} />
         </div>
         <TabPanel id={tab}>
-          {tab === 'overview' && (r.kind === 'dashboard' ? <DashboardCharts dashboard={r as Resource<'dashboard'>} /> : <Overview r={r} canReveal={canEdit} />)}
+          {tab === 'overview' && (r.kind === 'dashboard' ? <DashboardCharts dashboard={r as Resource<'dashboard'>} /> : r.kind === 'stack' ? <StackOverview stack={r as Resource<'stack'>} /> : <Overview r={r} canReveal={canEdit} />)}
           {tab === 'metrics' && <ResourceMetrics resource={r} />}
           {tab === 'incidents' && <Incidents alert={r} />}
           {tab === 'notifications' && <ChannelDeliveries channel={r} version={String(r.outputs.lastDeliveryAt ?? '')} />}
@@ -331,8 +342,8 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
       </DetailBody>
 
       {editing && (
-        <Drawer title={`Edit ${r.kind} ${r.name}`} onClose={() => setEditing(false)}>
-          <ResourceForm
+        <Drawer title={r.kind === 'stack' ? `Parameters of ${r.name}` : `Edit ${r.kind} ${r.name}`} onClose={() => setEditing(false)}>
+          {r.kind === 'stack' ? <StackEdit stack={r as Resource<'stack'>} onDone={() => { setEditing(false); toast(`Updating stack ${r.name}`); detail.reload(); onChanged(); }} /> : <ResourceForm
             kind={r.kind}
             existing={r}
             onReload={() => {
@@ -345,7 +356,7 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
               detail.reload();
               onChanged();
             }}
-          />
+          />}
         </Drawer>
       )}
       {addingDomain && (
@@ -433,7 +444,8 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
           typeToConfirm={r.name}
           confirmLabel={`Delete ${section.noun}`}
           error={deleteError}
-          body={r.kind === 'vm' ? <p>This deletes the VM <strong>{r.name}</strong> and its root disk. Its data disks are detached and kept. This cannot be undone.</p>
+          body={r.kind === 'stack' ? <StackDeleteBody stack={r} />
+            : r.kind === 'vm' ? <p>This deletes the VM <strong>{r.name}</strong> and its root disk. Its data disks are detached and kept. This cannot be undone.</p>
             : dataLoss ? <p>This deletes the {r.kind} <strong>{r.name}</strong> and all of its data. This cannot be undone.</p>
             : r.kind === 'backup' ? <p>This deletes the backup <strong>{r.name}</strong>: its schedule and run history. Backups already stored in the bucket are kept; delete them there if you no longer need them.</p>
               : <p>This deletes the {r.kind} <strong>{r.name}</strong>.</p>}
@@ -445,6 +457,84 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
         />
       )}
     </>
+  );
+}
+
+/** "Part of stack <name>", linked (CON-60). */
+function StackChip({ id }: { id: string }) {
+  const api = useApi();
+  const st = useLoad(`stack-of:${id}`, () => api.getResource(id));
+  return <Link to={`/stacks/${encodeURIComponent(id)}`}><Chip tone="accent" icon={<Icons.Boxes />}>Part of stack {st.data?.name ?? '…'}</Chip></Link>;
+}
+
+/** What deleting a stack deletes, naming the members with data (CON-60). */
+function StackDeleteBody({ stack }: { stack: Resource }) {
+  const members = (stack.outputs.members ?? []) as unknown as { kind: Kind; name: string }[];
+  const data = members.filter((m) => ['database', 'cache', 'bucket', 'volume', 'search', 'email', 'queue'].includes(m.kind));
+  return (
+    <Stack gap={2}>
+      <p>This deletes the stack <strong>{stack.name}</strong> and its {members.length} members.</p>
+      {data.length > 0 && <p>Their data goes with them: {data.map((m) => `${m.kind} ${m.name}`).join(', ')}. This cannot be undone.</p>}
+    </Stack>
+  );
+}
+
+/** A stack's template, parameters, outputs and members (CON-60). */
+function StackOverview({ stack }: { stack: Resource<'stack'> }) {
+  const api = useApi();
+  const st = stack.spec;
+  const entry = useLoad(`stack-entry:${st.template ?? ''}`, () => (st.template ? api.getCatalogueEntry(st.template) : Promise.resolve(null)));
+  const outs = (stack.outputs.outputs ?? {}) as unknown as Record<string, string>;
+  const version = String(stack.outputs.version ?? st.version ?? '');
+  const newer = entry.data && entry.data.version !== version ? entry.data.version : '';
+  return (
+    <Stack gap={4}>
+      <Grid min="sm">
+        <Card><Fact label="Template" value={st.template ?? 'Its own'} /></Card>
+        <Card><Fact label="Version" mono value={`${version}${newer ? ` (${newer} available)` : ''}`} /></Card>
+        <Card><Fact label="Members ready" value={`${String(stack.outputs.ready ?? 0)} of ${String(stack.outputs.total ?? 0)}`} /></Card>
+      </Grid>
+      {Object.keys(st.parameters ?? {}).length > 0 && (
+        <Card title="Parameters">
+          <Grid min="sm">{Object.entries(st.parameters ?? {}).map(([k, v]) => <Fact key={k} label={k} mono value={String(v)} />)}</Grid>
+        </Card>
+      )}
+      {Object.keys(outs).length > 0 && (
+        <Card title="Outputs">
+          <Grid min="sm">
+            {Object.entries(outs).map(([k, v]) => <Fact key={k} label={k} mono value={/^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer">{v}</a> : v} />)}
+          </Grid>
+        </Card>
+      )}
+      <Card title="Members"><StackMembers stack={stack} /></Card>
+    </Stack>
+  );
+}
+
+/** Edit parameters, or upgrade to the newest version (CON-60). */
+function StackEdit({ stack, onDone }: { stack: Resource<'stack'>; onDone: () => void }) {
+  const api = useApi();
+  const toast = useToast();
+  const name = stack.spec.template ?? '';
+  const version = String(stack.outputs.version ?? stack.spec.version ?? '');
+  const current = useLoad(`stack-edit:${name}:${version}`, () => (name ? api.getCatalogueEntry(name, version) : Promise.resolve(null)));
+  const newest = useLoad(`stack-edit-newest:${name}`, () => (name ? api.getCatalogueEntry(name) : Promise.resolve(null)));
+  if (!name) return <Text tone="muted">This stack uses a template of its own. Change it with the CLI or OpenTofu: enclave stack update {stack.name} --param name=value.</Text>;
+  if (!current.data) return current.error ? <Alert>{current.error.message}</Alert> : <Skeleton shape="block" />;
+  const upgrade = newest.data && newest.data.version !== version ? newest.data.version : '';
+  return (
+    <Stack gap={4}>
+      {upgrade && (
+        <Alert tone="info">
+          <Inline justify="between" wrap>
+            <Text size="sm">Version {upgrade} is available; this stack is on {version}.</Text>
+            <Button size="sm" variant="dark" onClick={() => void api.updateResource(stack.id, { version: upgrade }, stack.generation).then(() => { toast(`Upgrading ${stack.name} to ${upgrade}`); onDone(); },
+              (e: unknown) => toast(e instanceof ApiError ? e.message : 'That did not work. Try again.'))}>Upgrade</Button>
+          </Inline>
+        </Alert>
+      )}
+      <StackForm entry={current.data} existing={stack} onDone={onDone} />
+    </Stack>
   );
 }
 

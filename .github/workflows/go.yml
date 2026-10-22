@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: go vet ./... && go vet -tags docker ./internal/engine/docker/ && go vet -tags e2e ./tests/e2e/
+      - run: go vet ./... && go vet -tags docker ./internal/engine/docker/ && go vet -tags e2e ./tests/e2e/ && go vet -tags "e2e machines" ./tests/e2e/
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       - name: Generated console contract is current
         run: go run ./cmd/gencontracts && git diff --exit-code -- console/src/api/generated.ts
@@ -75,7 +75,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @enclavestack/console exec playwright install --with-deps chrome
+      # Compile the server here: on a cold runner `go run` alone outlasts Playwright's web server timeout.
+      - run: go build -o /dev/null ./cmd/enclave
       - run: pnpm --filter @enclavestack/console e2e
+
+  machines-e2e:
+    name: Machines E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Two machines (L4-002 §5): the server in a container, a Docker-in-Docker agent (privileged).
+      - run: make e2e-machines
 
   engine-e2e:
     name: Engine E2E
@@ -109,4 +123,5 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: grafana/setup-k6-action@v1
-      - run: DURATION=30s tests/load/run.sh --quiet
+      # A fifth of the full load: on a shared runner p95 at 50 + 10 users is luck (L5-003 §2).
+      - run: DURATION=30s READ_VUS=10 WRITE_VUS=2 tests/load/run.sh --quiet

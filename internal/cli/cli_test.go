@@ -100,7 +100,7 @@ func TestEnvironmentTokenBeatsTheConfigFile(t *testing.T) {
 	if r := h.run("cache", "create", "envtest"); r.code != cli.ExitAuth || !strings.Contains(r.err, "editor role") {
 		t.Errorf("env token not used: %d %q", r.code, r.err)
 	}
-	if r := h.run("cache", "create", "flagtest", "--token", "hc_pat_bogus"); r.code != cli.ExitAuth {
+	if r := h.run("cache", "create", "flagtest", "--token", "es_pat_bogus"); r.code != cli.ExitAuth {
 		t.Errorf("flag token not used: %d", r.code)
 	}
 }
@@ -225,7 +225,7 @@ func TestTokensAndLogout(t *testing.T) {
 func TestServerDownIsAClearError(t *testing.T) {
 	h := newHarness(t)
 	h.vars["ENCLAVE_SERVER"] = "http://127.0.0.1:1"
-	h.vars["ENCLAVE_TOKEN"] = "hc_pat_x"
+	h.vars["ENCLAVE_TOKEN"] = "es_pat_x"
 	r := h.run("ls")
 	if r.code != cli.ExitError || !strings.Contains(r.err, "can't reach EnclaveStack at http://127.0.0.1:1") {
 		t.Errorf("%d %q", r.code, r.err)

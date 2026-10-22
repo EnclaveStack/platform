@@ -247,6 +247,7 @@ func (a *app) machineCmd() *cobra.Command {
 	set.Flags().StringVar(&inviteFrom, "invite-from", "", "the sender of invite emails")
 	set.Flags().BoolVar(&noInviteEmail, "no-invite-email", false, "stop emailing invite links")
 	cmd.AddCommand(set)
+	a.machineSubcommands(cmd)
 	return cmd
 }
 

@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 
 // "Use from code" (CON-18): the CLI command and OpenTofu block that produce a resource as it is now,
 // so operators can move from clicks to code. Secret values are never included.
@@ -8,9 +8,10 @@ const sh = (s: string) => (/^[A-Za-z0-9_./:@=+-]+$/.test(s) ? s : `'${s.replace(
 const hcl = (s: string) => JSON.stringify(s);
 const ident = (name: string) => name.replace(/-/g, '_');
 
-/** --network/--subnet flags of a placed resource (CLI-18). */
-function placementFlags(p: { network?: string; subnet?: string }): string {
-  return (p.network ? ` --network ${p.network}` : '') + (p.subnet ? ` --subnet ${p.subnet}` : '');
+/** --network/--subnet (CLI-18) and --machine/--machine-label (CLI-48) flags of a placed resource. */
+function placementFlags(p: { network?: string; subnet?: string } & Placed): string {
+  return (p.network ? ` --network ${p.network}` : '') + (p.subnet ? ` --subnet ${p.subnet}` : '') + (p.machine ? ` --machine ${p.machine}` : '')
+    + Object.entries(p.machineLabels ?? {}).map(([k, v]) => ` --machine-label ${sh(`${k}=${v}`)}`).join('');
 }
 
 /** --volume NAME:PATH[:ro] flags of an app or job (CLI-26). */
@@ -41,6 +42,14 @@ const dur = (sec: number) => (sec % 3600 === 0 ? `${sec / 3600}h` : sec % 60 ===
 
 function kindCommand(r: Resource): string {
   switch (r.kind) {
+    case 'stack': {
+      // Secret parameters are never returned, so they can't be shown here.
+      const st = r.spec as StackSpec;
+      const parts = [`enclave stack create ${r.name}`, st.template ? `--template ${st.template}` : `--template-file ./${r.name}.yaml`];
+      if (st.version) parts.push(`--version ${st.version}`);
+      for (const [k, v] of Object.entries(st.parameters ?? {})) parts.push(`--param ${sh(`${k}=${String(v)}`)}`);
+      return [...parts, '--wait'].join(' \\\n  ');
+    }
     case 'dashboard': {
       const d = r.spec as DashboardSpec;
       return [`enclave dashboard create ${r.name}`, ...d.widgets.map((w) => `--widget ${sh(`title=${w.title},metric=${w.metric},resources=${w.resources.join('+')}`)}`), '--wait'].join(' \\\n  ');
@@ -52,6 +61,9 @@ function kindCommand(r: Resource): string {
       if (c.type === 'metric') {
         parts.push(`--metric ${c.metric ?? ''}`, ...c.resources.map((x) => `--resource ${x}`), `--${c.operator ?? 'above'} ${c.threshold ?? 0}`);
         if (c.forMinutes && c.forMinutes !== RULES.alertForDefault) parts.push(`--for ${c.forMinutes}m`);
+      } else if (c.type === 'machine_offline') {
+        parts.push(...c.resources.map((x) => `--machine-offline ${x.replace(RULES.machineRefPrefix, '')}`));
+        if (c.forMinutes && c.forMinutes !== 1) parts.push(`--for ${c.forMinutes}m`);
       } else {
         const flag = { crash_loop: 'crash-loop', failed: 'failed', run_failed: 'run-failed' }[c.type];
         parts.push(...c.resources.map((x) => `--${flag} ${x}`));
@@ -134,7 +146,7 @@ function kindCommand(r: Resource): string {
       if (v.cpus && v.cpus !== RULES.vmCpusDefault) parts.push(`--cpus ${v.cpus}`);
       if (v.memoryMiB && v.memoryMiB !== RULES.vmMemoryDefault) parts.push(`--memory ${v.memoryMiB}`);
       if (v.diskGiB && v.diskGiB !== RULES.vmDiskDefault) parts.push(`--disk ${v.diskGiB}`);
-      if (v.network) parts.push(placementFlags(v).trim());
+      if (placementFlags(v)) parts.push(placementFlags(v).trim());
       for (const d of v.disks ?? []) parts.push(`--disk-volume ${d}`);
       for (const p of v.publish ?? []) parts.push(`--publish ${p}`);
       if (v.power === 'stopped') parts.push('--stopped');
@@ -146,6 +158,7 @@ function kindCommand(r: Resource): string {
       const parts = [`enclave volume create ${r.name}`, `--type ${v.type}`];
       if (v.type === 'disk' && v.sizeGiB && v.sizeGiB !== RULES.volumeSizeDefault) parts.push(`--size ${v.sizeGiB}`);
       if (v.snapshot) parts.push(`--snapshot ${v.snapshot}`);
+      if (placementFlags(v)) parts.push(placementFlags(v).trim());
       return [...parts, '--wait'].join(' ');
     }
     case 'snapshot':
@@ -238,6 +251,7 @@ function kindCommand(r: Resource): string {
       if (l.algorithm && l.algorithm !== 'round_robin') parts.push(`--algorithm ${l.algorithm}`);
       if (l.healthCheck?.type === 'http') parts.push(`--health http:${l.healthCheck.path ?? '/'}`);
       if (l.publish) parts.push('--publish');
+      if (placementFlags(l)) parts.push(placementFlags(l).trim());
       parts.push('--wait');
       return parts.join(' \\\n  ');
     }
@@ -269,7 +283,7 @@ function kindCommand(r: Resource): string {
       if (j.timeoutSeconds && j.timeoutSeconds !== RULES.jobTimeoutDefault) parts.push(`--run-timeout ${j.timeoutSeconds}s`);
       if (j.overlap === 'allow') parts.push('--overlap allow');
       if (j.memoryMiB && j.memoryMiB !== RULES.appMemoryDefault) parts.push(`--memory ${j.memoryMiB}`);
-      if (j.network) parts.push(placementFlags(j).trim());
+      if (placementFlags(j)) parts.push(placementFlags(j).trim());
       parts.push(...mountFlags(j.volumes));
       for (const [k, v] of Object.entries(j.env ?? {})) parts.push(`--env ${sh(`${k}=${v}`)}`);
       for (const [k, v] of Object.entries(j.secretEnv ?? {})) parts.push(`--secret-env ${k}=${v}`);
@@ -324,7 +338,7 @@ function kindCommand(r: Resource): string {
       for (const c of s.command ?? []) parts.push(`--command ${sh(c)}`);
       if (s.strategy === 'recreate') parts.push('--strategy recreate');
       if (s.replicas && s.replicas > 1) parts.push(`--replicas ${s.replicas}`);
-      if (s.network) parts.push(placementFlags(s).trim());
+      if (placementFlags(s)) parts.push(placementFlags(s).trim());
       parts.push(...mountFlags(s.volumes));
       const h = s.healthCheck;
       if (h) {
@@ -354,9 +368,12 @@ export function tofuBlock(r: Resource): string {
   if (r.project && r.project !== RULES.defaultProject) lines.push(`  project = ${hcl(r.project)}`);
   let type = r.kind as string;
   const refs = (xs: string[]) => `[${xs.map(hcl).join(', ')}]`;
-  const placement = (p: { network?: string; subnet?: string }) => {
+  const placement = (p: { network?: string; subnet?: string } & Placed) => {
     if (p.network) lines.push(`  network = ${hcl(p.network)}`);
     if (p.subnet) lines.push(`  subnet = ${hcl(p.subnet)}`);
+    if (p.machine) lines.push(`  machine = ${hcl(p.machine)}`);
+    const labels = hclMap(p.machineLabels);
+    if (labels) lines.push(`  machine_labels = ${labels}`);
   };
   const ruleBlock = (x: FirewallRule, dir: 'from' | 'to') => {
     const fields = [`${dir} = [${((dir === 'from' ? x.from : x.to) ?? []).map(hcl).join(', ')}]`];
@@ -365,6 +382,15 @@ export function tofuBlock(r: Resource): string {
     return `    { ${fields.join(', ')} },`;
   };
   switch (r.kind) {
+    case 'stack': {
+      const st = r.spec as StackSpec;
+      lines.push(st.template ? `  template = ${hcl(st.template)}` : `  template_body = file("\${path.module}/${r.name}.yaml")`);
+      if (st.version) lines.push(`  template_version = ${hcl(st.version)}`);
+      const params = Object.fromEntries(Object.entries(st.parameters ?? {}).map(([k, v]) => [k, String(v)]));
+      const map = hclMap(params);
+      if (map) lines.push(`  parameters = ${map}`);
+      break;
+    }
     case 'vm': {
       const v = r.spec as VMSpec;
       lines.push(`  image = ${hcl(v.image)}`);
@@ -386,6 +412,7 @@ export function tofuBlock(r: Resource): string {
       lines.push(`  type = ${hcl(v.type)}`);
       if (v.type === 'disk' && v.sizeGiB) lines.push(`  size_gib = ${v.sizeGiB}`);
       if (v.snapshot) lines.push(`  snapshot = ${hcl(v.snapshot)}`);
+      placement(v);
       break;
     }
     case 'snapshot':
@@ -489,6 +516,7 @@ export function tofuBlock(r: Resource): string {
       });
       lines.push(`  target = [\n${targets.join('\n')}\n  ]`);
       if (l.healthCheck?.type === 'http') lines.push(`  health_check = { type = "http", path = ${hcl(l.healthCheck.path ?? '/')} }`);
+      placement(l);
       break;
     }
     case 'zone': {
@@ -575,6 +603,7 @@ export function tofuBlock(r: Resource): string {
         fields.push(`metric = ${hcl(c.metric ?? '')}`, `operator = ${hcl(c.operator ?? 'above')}`, `threshold = ${c.threshold ?? 0}`);
         if (c.forMinutes && c.forMinutes !== RULES.alertForDefault) fields.push(`for_minutes = ${c.forMinutes}`);
       }
+      if (c.type === 'machine_offline' && c.forMinutes && c.forMinutes !== 1) fields.push(`for_minutes = ${c.forMinutes}`);
       if (c.type === 'crash_loop') {
         if (c.restarts && c.restarts !== RULES.alertRestartsDefault) fields.push(`restarts = ${c.restarts}`);
         if (c.windowMinutes && c.windowMinutes !== RULES.alertWindowDefault) fields.push(`window_minutes = ${c.windowMinutes}`);

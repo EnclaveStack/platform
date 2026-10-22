@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/go-connections/nat"
 
@@ -118,7 +117,10 @@ func (d *Driver) createBroker(ctx context.Context, hostPortWanted int) error {
 	host := &container.HostConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 		Resources: container.Resources{Memory: brokerMemoryMiB << 20}, Binds: []string{engine.BrokerVolume + ":/data"},
 		PortBindings: nat.PortMap{port: {{HostIP: d.opts.PublishAddress, HostPort: hp}}}} // never the monitoring port
-	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{engine.NetworkName: {Aliases: []string{engine.BrokerName}}}}
+	netCfg, err := d.systemNetworking(ctx, engine.BrokerName)
+	if err != nil {
+		return err
+	}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
 	if _, err := d.cli.ContainerCreate(cctx, cfg, host, netCfg, nil, engine.BrokerName); err != nil {

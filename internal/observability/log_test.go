@@ -9,11 +9,11 @@ import (
 func TestLoggerRedactsSensitiveAttributes(t *testing.T) {
 	var buf bytes.Buffer
 	log := NewLogger(&buf, "debug", false)
-	log.Info("event", "password", "hunter2", "token", "hc_pat_abc", "secret_value", "s3", "Authorization", "Bearer x",
+	log.Info("event", "password", "hunter2", "token", "es_pat_abc", "secret_value", "s3", "Authorization", "Bearer x",
 		"cookie", "es_session=y", "setup_code", "AAAA-BBBB-CCCC", "resource_id", "app_123")
 	log.With("value", "nested-secret").Warn("child")
 	out := buf.String()
-	for _, leak := range []string{"hunter2", "hc_pat_abc", "s3\"", "Bearer x", "es_session=y", "AAAA-BBBB-CCCC", "nested-secret"} {
+	for _, leak := range []string{"hunter2", "es_pat_abc", "s3\"", "Bearer x", "es_session=y", "AAAA-BBBB-CCCC", "nested-secret"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("log contains %q:\n%s", leak, out)
 		}

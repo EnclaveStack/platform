@@ -3,6 +3,7 @@ import type { Kind } from '../api/types';
 
 const ICON: Record<Kind, typeof Icons.Box> = {
   app: Icons.Box,
+  stack: Icons.Boxes,
   database: Icons.Database,
   cache: Icons.Zap,
   bucket: Icons.Archive,

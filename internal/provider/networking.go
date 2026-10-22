@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -118,7 +119,11 @@ func (r *kindResource[M, P]) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 	id, _ := P(&state).ids()
-	res, err := r.updateAndWait(ctx, id.ValueString(), m.patch(), timeout)
+	patch := m.patch()
+	if pm, ok := any(m).(machineAware); ok {
+		maps.Copy(patch, pm.machineOf().machinePatch(any(P(&state)).(machineAware).machineOf()))
+	}
+	res, err := r.updateAndWait(ctx, id.ValueString(), patch, timeout)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update "+r.label, err))
 		return
@@ -396,9 +401,10 @@ type lbCheckModel struct {
 }
 
 type lbModel struct {
-	ID             types.String    `tfsdk:"id"`
-	Name           types.String    `tfsdk:"name"`
-	Project        types.String    `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Port           types.Int64     `tfsdk:"port"`
 	Protocol       types.String    `tfsdk:"protocol"`
 	Publish        types.Bool      `tfsdk:"publish"`
@@ -416,7 +422,7 @@ func (m *lbModel) ids() (types.String, types.String) { return m.ID, m.Name }
 func (m *lbModel) limits() timeouts.Value            { return m.Timeouts }
 
 func (m *lbModel) spec() any {
-	s := api.LoadBalancerSpec{Port: int(m.Port.ValueInt64()), Protocol: m.Protocol.ValueString(), Publish: m.Publish.ValueBool(), Algorithm: m.Algorithm.ValueString()}
+	s := api.LoadBalancerSpec{Port: int(m.Port.ValueInt64()), Protocol: m.Protocol.ValueString(), Publish: m.Publish.ValueBool(), Algorithm: m.Algorithm.ValueString(), Placed: m.placed()}
 	for _, t := range m.Targets {
 		s.Targets = append(s.Targets, api.LoadBalancerTarget{App: t.App.ValueString(), Port: int(t.Port.ValueInt64()), Weight: int(t.Weight.ValueInt64())})
 	}
@@ -437,6 +443,7 @@ func (m *lbModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.LoadBalancerSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Port = types.StringValue(r.ID), types.StringValue(r.Name), types.Int64Value(int64(s.Port))
 	m.Protocol, m.Publish, m.Algorithm = types.StringValue(s.Protocol), types.BoolValue(s.Publish), types.StringValue(s.Algorithm)
 	prior := m.Targets
@@ -475,10 +482,12 @@ func newLoadBalancer() resource.Resource {
 			return schema.Schema{
 				Description: "A TCP or HTTP load balancer in front of apps' replicas, in their network.",
 				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("load balancer"),
-					"project": projectAttr(),
-					"port":    schema.Int64Attribute{Required: true, Description: "Port it listens on.", Validators: []validator.Int64{int64validator.Between(api.PortMin, api.PortMax)}},
+					"id":             idAttr(),
+					"name":           nameAttr("load balancer"),
+					"project":        projectAttr(),
+					"machine":        machineAttr(),
+					"machine_labels": machineLabelsAttr(),
+					"port":           schema.Int64Attribute{Required: true, Description: "Port it listens on.", Validators: []validator.Int64{int64validator.Between(api.PortMin, api.PortMax)}},
 					"protocol": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(api.LBProtocolHTTP),
 						Description: "http (default) or tcp.", Validators: []validator.String{stringvalidator.OneOf(api.LBProtocols...)}},
 					"publish": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Also listen on a host port."},

@@ -107,7 +107,7 @@ func (a *app) vmCmd() *cobra.Command {
 				return err
 			}
 			spec := api.VMSpec{Image: cf.image, ImageSHA256: cf.sha256, SSHKeys: keys, SSHKeySecret: cf.keySecret, UserData: user,
-				CPUs: cf.cpus, MemoryMiB: cf.memory, DiskGiB: cf.disk, Network: cf.place.network, Subnet: cf.place.subnet, Disks: cf.disks, Publish: cf.publish}
+				CPUs: cf.cpus, MemoryMiB: cf.memory, DiskGiB: cf.disk, Network: cf.place.network, Subnet: cf.place.subnet, Disks: cf.disks, Publish: cf.publish, Placed: cf.place.placed()}
 			if cf.stopped {
 				spec.Power = api.PowerStopped
 			}
@@ -319,12 +319,14 @@ func (a *app) volumeCmd() *cobra.Command {
 	var typ, snapshot string
 	var size int
 	var wait bool
+	var cm machineFlags
 	create := &cobra.Command{
 		Use: "create NAME --type disk|filesystem", Short: "Create a volume, empty or from a snapshot", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.create(cmd.Context(), api.KindVolume, args[0], api.VolumeSpec{Type: typ, SizeGiB: size, Snapshot: snapshot}, wait)
+			return a.create(cmd.Context(), api.KindVolume, args[0], api.VolumeSpec{Type: typ, SizeGiB: size, Snapshot: snapshot, Placed: cm.placed()}, wait)
 		},
 	}
+	cm.bind(create)
 	create.Flags().StringVar(&typ, "type", "", "disk (attached to one VM) or filesystem (mounted into apps and jobs)")
 	create.Flags().IntVar(&size, "size", 0, "a disk's size in GiB (1–2048, default 10)")
 	create.Flags().StringVar(&snapshot, "snapshot", "", "start from this snapshot")
@@ -332,17 +334,20 @@ func (a *app) volumeCmd() *cobra.Command {
 	_ = create.MarkFlagRequired("type")
 	var usize int
 	var uwait bool
+	var um machineFlags
 	update := &cobra.Command{
-		Use: "update NAME --size GIB", Short: "Grow a disk (live, while its VM runs)", Args: cobra.ExactArgs(1),
+		Use: "update NAME [--size GIB] [--machine M]", Short: "Grow a disk (live, while its VM runs), or move the volume and what uses it", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			patch := map[string]any{}
 			if cmd.Flags().Changed("size") {
 				patch["sizeGiB"] = usize
 			}
+			um.patch(cmd.Flags().Changed, patch)
 			return a.update(cmd.Context(), api.KindVolume, args[0], patch, uwait)
 		},
 	}
 	update.Flags().IntVar(&usize, "size", 0, "new size in GiB; it only grows")
+	um.bind(update)
 	update.Flags().BoolVar(&uwait, "wait", false, "wait until ready")
 	cmd.AddCommand(create, update)
 	return cmd

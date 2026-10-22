@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -23,9 +24,10 @@ import (
 // ─── enclave_job (TF-13) ─────────────────────────────────────────────────
 
 type jobModel struct {
-	ID            types.String   `tfsdk:"id"`
-	Name          types.String   `tfsdk:"name"`
-	Project       types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Schedule      types.String   `tfsdk:"schedule"`
 	TimeZone      types.String   `tfsdk:"time_zone"`
 	App           types.String   `tfsdk:"app"`
@@ -64,9 +66,11 @@ func (r *jobResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		Description: "A command run on a schedule. Run history is not part of state; read it with the CLI or console.",
 		Attributes: map[string]schema.Attribute{
-			"id":      idAttr(),
-			"name":    nameAttr("job"),
-			"project": projectAttr(),
+			"id":             idAttr(),
+			"name":           nameAttr("job"),
+			"project":        projectAttr(),
+			"machine":        machineAttr(),
+			"machine_labels": machineLabelsAttr(),
 			"schedule": schema.StringAttribute{Required: true,
 				Description: `5-field cron ("0 3 * * *") or @hourly, @daily, @weekly, @monthly.`},
 			"time_zone": schema.StringAttribute{Optional: true, Description: "IANA time zone for the schedule (default: the machine's)."},
@@ -96,7 +100,7 @@ func (m *jobModel) spec(ctx context.Context) (api.JobSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	s := api.JobSpec{Schedule: m.Schedule.ValueString(), TimeZone: m.TimeZone.ValueString(), App: m.App.ValueString(), Image: m.Image.ValueString(),
 		TimeoutSeconds: int(m.Timeout.ValueInt64()), Overlap: m.Overlap.ValueString(), MemoryMiB: int(m.MemoryMiB.ValueInt64()),
-		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Volumes: mountsOf(m.Volumes)}
+		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Volumes: mountsOf(m.Volumes), Placed: m.placed()}
 	if !m.Command.IsNull() {
 		diags.Append(m.Command.ElementsAs(ctx, &s.Command, false)...)
 	}
@@ -120,6 +124,7 @@ func (m *jobModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.JobSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Schedule = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(s.Schedule)
 	m.TimeZone, m.App, m.Image = strOrNull(s.TimeZone), strOrNull(s.App), strOrNull(s.Image)
 	m.Command = listOrNull(s.Command, m.Command)
@@ -185,6 +190,7 @@ func (r *jobResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		"command": nilIfEmpty(s.Command), "env": nilIfEmptyMap(s.Env), "secretEnv": nilIfEmptyMap(s.SecretEnv),
 		"timeoutSeconds": s.TimeoutSeconds, "overlap": s.Overlap, "memoryMiB": s.MemoryMiB,
 		"network": nilIfEmptyString(s.Network), "subnet": nilIfEmptyString(s.Subnet), "volumes": nilIfNoMounts(s.Volumes)}
+	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update job", err))

@@ -10,6 +10,8 @@ import { AuditPage } from './routes/AuditPage';
 import { InvitePage } from './routes/InvitePage';
 import { PeoplePage } from './routes/PeoplePage';
 import { ProjectsPage } from './routes/ProjectsPage';
+import { CataloguePage } from './routes/CataloguePage';
+import { MachinesPage } from './routes/MachinesPage';
 
 export const routes = [
   { path: '/login', element: <LoginPage /> },
@@ -27,6 +29,9 @@ export const routes = [
           { path: '/settings/people', element: <PeoplePage /> },
           { path: '/settings/projects', element: <ProjectsPage /> },
           { path: '/settings/audit', element: <AuditPage /> },
+          { path: '/machines', element: <MachinesPage /> },
+          { path: '/machines/:name', element: <MachinesPage /> },
+          { path: '/catalogue', element: <CataloguePage /> },
           { path: '/:section', element: <SectionPage /> },
           { path: '/:section/:id', element: <SectionPage /> },
         ],

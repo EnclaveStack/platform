@@ -136,9 +136,13 @@ func (d *Driver) connectIfMissing(ctx context.Context, net, name string) error {
 			return nil
 		}
 	}
+	ep, err := d.systemEndpoint(ctx, net)
+	if err != nil {
+		return err
+	}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
-	err = d.cli.NetworkConnect(cctx, net, name, &network.EndpointSettings{})
+	err = d.cli.NetworkConnect(cctx, net, name, ep)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return d.classify(fmt.Errorf("connect %s to %s: %w", name, net, err))
 	}
@@ -175,7 +179,19 @@ func (d *Driver) endpoint(ctx context.Context, p engine.Placement, aliases []str
 		return nil, d.classify(err)
 	}
 	ep := &network.EndpointSettings{Aliases: aliases}
-	if p.Subnet != "" {
+	switch {
+	case p.Address != "": // a move keeps its address (ADR-047)
+		if err := d.removeStandInAt(ctx, net, p.Address); err != nil {
+			return nil, err
+		}
+		ep.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: p.Address}
+	case d.meshCfg() != nil: // with a mesh, this machine's pool (ADR-045)
+		addr, err := d.poolAddress(ctx, net, p.Subnet)
+		if err != nil {
+			return nil, err
+		}
+		ep.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: addr}
+	case p.Subnet != "":
 		addr, err := d.freeAddress(ctx, net, p.Subnet)
 		if err != nil {
 			return nil, err
@@ -233,4 +249,30 @@ func lastAddr(p netip.Prefix) netip.Addr {
 	v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 	v |= (1 << host) - 1
 	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
+}
+
+// systemEndpoint is how a system container joins net: an address of this machine's pool with a mesh
+// (ADR-045), else the engine's choice.
+func (d *Driver) systemEndpoint(ctx context.Context, net string) (*network.EndpointSettings, error) {
+	addr, err := d.poolAddress(ctx, net, "")
+	if err != nil {
+		return nil, err
+	}
+	if addr == "" {
+		return &network.EndpointSettings{}, nil
+	}
+	return &network.EndpointSettings{IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: addr}}, nil
+}
+
+// systemNetworking joins a new system container to the default network, as systemEndpoint does.
+func (d *Driver) systemNetworking(ctx context.Context, aliases ...string) (*network.NetworkingConfig, error) {
+	if err := d.ensureNetwork(ctx); err != nil {
+		return nil, err
+	}
+	ep, err := d.systemEndpoint(ctx, engine.NetworkName)
+	if err != nil {
+		return nil, err
+	}
+	ep.Aliases = aliases
+	return &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{engine.NetworkName: ep}}, nil
 }

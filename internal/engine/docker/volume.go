@@ -86,7 +86,44 @@ func (d *Driver) VolumeUsage(ctx context.Context, r *domain.Resource) (int64, er
 
 // SnapshotVolume implements engine.Driver.
 func (d *Driver) SnapshotVolume(ctx context.Context, r *domain.Resource, w io.Writer) error {
-	return d.withCopyHelper(ctx, r, true, func(id string) error {
+	return d.exportVolume(ctx, r, engine.FilesystemVolume(r.ID), w)
+}
+
+// RestoreVolume implements engine.Driver.
+func (d *Driver) RestoreVolume(ctx context.Context, r *domain.Resource, src io.Reader) error {
+	return d.importVolume(ctx, r, engine.FilesystemVolume(r.ID), src)
+}
+
+// ExportData implements engine.Driver: a data volume, read through the copy helper as a snapshot is.
+func (d *Driver) ExportData(ctx context.Context, r *domain.Resource, w io.Writer) error {
+	return d.exportVolume(ctx, r, engine.VolumeName(r), w)
+}
+
+// ImportData implements engine.Driver.
+func (d *Driver) ImportData(ctx context.Context, r *domain.Resource, src io.Reader) error {
+	return d.importVolume(ctx, r, engine.VolumeName(r), src)
+}
+
+// StopResource implements engine.Driver.
+func (d *Driver) StopResource(ctx context.Context, r *domain.Resource) error {
+	timeout := 30
+	names, err := d.containersFor(ctx, r)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		sctx, cancel := context.WithTimeout(ctx, stepTimeout)
+		err := d.cli.ContainerStop(sctx, name, container.StopOptions{Timeout: &timeout})
+		cancel()
+		if err != nil && !cerrdefs.IsNotFound(err) {
+			return d.classify(fmt.Errorf("stop %s: %w", name, err))
+		}
+	}
+	return nil
+}
+
+func (d *Driver) exportVolume(ctx context.Context, r *domain.Resource, vol string, w io.Writer) error {
+	return d.withCopyHelper(ctx, r, vol, true, func(id string) error {
 		rc, _, err := d.cli.CopyFromContainer(ctx, id, snapshotMountPath+"/.")
 		if err != nil {
 			return d.classify(fmt.Errorf("read volume: %w", err))
@@ -99,9 +136,8 @@ func (d *Driver) SnapshotVolume(ctx context.Context, r *domain.Resource, w io.Wr
 	})
 }
 
-// RestoreVolume implements engine.Driver.
-func (d *Driver) RestoreVolume(ctx context.Context, r *domain.Resource, src io.Reader) error {
-	return d.withCopyHelper(ctx, r, false, func(id string) error {
+func (d *Driver) importVolume(ctx context.Context, r *domain.Resource, vol string, src io.Reader) error {
+	return d.withCopyHelper(ctx, r, vol, false, func(id string) error {
 		if err := d.cli.CopyToContainer(ctx, id, snapshotMountPath, src, container.CopyToContainerOptions{}); err != nil {
 			return d.classify(fmt.Errorf("fill volume: %w", err))
 		}
@@ -111,13 +147,13 @@ func (d *Driver) RestoreVolume(ctx context.Context, r *domain.Resource, src io.R
 
 // withCopyHelper creates (never starts) a container with the volume mounted, runs fn with its ID, and
 // removes it.
-func (d *Driver) withCopyHelper(ctx context.Context, r *domain.Resource, readOnly bool, fn func(id string) error) error {
+func (d *Driver) withCopyHelper(ctx context.Context, r *domain.Resource, vol string, readOnly bool, fn func(id string) error) error {
 	if err := d.ensureImage(ctx, d.opts.ProbeImage, false); err != nil {
 		return err
 	}
 	name := copyHelperPrefix + strings.TrimPrefix(domain.NewID("x"), "x_")
 	cfg := &container.Config{Image: d.opts.ProbeImage, Labels: map[string]string{LabelManaged: "true", LabelResourceID: r.ID}}
-	host := &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: engine.FilesystemVolume(r.ID), Target: snapshotMountPath, ReadOnly: readOnly}}}
+	host := &container.HostConfig{NetworkMode: "none", Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: vol, Target: snapshotMountPath, ReadOnly: readOnly}}}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	created, err := d.cli.ContainerCreate(cctx, cfg, host, nil, nil, name)
 	cancel()

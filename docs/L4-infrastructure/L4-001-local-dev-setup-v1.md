@@ -6,7 +6,7 @@
 | Document ID | L4-001-local-dev-setup-v1 |
 | Layer | L4 — Infrastructure & Deployment |
 | Status | Draft |
-| Version | v12 |
+| Version | v15 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -40,14 +40,24 @@ bash bin/install-hooks.sh
 make build            # console → console/dist → embedded; build/enclave and build/terraform-provider-enclave
 ```
 
+### Try it in one command
+
+```bash
+make demo                      # builds, starts the server on the fake engine, signs up admin@enclave.local / enclave-demo and adds sample data
+make demo DRIVER=docker        # the same with real containers; the data stays in ~/.enclave-demo, and a second run picks it up
+make demo PORT=7171 DATA=/tmp/my-demo   # another port; keep the data
+```
+
+The sample data (`examples/demo/run.sh`): a secret, a PostgreSQL database, a Redis cache, a bucket, an app using the secret, a daily job, a WordPress stack from the catalogue, and a second project with its own app. The script prints the console address, the sign-in and an `export` line for the CLI. Ctrl-C stops the server; with the fake engine and no `DATA`, the data goes with it.
+
 ### Run the control plane and console
 
 ```bash
 ./build/enclave server --driver fake --data-dir /tmp/hc      # no Docker needed; prints the setup code
 ./build/enclave server                                      # real Docker driver, data in ~/.enclave
 # console: http://127.0.0.1:7070 (served by the binary)
-pnpm dev                                                    # console dev server on :5173 with hot reload, proxying /api to :7070
-VITE_ENCLAVE_API=mock pnpm dev                            # console alone against the in-memory mock
+pnpm dev                                                    # console dev server on :5173 with hot reload, alone with in-memory sample data (console/.env); sign in as admin@enclave.local / enclave-demo
+VITE_ENCLAVE_API=http pnpm dev                            # the same against the server on :7070 (/api is proxied)
 ```
 
 ### CLI and OpenTofu against it
@@ -137,6 +147,14 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 - **SSH to a VM**: `enclave vm ssh <name>` runs your `ssh` with your agent and default keys. To use another key, add it to your agent (`ssh-add <key>`): arguments after `--` are the command run in the VM, not options for `ssh`.
 - **Stuck VM process?** `cat <data dir>/vm/<id>/qemu.pid` gives the exact PID to look at; never kill QEMU processes by name.
 
+## v0.8 prerequisites (planned)
+
+- **A second machine** for trying many machines on one computer: `make machine2` starts a Docker-in-Docker container (`docker:28.5.1-dind`, privileged) named `es-dev-machine2` with the Linux `enclave` binary (`make linux-binary`, in `build/linux/`) mounted, and prints the `docker exec … enclave agent join` command to run with the code from `enclave machine add`. It publishes the agent port 7071 and the tunnel on 51821/udp, and is reached through this Docker's bridge gateway. `make machine2-down` removes it, with its engine's data. On Docker Desktop the server must then run in a container too, because the Mac can't reach container addresses: `make server-in-docker` runs it as `es-dev-server` with the Docker socket mounted, the API on port 7070, and `--console-url` and `--tunnel-address` set to the bridge gateway; the setup code is in `docker logs es-dev-server`. `make e2e-machines` does the same for its test, with random ports.
+- **A real second computer:** Linux or macOS with Docker, the same EnclaveStack version, and QEMU for VMs. Open 7071/tcp (agent, from the main machine) and 51820/udp (tunnel, between machines). Start the main machine with `--listen 0.0.0.0:7070` (or behind a proxy with `--console-url`) so the other computer can join, and with `--tunnel-address <its LAN address>`.
+- **Agent files:** `~/.enclave-agent` holds the agent's key and certificate; `enclave agent leave` removes them with EnclaveStack's containers. To start over on a machine that was removed elsewhere, run `leave` before joining again.
+- **The mesh image** `enclave.local/mesh` is built on each machine on first use from pinned `golang` and `alpine` images, so every machine needs network access once, like the VM link image.
+- **Looking at the tunnel:** `docker exec es-system-mesh wg show` lists peers and handshakes; `docker ps --filter label=enclave.standin-of` lists stand-ins. Never kill containers or processes by name pattern; remove stand-ins only through EnclaveStack (they come back at the next sync anyway).
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -153,3 +171,6 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | v10 | 2026-10-21 | Soupler Labs | v0.5 prerequisites (planned): QEMU per platform, disk space, service-manager kill mode, VM link image, real-QEMU tests |
 | v11 | 2026-10-21 | Soupler Labs | v0.5 prerequisites checked on an Apple M4; SSH and stuck-process notes |
 | v12 | 2026-10-22 | Soupler Labs | `--console-url`: where alert and invite links point |
+| v13 | 2026-10-22 | Soupler Labs | v0.8 prerequisites (planned): a second machine in Docker-in-Docker, a real second computer and its ports, agent files, the mesh image, looking at the tunnel |
+| v14 | 2026-10-22 | Soupler Labs | v0.8 as built: `make linux-binary`, `server-in-docker`, `machine2` and `machine2-down` through the bridge gateway |
+| v15 | 2026-10-22 | Soupler Labs | §2 `make demo`: a running server with an admin and sample data in one command; `pnpm dev` uses the in-memory sample data by default (`VITE_ENCLAVE_API=http` for the server) |

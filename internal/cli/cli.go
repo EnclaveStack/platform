@@ -294,7 +294,8 @@ func (a *app) root() *cobra.Command {
 		a.networkCmd(), a.firewallCmd(), a.lbCmd(), a.zoneCmd(), a.recordCmd(), a.vmCmd(), a.volumeCmd(), a.snapshotCmd(),
 		a.queueCmd(), a.topicCmd(), a.searchCmd(), a.transcoderCmd(), a.cdnCmd(), a.emailCmd(),
 		a.projectCmd(), a.userCmd(), a.passwordCmd(), a.auditCmd(),
-		a.metricsCmd(), a.dashboardCmd(), a.alertCmd(), a.channelCmd(), a.logexportCmd(), a.secretstoreCmd())
+		a.metricsCmd(), a.dashboardCmd(), a.alertCmd(), a.channelCmd(), a.logexportCmd(), a.secretstoreCmd(),
+		a.agentCmd(), a.moveCmd(), a.catalogueCmd(), a.stackCmd())
 	return root
 }
 

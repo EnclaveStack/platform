@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -81,7 +82,12 @@ type Options struct {
 	// ACMEDirectory and ACMERootPEM point automatic certificates at another CA (tests use Pebble).
 	ACMEDirectory string
 	ACMERootPEM   []byte
-	Log           *slog.Logger
+	// Agent marks another machine's engine (ADR-045): its default network is made with the main machine's
+	// range, so it waits for the first mesh configuration before making it.
+	Agent bool
+	// DockerHost reaches another engine than DOCKER_HOST's (tests with a second engine).
+	DockerHost string
+	Log        *slog.Logger
 }
 
 // Driver talks to the Docker Engine API.
@@ -101,6 +107,10 @@ type Driver struct {
 	imgMu          sync.Mutex
 	netfilterReady bool
 	vmlinkReady    bool
+	meshReady      bool
+
+	meshMu sync.Mutex
+	mesh   *meshState // the last mesh configuration (ADR-045); nil with one machine
 
 	brokerMu   sync.Mutex
 	brokerConf []byte // the configuration last written into the broker (ADR-029)
@@ -140,6 +150,9 @@ func New(opts Options) (*Driver, error) {
 				}
 			}
 		}
+	}
+	if opts.DockerHost != "" {
+		clientOpts = append(clientOpts, client.WithHost(opts.DockerHost))
 	}
 	cli, err := client.NewClientWithOpts(clientOpts...)
 	if err != nil {
@@ -385,16 +398,64 @@ func (d *Driver) ensureImage(ctx context.Context, ref string, force bool) error 
 }
 
 func (d *Driver) ensureNetwork(ctx context.Context) error {
-	if _, err := d.cli.NetworkInspect(ctx, engine.NetworkName, network.InspectOptions{}); err == nil {
+	cfg := d.meshCfg()
+	if n, err := d.cli.NetworkInspect(ctx, engine.NetworkName, network.InspectOptions{}); err == nil {
+		if cfg != nil && cfg.DefaultRange != "" && len(n.IPAM.Config) > 0 && n.IPAM.Config[0].Subnet != cfg.DefaultRange {
+			return engine.Permanent(fmt.Errorf("the default network here has the range %s, and every machine needs %s, the main machine's. Run `enclave agent leave` and join again",
+				n.IPAM.Config[0].Subnet, cfg.DefaultRange))
+		}
 		return nil
 	} else if !cerrdefs.IsNotFound(err) {
 		return d.classify(fmt.Errorf("inspect network: %w", err))
 	}
-	_, err := d.cli.NetworkCreate(ctx, engine.NetworkName, network.CreateOptions{Driver: "bridge", Labels: map[string]string{LabelManaged: "true"}})
+	opts := network.CreateOptions{Driver: "bridge", Labels: map[string]string{LabelManaged: "true"}}
+	if d.opts.Agent {
+		// Another machine takes the main machine's range for the default network (ADR-045).
+		if cfg == nil || cfg.DefaultRange == "" {
+			return errors.New("waiting for this machine's network settings from the main machine")
+		}
+		opts.IPAM = subnetIPAM(cfg.DefaultRange)
+		if _, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts); err != nil && strings.Contains(err.Error(), "overlaps") {
+			// ADR-045: every machine needs the main machine's range; one already in use here is reported (NET-01).
+			return fmt.Errorf("this machine already uses the range %s, which the default network needs on every machine. "+
+				"Remove the network that uses it here (docker network ls); EnclaveStack keeps trying", cfg.DefaultRange)
+		} else if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		return nil
+	} else {
+		// The mesh takes fixed addresses on it, and Docker before 29 allows that only on a network created
+		// with its subnet: take the range Docker picks, then create the network with it.
+		probe, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts)
+		if err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				return nil
+			}
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		n, err := d.cli.NetworkInspect(ctx, probe.ID, network.InspectOptions{})
+		if err != nil {
+			return d.classify(fmt.Errorf("inspect network: %w", err))
+		}
+		if err := d.cli.NetworkRemove(ctx, probe.ID); err != nil {
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		if len(n.IPAM.Config) == 0 {
+			return d.classify(errors.New("create network: Docker gave the default network no range"))
+		}
+		opts.IPAM = subnetIPAM(n.IPAM.Config[0].Subnet)
+	}
+	_, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return d.classify(fmt.Errorf("create network: %w", err))
 	}
 	return nil
+}
+
+// subnetIPAM is a network's address settings for cidr, its gateway the first address.
+func subnetIPAM(cidr string) *network.IPAM {
+	gw, _ := netip.ParsePrefix(cidr)
+	return &network.IPAM{Driver: "default", Config: []network.IPAMConfig{{Subnet: cidr, Gateway: gw.Addr().Next().String()}}}
 }
 
 func (d *Driver) inspect(ctx context.Context, name string) (*container.InspectResponse, error) {

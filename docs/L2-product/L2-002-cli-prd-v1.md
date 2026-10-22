@@ -6,7 +6,7 @@
 | Document ID | L2-002-cli-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v15 |
+| Version | v16 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -86,6 +86,13 @@ enclave secret get stripe-key --reveal  enclave machine
 | CLI-43 | `enclave logexport create to-grafana [--source app/api]… --otlp https://… [--headers-secret S]` (or `--bucket logs[/folder]`, `--s3-endpoint … --s3-bucket … --s3-credentials S`, `--http URL`, `--loki URL [--label k=v]…`), `[--filter REGEX] [--flush 10s]`; plus `update`, `get`, `ls`, `delete` (LOG-*) | Must — v0.7 |
 | CLI-44 | `enclave secretstore create vault-main --provider vault --address https://vault:8200 --token-secret vault-token [--mount secret] [--namespace N]` (and the 1Password, AWS, Doppler and Infisical flags) `[--refresh 5m]`, plus `update`, `get`, `ls`, `delete`, `secretstore test <store>`; `enclave secret create stripe-key --from-store op-main --key "Stripe" [--field credential]`, `secret refresh <secret>` (EXT-*) | Must — v0.7 |
 | CLI-45 | `ls`, `get`, `events`, `delete` and `--wait` cover every v0.7 kind; `enclave audit [--limit N]` (machine admins) lists audit entries (IAM-09) | Must — v0.7 |
+| CLI-46 | `enclave machine add <name> [--label k=v]…` prints the join command; `machine ls`, `get`, `update <name> [--label k=v]… [--schedulable=false]`, `drain <name> [--wait]`, `remove <name> [--force]` (MCH-*) | Must — v0.8 |
+| CLI-47 | On the other computer: `enclave agent join <main address> --code <code> [--advertise <address>] [--listen :7071] [--tunnel-port 51820] [--install]` joins and runs the agent (`--install` sets it up as a service, MCH-12); `enclave agent run` starts a joined agent; `enclave agent status`; `enclave agent leave` (MCH-04, MCH-09) | Must — v0.8 |
+| CLI-48 | `--machine <name>` and `--machine-label k=v` on `create` and `update` of every placed kind; `ls` and `get` show the machine; `enclave ls --machine <name>` lists what runs there (PLC-*) | Must — v0.8 |
+| CLI-49 | `enclave move <kind>/<name> --to <machine> [--wait]` moves a resource and prints its progress, the bytes copied and the downtime (MOVE-*) | Must — v0.8 |
+| CLI-50 | `enclave catalogue ls`, `catalogue show <entry>` (parameters and what it creates), `catalogue add <file>`, `catalogue remove <entry>` (CAT-01 – CAT-03) | Must — v0.8 |
+| CLI-51 | `enclave stack create <name> --template <entry>|--template-file <file> [--version V] [--param k=v]… [--secret-param k=…] [--wait]`, `stack get` (members and outputs), `stack ls`, `stack update <name> [--param k=v]… [--version V]`, `stack delete <name>` (lists members with data and asks, `--yes` without a terminal) (CAT-04 – CAT-07) | Must — v0.8 |
+| CLI-52 | `ls`, `get`, `events`, `delete` and `--wait` cover `stack`; a member refuses `update` and `delete` naming its stack (CAT-06) | Must — v0.8 |
 
 ## Version history
 
@@ -106,3 +113,4 @@ enclave secret get stripe-key --reveal  enclave machine
 | v13 | 2026-10-22 | Soupler Labs | CLI-29 – CLI-36 shipped; `get`, `list` and `delete` name the v0.6 kinds too |
 | v14 | 2026-10-22 | Soupler Labs | v0.7 requirements CLI-37 – CLI-45: --project and project commands, users, scoped tokens, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
 | v15 | 2026-10-22 | Soupler Labs | CLI-39 as built: `login` and a token without `--role` get the strongest role |
+| v16 | 2026-10-22 | Soupler Labs | v0.8 requirements CLI-46 – CLI-52: machines, the agent, --machine, move, catalogue, stacks (L2-010) |

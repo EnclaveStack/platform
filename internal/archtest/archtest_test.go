@@ -41,6 +41,11 @@ var forbidden = map[string][]string{
 	"internal/secretstores": {"internal/store", "internal/service", "internal/engine", "internal/reconciler", "internal/httpapi", "internal/cli", "internal/domain"},
 	"internal/webhook":      {"internal/", "pkg/"},
 	"internal/sigv4":        {"internal/", "pkg/"},
+	// v0.8: the agent has no store and serves only its machine's engine; the machines package is reached by
+	// the router only through its port (ADR-042 – ADR-044).
+	"internal/agent":    {"internal/store", "internal/service", "internal/reconciler", "internal/httpapi", "internal/cli", "internal/engine/cluster"},
+	"internal/machines": {"internal/httpapi", "internal/cli", "internal/service", "internal/reconciler"},
+	"internal/mesh":     {"internal/store", "internal/service", "internal/engine", "internal/reconciler", "internal/httpapi", "internal/cli", "internal/domain", "pkg/"},
 }
 
 func root(t *testing.T) string {

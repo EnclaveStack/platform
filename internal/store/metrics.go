@@ -4,14 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"time"
 )
 
 // Metrics (ADR-037): a series per (resource, metric), 30-second points for a day and 15-minute rollups for
 // 30 days. Times are unix seconds.
 
-// MachineSeries is the resource ID of the machine's own series.
+// MachineSeries is the resource ID of the main machine's own series; MachineSeriesOf names another's.
 const MachineSeries = "machine"
+
+// MachineSeriesOf is the resource ID of a machine's series (v0.8: one per machine).
+func MachineSeriesOf(machineID string) string {
+	if machineID == "" || machineID == "main" {
+		return MachineSeries
+	}
+	return MachineSeries + ":" + machineID
+}
 
 // Point is one sample of a series.
 type Point struct {
@@ -169,7 +178,8 @@ func (q *Queries) SweepMetrics(ctx context.Context, pointsBefore, rollupsBefore 
 
 // DeleteSeriesOfGone removes the series, points and rollups of resources that no longer exist.
 func (q *Queries) DeleteSeriesOfGone(ctx context.Context) (int64, error) {
-	gone := `SELECT id FROM metric_series WHERE resource_id != '` + MachineSeries + `' AND resource_id NOT IN (SELECT id FROM resources)`
+	gone := `SELECT id FROM metric_series WHERE (resource_id NOT LIKE '` + MachineSeries + `%' AND resource_id NOT IN (SELECT id FROM resources))
+		OR (resource_id LIKE '` + MachineSeries + `:%' AND substr(resource_id, ` + strconv.Itoa(len(MachineSeries)+2) + `) NOT IN (SELECT id FROM machines))`
 	for _, table := range []string{"metric_points", "metric_rollups"} {
 		if _, err := q.q.ExecContext(ctx, `DELETE FROM `+table+` WHERE series_id IN (`+gone+`)`); err != nil {
 			return 0, err

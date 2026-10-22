@@ -6,7 +6,7 @@
 | Document ID | L2-003-opentofu-provider-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v13 |
+| Version | v14 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -100,6 +100,12 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | TF-39 | Resource `enclave_log_export` (`sources`, `filter`, `flush_seconds`, and exactly one of `bucket = { bucket, prefix }`, `s3 = { … }`, `http = { url, headers_secret }`, `otlp = { endpoint, headers_secret }`, `loki = { url, headers_secret, labels }`; computed `lines_sent`, `last_sent_at`) (LOG-*) | Must — v0.7 |
 | TF-40 | Resource `enclave_secret_store` (`secret_provider` and its block: `vault`, `onepassword`, `aws`, `doppler` or `infisical`; `refresh_seconds`). *As built:* the provider's settings are one `settings` map with the API's field names (`address`, `tokenSecret`, …) instead of five blocks; defaults the server fills in stay out of state. `enclave_secret` gains `source = { store, key, field }` as the alternative to `value` (exactly one, checked at plan time); computed `synced_at` (EXT-*) | Must — v0.7 |
 | TF-41 | Import by name (TF-05) and drift removal (TF-04) for every v0.7 resource | Must — v0.7 |
+| TF-42 | Resource `enclave_machine` (`name` — replaces on change, `labels`, `schedulable`; computed `state`, `address`, and sensitive `join_command` while the machine waits for its agent). Destroy is refused while anything runs there. Data source `enclave_machines` lists machines with their state and free memory (MCH-*) | Must — v0.8 |
+| TF-43 | Every placed resource gains `machine` (optional and computed: what EnclaveStack chose is read back without a diff) and `machine_labels`. Changing `machine` is an in-place update that moves the resource; apply waits for the move (PLC-*, MOVE-*) | Must — v0.8 |
+| TF-44 | Resource `enclave_stack` (`template` — a catalogue entry — or `template_file`'s contents in `template_body`, `template_version`, `parameters` as a map and `secret_parameters` as a sensitive map; computed `members` (kind, name, ID, phase) and `outputs`), updated in place (CAT-04 – CAT-07) | Must — v0.8 |
+| TF-45 | Resource `enclave_catalogue_template` (`body`, the template's YAML or JSON) for the machine's own templates; data source `enclave_catalogue` lists entries and their parameters (CAT-01 – CAT-03) | Must — v0.8 |
+| TF-46 | A stack's members can be read with the existing data sources; managing a member as its own resource is refused with the stack's name (CAT-06) | Must — v0.8 |
+| TF-47 | Import by name (TF-05) and drift removal (TF-04) for `enclave_machine`, `enclave_stack` and `enclave_catalogue_template` | Must — v0.8 |
 
 ## Version history
 
@@ -118,3 +124,4 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | v11 | 2026-10-22 | Soupler Labs | TF-27 – TF-33 shipped |
 | v12 | 2026-10-22 | Soupler Labs | v0.7 requirements TF-34 – TF-41: project setting and attribute, project, user, dashboard and metrics, alert and channel, log export, secret store and external secrets (L2-009) |
 | v13 | 2026-10-22 | Soupler Labs | TF-40 as built: `enclave_secret_store.settings` map; TF-34 – TF-41 shipped and covered by `TestAccOperateStack` |
+| v14 | 2026-10-22 | Soupler Labs | v0.8 requirements TF-42 – TF-47: machine resource and data source, machine on placed resources, stack, catalogue template and data source, import (L2-010) |

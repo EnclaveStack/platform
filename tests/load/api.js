@@ -8,8 +8,8 @@ const JSONH = { 'Content-Type': 'application/json' };
 
 export const options = {
   scenarios: {
-    reads: { executor: 'constant-vus', vus: 50, duration: __ENV.DURATION || '60s', exec: 'reads' },
-    writes: { executor: 'constant-vus', vus: 10, duration: __ENV.DURATION || '60s', exec: 'writes' },
+    reads: { executor: 'constant-vus', vus: Number(__ENV.READ_VUS || 50), duration: __ENV.DURATION || '60s', exec: 'reads' },
+    writes: { executor: 'constant-vus', vus: Number(__ENV.WRITE_VUS || 10), duration: __ENV.DURATION || '60s', exec: 'writes' },
   },
   thresholds: {
     'http_req_duration{scenario:reads}': ['p(95)<100'],

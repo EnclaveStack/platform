@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -40,8 +41,21 @@ func (s *Resources) ResourceMetrics(ctx context.Context, id string, q MetricQuer
 	return s.metricData(ctx, r.ID, infos, q)
 }
 
-// MachineMetrics returns the machine's own series (MET-03).
+// MachineMetrics returns the main machine's own series (MET-03).
 func (s *Resources) MachineMetrics(ctx context.Context, q MetricQuery) (api.MetricData, error) {
+	return s.MachineMetricsOf(ctx, api.MainMachine, q)
+}
+
+// MachineMetricsOf returns one machine's series, by its name (L3-002 §11.2). The disk metrics are the
+// main machine's: other machines' series have no points for them.
+func (s *Resources) MachineMetricsOf(ctx context.Context, name string, q MetricQuery) (api.MetricData, error) {
+	m, err := s.Store.GetMachineByName(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return api.MetricData{}, machineNotFound(name)
+	}
+	if err != nil {
+		return api.MetricData{}, err
+	}
 	infos := api.MachineMetrics
 	if len(q.Metrics) > 0 {
 		infos = nil
@@ -53,7 +67,7 @@ func (s *Resources) MachineMetrics(ctx context.Context, q MetricQuery) (api.Metr
 			infos = append(infos, info)
 		}
 	}
-	return s.metricData(ctx, store.MachineSeries, infos, q)
+	return s.metricData(ctx, store.MachineSeriesOf(m.ID), infos, q)
 }
 
 func (s *Resources) metricData(ctx context.Context, seriesOf string, infos []api.MetricInfo, q MetricQuery) (api.MetricData, error) {

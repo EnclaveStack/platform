@@ -85,6 +85,8 @@ type SearchSpec struct {
 	MemoryMiB int    `json:"memoryMiB,omitempty"`
 	Network   string `json:"network,omitempty"`
 	Subnet    string `json:"subnet,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // BucketFolder is a bucket and a folder in it ("" or "a/b/").
@@ -149,6 +151,8 @@ type EmailSpec struct {
 	KeepMessages int         `json:"keepMessages,omitempty"`
 	Network      string      `json:"network,omitempty"`
 	Subnet       string      `json:"subnet,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // Search versions (SRC-01).

@@ -42,6 +42,12 @@ const (
 	CodeLastAdmin       ErrorCode = "LAST_ADMIN"
 	CodeEmailTaken      ErrorCode = "EMAIL_TAKEN"
 	CodeInviteInvalid   ErrorCode = "INVITE_INVALID"
+	// v0.8 (L3-002 §11.8).
+	CodeMachineNotEmpty ErrorCode = "MACHINE_NOT_EMPTY"
+	CodeMachineOnline   ErrorCode = "MACHINE_ONLINE"
+	CodeMachineOffline  ErrorCode = "MACHINE_OFFLINE"
+	CodeJoinCodeInvalid ErrorCode = "JOIN_CODE_INVALID"
+	CodePartOfStack     ErrorCode = "PART_OF_STACK"
 )
 
 // ErrorCodes maps every code to its HTTP status. It is the complete list (L3-002 §1).
@@ -78,6 +84,11 @@ var ErrorCodes = map[ErrorCode]int{
 	CodeLastAdmin:            http.StatusConflict,
 	CodeEmailTaken:           http.StatusConflict,
 	CodeInviteInvalid:        http.StatusGone,
+	CodeMachineNotEmpty:      http.StatusConflict,
+	CodeMachineOnline:        http.StatusConflict,
+	CodeMachineOffline:       http.StatusConflict,
+	CodeJoinCodeInvalid:      http.StatusGone,
+	CodePartOfStack:          http.StatusConflict,
 }
 
 // FieldCode identifies why a single field failed validation.

@@ -26,7 +26,7 @@ Registry of every artifact in layer **L1 — Vision & Strategy** (vision, market
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
 | L1-001-product-brief-v1 | Product Brief | Draft | v4 | Soupler Labs | 2026-10-22 |
-| L1-002-coolify-study-and-service-roadmap-v1 | Coolify Study and Service Roadmap | Draft | v9 | Soupler Labs | 2026-10-22 |
+| L1-002-coolify-study-and-service-roadmap-v1 | Coolify Study and Service Roadmap | Draft | v11 | Soupler Labs | 2026-10-22 |
 
 ## Version history
 

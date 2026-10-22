@@ -443,8 +443,11 @@ type ListOptions struct {
 	AllProjects bool
 	Kind        api.Kind
 	Name        string
-	Limit       int
-	Cursor      string
+	// Machine and Stack list what runs on a machine and a stack's members (v0.8).
+	Machine string
+	Stack   string
+	Limit   int
+	Cursor  string
 }
 
 // ListResources returns one page.
@@ -461,6 +464,12 @@ func (c *Client) ListResources(ctx context.Context, o ListOptions) (api.Resource
 	}
 	if o.Name != "" {
 		q.Set("name", o.Name)
+	}
+	if o.Machine != "" {
+		q.Set("machine", o.Machine)
+	}
+	if o.Stack != "" {
+		q.Set("stack", o.Stack)
 	}
 	if o.Limit > 0 {
 		q.Set("limit", strconv.Itoa(o.Limit))
@@ -479,8 +488,13 @@ func (c *Client) ListAllResources(ctx context.Context, kind api.Kind) ([]api.Res
 
 // ListAllResourcesIn is ListAllResources, across every project the caller can see when allProjects is set.
 func (c *Client) ListAllResourcesIn(ctx context.Context, kind api.Kind, allProjects bool) ([]api.Resource, error) {
+	return c.ListAll(ctx, ListOptions{Kind: kind, AllProjects: allProjects})
+}
+
+// ListAll pages through every resource matching o.
+func (c *Client) ListAll(ctx context.Context, o ListOptions) ([]api.Resource, error) {
 	var all []api.Resource
-	o := ListOptions{Kind: kind, Limit: 200, AllProjects: allProjects}
+	o.Limit, o.Cursor = 200, ""
 	for {
 		page, err := c.ListResources(ctx, o)
 		if err != nil {
@@ -765,6 +779,12 @@ func (c *Client) MachineMetrics(ctx context.Context, metrics []string, from, to 
 	return out, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/machine/metrics", query: metricQuery(metrics, from, to)}, &out)
 }
 
+// MachineMetricsOf returns one machine's metrics, by its name.
+func (c *Client) MachineMetricsOf(ctx context.Context, name string, metrics []string, from, to time.Time) (api.MetricData, error) {
+	var out api.MetricData
+	return out, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/machines/" + url.PathEscape(name) + "/metrics", query: metricQuery(metrics, from, to)}, &out)
+}
+
 // Test runs the test action of an alert, channel or secret store and returns each outcome.
 func (c *Client) Test(ctx context.Context, id string) (api.TestResult, error) {
 	var out api.TestResult
@@ -781,4 +801,103 @@ func (c *Client) Incidents(ctx context.Context, id string, limit int) ([]api.Inc
 func (c *Client) Notifications(ctx context.Context, id string, limit int) ([]api.Notification, error) {
 	var out api.NotificationList
 	return out.Items, c.do(ctx, &request{method: http.MethodGet, path: resourcePath(id, "/notifications"), query: url.Values{"limit": {strconv.Itoa(limit)}}}, &out)
+}
+
+// Machines (v0.8, L3-002 §11.2).
+
+// ListMachines returns every machine, the main machine first.
+func (c *Client) ListMachines(ctx context.Context) ([]api.MachineSummary, error) {
+	var out api.MachineList
+	return out.Items, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/machines"}, &out)
+}
+
+// GetMachineByName returns one machine.
+func (c *Client) GetMachineByName(ctx context.Context, name string) (api.MachineSummary, error) {
+	var out api.MachineSummary
+	return out, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/machines/" + url.PathEscape(name)}, &out)
+}
+
+// AddMachine adds a machine waiting for its agent and returns its one-time join code.
+func (c *Client) AddMachine(ctx context.Context, req api.AddMachine) (api.AddedMachine, error) {
+	var out api.AddedMachine
+	return out, c.do(ctx, &request{method: http.MethodPost, path: "/api/v1/machines", body: req}, &out)
+}
+
+// UpdateMachineByName changes a machine's labels or whether it is schedulable.
+func (c *Client) UpdateMachineByName(ctx context.Context, name string, req api.UpdateMachine) (api.MachineSummary, error) {
+	var out api.MachineSummary
+	return out, c.do(ctx, &request{method: http.MethodPatch, path: "/api/v1/machines/" + url.PathEscape(name), body: req}, &out)
+}
+
+// RemoveMachine removes a machine; force removes an offline one with resources on it.
+func (c *Client) RemoveMachine(ctx context.Context, name string, force bool) error {
+	q := url.Values{}
+	if force {
+		q.Set("force", "true")
+	}
+	return c.do(ctx, &request{method: http.MethodDelete, path: "/api/v1/machines/" + url.PathEscape(name), query: q}, nil)
+}
+
+// NewJoinCode replaces a waiting machine's join code.
+func (c *Client) NewJoinCode(ctx context.Context, name string) (api.AddedMachine, error) {
+	var out api.AddedMachine
+	return out, c.do(ctx, &request{method: http.MethodPost, path: "/api/v1/machines/" + url.PathEscape(name) + "/join-code"}, &out)
+}
+
+// DrainMachine marks a machine not schedulable and moves what isn't pinned there.
+func (c *Client) DrainMachine(ctx context.Context, name string) (api.DrainResult, error) {
+	var out api.DrainResult
+	return out, c.do(ctx, &request{method: http.MethodPost, path: "/api/v1/machines/" + url.PathEscape(name) + "/drain"}, &out)
+}
+
+// MachineEvents returns a machine's newest events.
+func (c *Client) MachineEvents(ctx context.Context, name string) ([]api.Event, error) {
+	var out api.EventList
+	return out.Items, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/machines/" + url.PathEscape(name) + "/events"}, &out)
+}
+
+// JoinMachine is the agent's call with its join code (ADR-043); it needs no credentials.
+func (c *Client) JoinMachine(ctx context.Context, req api.JoinRequest) (api.JoinResponse, error) {
+	var out api.JoinResponse
+	return out, c.do(ctx, &request{method: http.MethodPost, path: "/api/v1/machines/join", body: req}, &out)
+}
+
+// The catalogue (v0.8, L3-002 §11.5).
+
+// Catalogue lists the catalogue's entries.
+func (c *Client) Catalogue(ctx context.Context) ([]api.CatalogueEntry, error) {
+	var out api.CatalogueList
+	return out.Items, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/catalogue"}, &out)
+}
+
+// CatalogueEntry returns one entry ("" for its newest version).
+func (c *Client) CatalogueEntry(ctx context.Context, name, version string) (api.CatalogueEntry, error) {
+	q := url.Values{}
+	if version != "" {
+		q.Set("version", version)
+	}
+	var out api.CatalogueEntry
+	return out, c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/catalogue/" + url.PathEscape(name), query: q}, &out)
+}
+
+// TemplateSource returns an entry's template as written ("" for its newest version).
+func (c *Client) TemplateSource(ctx context.Context, name, version string) (string, error) {
+	q := url.Values{}
+	if version != "" {
+		q.Set("version", version)
+	}
+	var out []byte
+	err := c.do(ctx, &request{method: http.MethodGet, path: "/api/v1/catalogue/" + url.PathEscape(name) + "/template", query: q}, &out)
+	return string(out), err
+}
+
+// AddTemplate adds one of the machine's own templates (YAML or JSON).
+func (c *Client) AddTemplate(ctx context.Context, body string) (api.CatalogueEntry, error) {
+	var out api.CatalogueEntry
+	return out, c.do(ctx, &request{method: http.MethodPost, path: "/api/v1/catalogue", body: api.AddTemplate{Body: body}}, &out)
+}
+
+// RemoveTemplate removes one of the machine's own templates.
+func (c *Client) RemoveTemplate(ctx context.Context, name string) error {
+	return c.do(ctx, &request{method: http.MethodDelete, path: "/api/v1/catalogue/" + url.PathEscape(name)}, nil)
 }

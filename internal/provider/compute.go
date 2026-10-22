@@ -90,9 +90,10 @@ func (g growOnly) PlanModifyInt64(_ context.Context, req planmodifier.Int64Reque
 // ─── enclave_volume (TF-23) ──────────────────────────────────────────────
 
 type volumeModel struct {
-	ID         types.String   `tfsdk:"id"`
-	Name       types.String   `tfsdk:"name"`
-	Project    types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Type       types.String   `tfsdk:"type"`
 	SizeGiB    types.Int64    `tfsdk:"size_gib"`
 	Snapshot   types.String   `tfsdk:"snapshot"`
@@ -105,7 +106,7 @@ func (m *volumeModel) ids() (types.String, types.String) { return m.ID, m.Name }
 func (m *volumeModel) limits() timeouts.Value            { return m.Timeouts }
 
 func (m *volumeModel) spec() any {
-	return api.VolumeSpec{Type: m.Type.ValueString(), SizeGiB: int(m.SizeGiB.ValueInt64()), Snapshot: m.Snapshot.ValueString()}
+	return api.VolumeSpec{Type: m.Type.ValueString(), SizeGiB: int(m.SizeGiB.ValueInt64()), Snapshot: m.Snapshot.ValueString(), Placed: m.placed()}
 }
 
 func (m *volumeModel) patch() map[string]any {
@@ -119,6 +120,7 @@ func (m *volumeModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.VolumeSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Type, m.Snapshot = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(s.Type), strOrNull(s.Snapshot)
 	m.SizeGiB = types.Int64Null()
 	if s.Type == api.VolumeDisk {
@@ -134,9 +136,11 @@ func newVolume() resource.Resource {
 			return schema.Schema{
 				Description: "A volume: a disk attached to one VM, or a filesystem mounted into apps and jobs. Deleting it deletes its data.",
 				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("volume"),
-					"project": projectAttr(),
+					"id":             idAttr(),
+					"name":           nameAttr("volume"),
+					"project":        projectAttr(),
+					"machine":        machineAttr(),
+					"machine_labels": machineLabelsAttr(),
 					"type": schema.StringAttribute{Required: true, Description: "disk or filesystem. Changing it replaces the volume.",
 						Validators:    []validator.String{stringvalidator.OneOf(api.VolumeTypes...)},
 						PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
@@ -201,9 +205,10 @@ func newSnapshot() resource.Resource {
 // ─── enclave_vm (TF-22) ──────────────────────────────────────────────────
 
 type vmModel struct {
-	ID           types.String   `tfsdk:"id"`
-	Name         types.String   `tfsdk:"name"`
-	Project      types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Image        types.String   `tfsdk:"image"`
 	ImageSHA256  types.String   `tfsdk:"image_sha256"`
 	SSHKeys      []types.String `tfsdk:"ssh_keys"`
@@ -238,7 +243,7 @@ func ints(v []types.Int64) []int {
 func (m *vmModel) spec() any {
 	return api.VMSpec{Image: m.Image.ValueString(), ImageSHA256: m.ImageSHA256.ValueString(), SSHKeys: toStrings(m.SSHKeys), SSHKeySecret: m.SSHKeySecret.ValueString(),
 		UserData: m.UserData.ValueString(), CPUs: int(m.CPUs.ValueInt64()), MemoryMiB: int(m.MemoryMiB.ValueInt64()), DiskGiB: int(m.DiskGiB.ValueInt64()),
-		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Disks: toStrings(m.Disks), Publish: ints(m.Publish), Power: m.Power.ValueString()}
+		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Disks: toStrings(m.Disks), Publish: ints(m.Publish), Power: m.Power.ValueString(), Placed: m.placed()}
 }
 
 // patch is every field that changes in place (L3-002 §8.2); the rest replace the VM.
@@ -256,6 +261,7 @@ func (m *vmModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.VMSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Image = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(s.Image)
 	m.ImageSHA256, m.SSHKeySecret, m.UserData = strOrNull(s.ImageSHA256), strOrNull(s.SSHKeySecret), strOrNull(s.UserData)
 	if len(s.SSHKeys) > 0 || m.SSHKeys != nil {
@@ -287,9 +293,11 @@ func newVM() resource.Resource {
 			return schema.Schema{
 				Description: "A virtual machine run by QEMU on the machine. Image, keys and first-boot script are set once (changing them replaces the VM); CPUs, memory and disks apply by restarting it.",
 				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("VM"),
-					"project": projectAttr(),
+					"id":             idAttr(),
+					"name":           nameAttr("VM"),
+					"project":        projectAttr(),
+					"machine":        machineAttr(),
+					"machine_labels": machineLabelsAttr(),
 					"image": schema.StringAttribute{Required: true, Description: "ubuntu-24.04, debian-12, an https:// URL of a cloud image, or snapshot/NAME.",
 						PlanModifiers: replaced()},
 					"image_sha256": schema.StringAttribute{Optional: true, Description: "SHA-256 of a URL image.", PlanModifiers: replaced()},

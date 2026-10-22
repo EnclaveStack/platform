@@ -56,7 +56,9 @@ func TestDomainRoutesToTheAppsAliasWithAnInternalCertificate(t *testing.T) {
 		t.Errorf("root CA: %v %q", err, pem)
 	}
 
-	// An app deploy doesn't touch the edge (upstream is the alias), but a port change re-renders it.
+	// An app deploy doesn't touch the edge (upstream is the alias), but a port change re-renders it,
+	// before the app reports ready: a slow edge reload must not leave ready pointing at the old port.
+	env.Fake.SetEdgeDelay(time.Second)
 	upd, err := c.UpdateResource(ctx, app.ID, map[string]any{"port": 8080}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +67,7 @@ func TestDomainRoutesToTheAppsAliasWithAnInternalCertificate(t *testing.T) {
 	if r := env.Fake.EdgeRoutes(); len(r) != 1 || r[0].Upstream != "es-app-web:8080" {
 		t.Errorf("app port change not applied to the edge: %+v", r)
 	}
+	env.Fake.SetEdgeDelay(0)
 
 	// Rules: unique hostnames, the app stays while a domain uses it, its port too, the hostname is fixed.
 	if _, err := c.CreateResource(ctx, api.KindDomain, "web-dup", api.DomainSpec{Hostname: "web.localhost", App: "web"}); apiCode(err) != api.CodeHostnameTaken {

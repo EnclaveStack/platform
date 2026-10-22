@@ -1,7 +1,12 @@
 import { createHttpApi } from './http';
 import { createMockApi, type MockOptions } from './mock';
 import type {
+  AddedMachine,
   AuditEntry,
+  CatalogueEntry,
+  DrainResult,
+  MachineSummary,
+  UpdateMachineInput,
   CreatedToken,
   CreateTokenInput,
   DeletedMessages,
@@ -126,6 +131,28 @@ export interface EnclaveApi {
   test(id: string): Promise<TestResult>;
   listIncidents(id: string): Promise<Incident[]>;
   listNotifications(id: string): Promise<NotificationRecord[]>;
+
+  // v0.8 machines (L3-002 §11.2). The main machine is named "main"; getMachine still describes it.
+  listMachines(): Promise<MachineSummary[]>;
+  getMachineByName(name: string): Promise<MachineSummary>;
+  /** Machine admins; the join code is shown once. */
+  addMachine(name: string, labels?: Record<string, string>): Promise<AddedMachine>;
+  updateMachineByName(name: string, input: UpdateMachineInput): Promise<MachineSummary>;
+  /** 409 MACHINE_NOT_EMPTY lists what runs there; force removes an offline machine and fails what ran on it. */
+  removeMachine(name: string, force?: boolean): Promise<void>;
+  /** A new join code while the machine waits for its agent. */
+  newJoinCode(name: string): Promise<AddedMachine>;
+  drainMachine(name: string): Promise<DrainResult>;
+  getMachineEvents(name: string): Promise<Event[]>;
+  /** One machine's metrics; disk metrics are the main machine's only. */
+  getMachineMetricsOf(name: string, metrics: string[], from: number, to: number): Promise<MetricData>;
+
+  // v0.8 catalogue (L3-002 §11.5); stacks are resources of kind "stack".
+  listCatalogue(): Promise<CatalogueEntry[]>;
+  getCatalogueEntry(name: string, version?: string): Promise<CatalogueEntry>;
+  /** Machine admins: YAML or JSON; errors name the line in their details. */
+  addTemplate(body: string): Promise<CatalogueEntry>;
+  removeTemplate(name: string): Promise<void>;
 }
 
 export type ApiMode = 'mock' | 'http';

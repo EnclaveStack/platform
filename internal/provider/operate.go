@@ -181,7 +181,7 @@ func newAlert() resource.Resource {
 					"name":    nameAttr("alert"),
 					"project": projectAttr(),
 					"condition": schema.SingleNestedAttribute{Required: true, Description: "What the alert watches.", Attributes: map[string]schema.Attribute{
-						"type": schema.StringAttribute{Required: true, Description: "metric, crash_loop, failed or run_failed.",
+						"type": schema.StringAttribute{Required: true, Description: "metric, crash_loop, failed, run_failed or machine_offline (resources are machine/NAME).",
 							Validators: []validator.String{stringvalidator.OneOf(api.ConditionTypes...)}},
 						"resources":      schema.ListAttribute{Required: true, ElementType: types.StringType, Description: `1–10 resources as "kind/name" ("machine" for a machine metric).`},
 						"metric":         optString("metric: the metric, like cpu or percentFull."),

@@ -69,7 +69,7 @@ func (r *Reconciler) sourceImage(ctx context.Context, res *domain.Resource, s ap
 	}
 	inputs := build.InputsHash(g, commit)
 	if inputs == prevInputs && prevImage != "" {
-		if ok, err := r.Driver.ImageExists(ctx, prevImage); err != nil {
+		if ok, err := r.Driver.HasImage(ctx, res, prevImage); err != nil {
 			return nil, err
 		} else if ok {
 			msg := fmt.Sprintf("Commit %s and the build settings are unchanged; build skipped.", short(commit))

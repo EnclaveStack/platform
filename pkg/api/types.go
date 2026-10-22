@@ -41,20 +41,22 @@ const (
 	KindChannel     Kind = "channel"
 	KindLogExport   Kind = "logexport"
 	KindSecretStore Kind = "secretstore"
+	// v0.8 (L2-010).
+	KindStack Kind = "stack"
 )
 
 // Kinds lists every kind in display order.
 var Kinds = []Kind{KindApp, KindDatabase, KindCache, KindBucket, KindSecret, KindDomain, KindJob, KindBackup,
 	KindNetwork, KindFirewall, KindLoadBalancer, KindZone, KindRecord, KindVM, KindVolume, KindSnapshot,
 	KindQueue, KindTopic, KindSearch, KindTranscoder, KindCDN, KindEmail,
-	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore}
+	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore, KindStack}
 
 // IDPrefix is the prefix of resource IDs per kind (L3-005 §2).
 var IDPrefix = map[Kind]string{KindApp: "app", KindDatabase: "db", KindCache: "cache", KindBucket: "bkt", KindSecret: "sec", KindDomain: "dom", KindJob: "job", KindBackup: "bak",
 	KindNetwork: "net", KindFirewall: "fw", KindLoadBalancer: "lb", KindZone: "zone", KindRecord: "rec",
 	KindVM: "vm", KindVolume: "vol", KindSnapshot: "snap",
 	KindQueue: "q", KindTopic: "tpc", KindSearch: "srch", KindTranscoder: "tc", KindCDN: "cdn", KindEmail: "mail",
-	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst"}
+	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst", KindStack: "stk"}
 
 // Valid reports whether k is a known kind.
 func (k Kind) Valid() bool {
@@ -110,17 +112,19 @@ type Status struct {
 
 // Resource is the API representation of any kind. Spec holds the kind's spec as JSON.
 type Resource struct {
-	ID         string          `json:"id"`
-	Project    string          `json:"project"`
-	Kind       Kind            `json:"kind"`
-	Name       string          `json:"name"`
-	Generation int64           `json:"generation"`
-	OwnerID    *string         `json:"ownerId"`
-	Spec       json.RawMessage `json:"spec"`
-	Status     Status          `json:"status"`
-	Outputs    map[string]any  `json:"outputs"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
+	ID         string  `json:"id"`
+	Project    string  `json:"project"`
+	Kind       Kind    `json:"kind"`
+	Name       string  `json:"name"`
+	Generation int64   `json:"generation"`
+	OwnerID    *string `json:"ownerId"`
+	// Stack is the ID of the stack the resource belongs to (ADR-048), or null.
+	Stack     *string         `json:"stack"`
+	Spec      json.RawMessage `json:"spec"`
+	Status    Status          `json:"status"`
+	Outputs   map[string]any  `json:"outputs"`
+	CreatedAt time.Time       `json:"createdAt"`
+	UpdatedAt time.Time       `json:"updatedAt"`
 }
 
 // AppSpec is the desired state of an app.
@@ -146,6 +150,8 @@ type AppSpec struct {
 	Replicas int `json:"replicas,omitempty"`
 	// Volumes mounts filesystem volumes into every container (ADR-027).
 	Volumes []VolumeMount `json:"volumes,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // GitSource builds an app from a Git repository and its Dockerfile (ADR-019, L2-005 BLD-01).
@@ -191,6 +197,8 @@ type DatabaseSpec struct {
 	Version string `json:"version"`
 	Network string `json:"network,omitempty"`
 	Subnet  string `json:"subnet,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // CacheSpec is the desired state of a cache.
@@ -200,6 +208,8 @@ type CacheSpec struct {
 	MaxMemoryMiB int    `json:"maxMemoryMiB,omitempty"`
 	Network      string `json:"network,omitempty"`
 	Subnet       string `json:"subnet,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // BucketSpec is the desired state of a bucket.
@@ -251,6 +261,8 @@ type JobSpec struct {
 	Subnet  string `json:"subnet,omitempty"`
 	// Volumes mounts filesystem volumes into each run's container (ADR-027).
 	Volumes []VolumeMount `json:"volumes,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // BackupSource names what a backup copies: exactly one of a database or a cache.
@@ -620,5 +632,5 @@ const (
 	HeaderIdempotencyKey = "Idempotency-Key"
 	HeaderCSRF           = "X-Enclave-CSRF"
 	SessionCookie        = "es_session"
-	TokenPrefix          = "hc_pat_"
+	TokenPrefix          = "es_pat_"
 )

@@ -16,7 +16,7 @@ import (
 
 const resourceCols = `id, kind, name, spec_json, secret_ciphertext, generation, observed_generation, phase, message,
 	steps_json, outputs_json, owner_id, attempts, requested_action, next_attempt_at, last_transition_at, created_at, updated_at, serving_revision, next_run_at, consecutive_failures,
-	project`
+	project, machine_id, stack_id`
 
 // InsertResource stores a new resource; a duplicate (project, kind, name) returns ErrConflict.
 func (q *Queries) InsertResource(ctx context.Context, r *domain.Resource) error {
@@ -24,9 +24,9 @@ func (q *Queries) InsertResource(ctx context.Context, r *domain.Resource) error 
 	if err != nil {
 		return err
 	}
-	_, err = q.q.ExecContext(ctx, `INSERT INTO resources (`+resourceCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = q.q.ExecContext(ctx, `INSERT INTO resources (`+resourceCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, string(r.Kind), r.Name, string(r.Spec), r.SecretCiphertext, r.Generation, r.ObservedGeneration, string(r.Phase), r.Message,
-		steps, outputs, r.OwnerID, r.Attempts, r.RequestedAction, tsPtr(r.NextAttemptAt), ts(r.LastTransitionAt), ts(r.CreatedAt), ts(r.UpdatedAt), r.ServingRevision, tsPtr(r.NextRunAt), r.ConsecutiveFailures, r.ProjectName())
+		steps, outputs, r.OwnerID, r.Attempts, r.RequestedAction, tsPtr(r.NextAttemptAt), ts(r.LastTransitionAt), ts(r.CreatedAt), ts(r.UpdatedAt), r.ServingRevision, tsPtr(r.NextRunAt), r.ConsecutiveFailures, r.ProjectName(), nullable(r.Machine), nullable(r.Stack))
 	if isUnique(err) {
 		return ErrConflict
 	}
@@ -41,9 +41,10 @@ func (q *Queries) SaveResource(ctx context.Context, r *domain.Resource) error {
 	}
 	res, err := q.q.ExecContext(ctx, `UPDATE resources SET spec_json = ?, secret_ciphertext = ?, generation = ?, observed_generation = ?,
 		phase = ?, message = ?, steps_json = ?, outputs_json = ?, attempts = ?, requested_action = ?, next_attempt_at = ?, last_transition_at = ?, updated_at = ?,
-		serving_revision = ?, next_run_at = ?, consecutive_failures = ? WHERE id = ?`,
+		serving_revision = ?, next_run_at = ?, consecutive_failures = ?, machine_id = ?, stack_id = ? WHERE id = ?`,
 		string(r.Spec), r.SecretCiphertext, r.Generation, r.ObservedGeneration, string(r.Phase), r.Message, steps, outputs,
-		r.Attempts, r.RequestedAction, tsPtr(r.NextAttemptAt), ts(r.LastTransitionAt), ts(r.UpdatedAt), r.ServingRevision, tsPtr(r.NextRunAt), r.ConsecutiveFailures, r.ID)
+		r.Attempts, r.RequestedAction, tsPtr(r.NextAttemptAt), ts(r.LastTransitionAt), ts(r.UpdatedAt), r.ServingRevision, tsPtr(r.NextRunAt), r.ConsecutiveFailures,
+		nullable(r.Machine), nullable(r.Stack), r.ID)
 	if err != nil {
 		return err
 	}
@@ -125,8 +126,11 @@ type ListFilter struct {
 	Name string
 	// Projects limits the list to these projects; nil means every project.
 	Projects []string
-	Limit    int
-	Cursor   string
+	// Machine and Stack limit the list to one machine's resources or one stack's members (v0.8).
+	Machine string
+	Stack   string
+	Limit   int
+	Cursor  string
 }
 
 // ListResources pages through resources ordered by (created_at, id). The cursor is opaque to clients.
@@ -139,11 +143,17 @@ func (q *Queries) ListResources(ctx context.Context, f ListFilter) ([]*domain.Re
 	if f.Name != "" {
 		where, args = append(where, "name = ?"), append(args, f.Name)
 	}
+	if f.Machine != "" {
+		where, args = append(where, "machine_id = ?"), append(args, f.Machine)
+	}
+	if f.Stack != "" {
+		where, args = append(where, "stack_id = ?"), append(args, f.Stack)
+	}
 	if f.Projects != nil {
 		if len(f.Projects) == 0 {
 			return nil, "", nil
 		}
-		where = append(where, "project IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(f.Projects)), ", ")+")")
+		where = append(where, "project IN ("+placeholders(len(f.Projects))+")")
 		for _, p := range f.Projects {
 			args = append(args, p)
 		}
@@ -201,6 +211,13 @@ func (q *Queries) DueResources(ctx context.Context, now time.Time, limit int) ([
 		ORDER BY COALESCE(next_attempt_at, created_at) LIMIT ?`, ts(now), limit)
 }
 
+// Waiting returns resources in progress that wait without having failed (a machine, the engine, VMs):
+// attempts at 0 and a next attempt still ahead of now.
+func (q *Queries) Waiting(ctx context.Context, now time.Time) ([]*domain.Resource, error) {
+	return q.many(ctx, `SELECT `+resourceCols+` FROM resources
+		WHERE phase IN ('pending', 'provisioning', 'updating', 'deleting') AND attempts = 0 AND next_attempt_at > ? ORDER BY created_at, id`, ts(now))
+}
+
 // ResourcesInPhase returns all resources in phase.
 func (q *Queries) ResourcesInPhase(ctx context.Context, phase api.Phase) ([]*domain.Resource, error) {
 	return q.many(ctx, `SELECT `+resourceCols+` FROM resources WHERE phase = ? ORDER BY created_at, id`, string(phase))
@@ -251,10 +268,10 @@ func (q *Queries) many(ctx context.Context, query string, args ...any) ([]*domai
 func scanResource(r scanner) (*domain.Resource, error) {
 	var res domain.Resource
 	var kind, phase, spec, steps, outputs, transition, created, updated string
-	var owner, next, nextRun sql.NullString
+	var owner, next, nextRun, machine, stack sql.NullString
 	err := r.Scan(&res.ID, &kind, &res.Name, &spec, &res.SecretCiphertext, &res.Generation, &res.ObservedGeneration, &phase, &res.Message,
 		&steps, &outputs, &owner, &res.Attempts, &res.RequestedAction, &next, &transition, &created, &updated, &res.ServingRevision, &nextRun, &res.ConsecutiveFailures,
-		&res.Project)
+		&res.Project, &machine, &stack)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +285,7 @@ func scanResource(r scanner) (*domain.Resource, error) {
 	if owner.Valid {
 		res.OwnerID = &owner.String
 	}
+	res.Machine, res.Stack = machine.String, stack.String
 	res.NextAttemptAt, res.NextRunAt = parseNullTS(next), parseNullTS(nextRun)
 	res.LastTransitionAt, res.CreatedAt, res.UpdatedAt = parseTS(transition), parseTS(created), parseTS(updated)
 	return &res, nil
@@ -400,6 +418,30 @@ func (q *Queries) SweepIdempotency(ctx context.Context, before time.Time) (int64
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// SetMachine places a resource on a machine (ADR-044), whatever its generation: placement and moves are the
+// reconciler's, and a spec change made meanwhile doesn't undo where it runs.
+func (q *Queries) SetMachine(ctx context.Context, id, machineID string) error {
+	_, err := q.q.ExecContext(ctx, `UPDATE resources SET machine_id = ? WHERE id = ?`, nullable(machineID), id)
+	return err
+}
+
+// ResourcesOnMachine returns every resource placed on a machine, oldest first.
+func (q *Queries) ResourcesOnMachine(ctx context.Context, machineID string) ([]*domain.Resource, error) {
+	return q.many(ctx, `SELECT `+resourceCols+` FROM resources WHERE machine_id = ? ORDER BY created_at, id`, machineID)
+}
+
+// StackMembers returns the members of a stack, oldest first.
+func (q *Queries) StackMembers(ctx context.Context, stackID string) ([]*domain.Resource, error) {
+	return q.many(ctx, `SELECT `+resourceCols+` FROM resources WHERE stack_id = ? ORDER BY created_at, id`, stackID)
+}
+
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // SetSecretCiphertext replaces a secret's encrypted value (a synced secret's new value, ADR-041).

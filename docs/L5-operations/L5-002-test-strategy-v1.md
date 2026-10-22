@@ -6,7 +6,7 @@
 | Document ID | L5-002-test-strategy-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v17 |
+| Version | v19 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -147,6 +147,18 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 - The real-Docker driver suite (about 5 minutes) and the built-binary e2e.
 - A v0.4 firewall test was made deterministic. A redeploy reports ready just before it re-syncs firewalls, and a restart in that gap lost the event the test waited for.
 
+## 10 · v0.8 suites (planned)
+
+| Suite | Level | What it proves | Command |
+|---|---|---|---|
+| Validation and pure logic | Unit: `pkg/api`, `internal/domain`, `internal/catalogue` | `machine` and label rules; choosing a machine (memory, labels, VM support, volumes, versions, ties); address pools (lowest free, top-up, small subnets); template parsing, placeholders, typed values, `when`, limits and line numbers; every built-in renders and validates | `go test ./pkg/api ./internal/domain ./internal/catalogue/...` |
+| Agent protocol | Integration: `internal/agent` server and `agent.Remote` in process over real mutual TLS, the fake driver behind the server | Every `Driver` and `Hypervisor` method round-trips with its error class; streams and trailers; `started` callbacks; cancellation; refusals without a client certificate, with a wrong CA, with another machine's certificate; join codes once and expiring; renewal | `go test ./internal/agent/...` |
+| Many machines on the fake engine | Integration (real API + SQLite + the router + in-process agents with fake drivers): `internal/reconciler`, `internal/httpapi`, `internal/testenv` | Placement, the mesh configuration each machine gets (peers, pools, stand-ins), offline detection, apps restarted elsewhere, sweeping on return, moves of every kind with copy-then-switch and failure, drain, stacks created, updated and deleted in one transaction, member protection | `go test ./...` |
+| CLI, provider, console | `internal/cli`, provider acceptance, `pnpm test` (mock), Playwright | `machine`, `agent`, `move`, `catalogue`, `stack` commands; `enclave_machine`, `machine` on placed resources, `enclave_stack`, `enclave_catalogue_template`; the Machines, Catalogue and Stacks pages and the move dialog | `go test ./internal/cli`, `make provider-acceptance`, `pnpm test`, `make console-e2e` |
+| Real Docker, two engines | `internal/engine/docker` with a Docker-in-Docker engine as the second machine | The mesh image builds; WireGuard links two engines; addresses and names reach across; firewalls see real sources; isolation between networks; stand-ins survive restarts; data volumes export and import | `make engine-docker` |
+| Built-binary e2e, two machines | `tests/e2e` (`make e2e-machines`): the server in a container and an agent in a Docker-in-Docker container | As built: joining with the printed command, a cache on the second machine reached by name from a job on the first through a private network, the cache moved to the first machine with its data, the agent stopped and an app restarted on the first machine, `machine ls` and events showing it offline, and nothing left on Docker afterwards. Catalogue stacks and domains are tested on the fake engine and in OpenTofu acceptance, not here yet | `make e2e-machines` |
+| Performance | `tests/load` | Throughput and latency between two engines over the tunnel (XNET-08); the router's overhead per call | `L5-003` |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -168,3 +180,5 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 | v15 | 2026-10-21 | Soupler Labs | §9 v0.6 suites (planned) |
 | v16 | 2026-10-22 | Soupler Labs | §9 suites shipped and green, with results; requirement-coverage suite; firewall test race fixed |
 | v17 | 2026-10-22 | Soupler Labs | §5: CI runs every level, real-engine e2e and load included, on every PR only (no push or nightly runs) |
+| v18 | 2026-10-22 | Soupler Labs | §10 v0.8 suites (planned): validation and pure logic, agent protocol, many machines on the fake engine, surfaces, two real engines, two-machine e2e, tunnel performance |
+| v19 | 2026-10-22 | Soupler Labs | §10: the two-machine e2e as built |

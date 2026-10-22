@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ type Fault struct {
 	Message string
 	// DeleteFailures makes the next N Delete calls fail with a retryable error.
 	DeleteFailures int
+	// DeleteDelay makes each Delete take this long (a slow container removal).
+	DeleteDelay time.Duration
 	// RestartPermanent makes Restart fail permanently.
 	RestartPermanent bool
 	// Unhealthy makes a new app revision fail its health check (ADR-016): the serving revision stays.
@@ -45,6 +48,15 @@ type runtime struct {
 	revision   int64
 	placement  engine.Placement
 	ip         string
+	// container and aliases are what the Docker driver would call it on its network (ADR-045).
+	container string
+	aliases   []string
+}
+
+// named records the names a resource's runtime answers to on its network.
+func (rt *runtime) named(r *domain.Resource) *runtime {
+	rt.container, rt.aliases = engine.ContainerName(r), []string{engine.ContainerName(r), engine.PrivateDNS(r)}
+	return rt
 }
 
 // Driver is the fake engine.
@@ -54,6 +66,9 @@ type Driver struct {
 
 	mu        sync.Mutex
 	available bool
+	memory    int64
+	// mesh is the last mesh configuration applied (ADR-045); its pools bound the addresses handed out.
+	mesh      *engine.MeshConfig
 	nextPort  int
 	runtimes  map[string]*runtime
 	buckets   map[string]bool
@@ -178,7 +193,20 @@ func (d *Driver) Info(ctx context.Context) (engine.Info, error) {
 	if err := d.Ping(ctx); err != nil {
 		return engine.Info{}, err
 	}
-	return engine.Info{Version: "fake-1.0", MemoryTotalBytes: 16 << 30, CPUs: 8}, nil
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	mem := d.memory
+	if mem == 0 {
+		mem = 16 << 30
+	}
+	return engine.Info{Version: "fake-1.0", MemoryTotalBytes: mem, CPUs: 8}, nil
+}
+
+// SetMemory sets the memory Info reports (placement tests, ADR-044); 0 is 16 GiB.
+func (d *Driver) SetMemory(bytes int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.memory = bytes
 }
 
 func (d *Driver) sleep(ctx context.Context) error {
@@ -260,7 +288,7 @@ func (d *Driver) Ensure(ctx context.Context, in engine.EnsureInput, report engin
 		if err != nil {
 			return nil, err
 		}
-		rt = &runtime{port: port, placement: in.Placement, ip: ip}
+		rt = (&runtime{port: port, placement: in.Placement, ip: ip}).named(r)
 		d.runtimes[r.ID] = rt
 	}
 	rt.generation, rt.running = r.Generation, true
@@ -384,7 +412,7 @@ func (d *Driver) ensureApp(ctx context.Context, in engine.EnsureInput, f *Fault,
 	if err != nil {
 		return nil, err
 	}
-	rt := &runtime{generation: r.Generation, running: true, port: port, revision: next, placement: in.Placement, ip: ip}
+	rt := (&runtime{generation: r.Generation, running: true, port: port, revision: next, placement: in.Placement, ip: ip}).named(r)
 	d.runtimes[r.ID] = rt
 	d.replicasByAlias[engine.ContainerName(r)] = max(spec.Replicas, 1)
 	if in.Firewall != nil {
@@ -464,7 +492,20 @@ func (d *Driver) Delete(ctx context.Context, r *domain.Resource, _ engine.Object
 		d.mu.Unlock()
 		return errors.New("volume busy (injected delete fault)")
 	}
+	var delay time.Duration
+	if f := d.faults[r.Name]; f != nil {
+		delay = f.DeleteDelay
+	}
 	d.mu.Unlock()
+	if delay > 0 {
+		t := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
 	if err := d.sleep(ctx); err != nil {
 		return err
 	}
@@ -562,4 +603,31 @@ func (d *Driver) Logs(ctx context.Context, r *domain.Resource, tail int) ([]api.
 		lines = lines[len(lines)-tail:]
 	}
 	return lines, nil
+}
+
+// Sweep removes the runtimes of every resource not in keep (ADR-046), as the Docker driver removes their
+// containers; volumes and data stay.
+func (d *Driver) Sweep(_ context.Context, keep []string) ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.available {
+		return nil, engine.ErrUnavailable
+	}
+	var removed []string
+	for id := range d.runtimes {
+		if !slices.Contains(keep, id) {
+			delete(d.runtimes, id)
+			removed = append(removed, id)
+		}
+	}
+	slices.Sort(removed)
+	return removed, nil
+}
+
+// Running reports whether a resource has a runtime here (tests of moves and sweeps).
+func (d *Driver) Running(resourceID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	rt := d.runtimes[resourceID]
+	return rt != nil && rt.running
 }
