@@ -6,7 +6,6 @@ node_modules/
 *.log
 .turbo/
 dist/
-build/
 coverage/
 *.governance-new
 

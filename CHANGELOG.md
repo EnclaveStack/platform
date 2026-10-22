@@ -11,6 +11,9 @@ All notable changes to `platform` are recorded here. Every change — code, docs
   - What EnclaveStack creates: containers, networks and volumes named `es-…` (was `hc-…`), API tokens `es_pat_…`, broker subjects `es.q.*` / `es.t.*`, the console package `@enclavestack/ui`.
   - Nothing was released under the old names, so there is no migration.
 
+### Fixed
+- `.gitignore` ignored the source package `internal/build/` through an unanchored `build/` rule, so the first CI run couldn't compile; the rule is now `/build/` only (lesson recorded in CLAUDE.md).
+
 ### Added
 - **v0.7 "Operate" — built on every surface (2026-10-22, `L2-009`, ADR-035 – ADR-041).**
   - **Projects** are namespaces. Names are unique per project; containers, networks, private DNS (`<name>.<kind>.<project>.internal`) and broker users carry the project; each project gets its own object-store user limited to its buckets. Everything from v0.6 is in `default` and keeps its names and addresses. Migration `0012_operate`.

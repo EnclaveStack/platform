@@ -123,4 +123,4 @@ All six steps close a session. Skipping L6.1 WE is only acceptable when the PR i
 
 Rules in this file exist because something broke. When a real incident teaches a new rule, add it here with *why* — a rule without its reason gets deleted by the next person who finds it inconvenient.
 
-- (none yet)
+- **Anchor ignore rules for output folders** (`/build/`, not `build/`). *Why:* on 2026-10-22 an unanchored `build/` in `.gitignore` also matched the source package `internal/build/`; it was never committed, everything passed locally, and the first CI run failed to compile. Before a first push, run `git ls-files -o -i --exclude-standard` and check nothing but generated output is ignored.
