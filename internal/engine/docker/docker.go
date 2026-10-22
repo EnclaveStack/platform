@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -81,7 +82,12 @@ type Options struct {
 	// ACMEDirectory and ACMERootPEM point automatic certificates at another CA (tests use Pebble).
 	ACMEDirectory string
 	ACMERootPEM   []byte
-	Log           *slog.Logger
+	// Agent marks another machine's engine (ADR-045): its default network is made with the main machine's
+	// range, so it waits for the first mesh configuration before making it.
+	Agent bool
+	// DockerHost reaches another engine than DOCKER_HOST's (tests with a second engine).
+	DockerHost string
+	Log        *slog.Logger
 }
 
 // Driver talks to the Docker Engine API.
@@ -101,6 +107,10 @@ type Driver struct {
 	imgMu          sync.Mutex
 	netfilterReady bool
 	vmlinkReady    bool
+	meshReady      bool
+
+	meshMu sync.Mutex
+	mesh   *meshState // the last mesh configuration (ADR-045); nil with one machine
 
 	brokerMu   sync.Mutex
 	brokerConf []byte // the configuration last written into the broker (ADR-029)
@@ -140,6 +150,9 @@ func New(opts Options) (*Driver, error) {
 				}
 			}
 		}
+	}
+	if opts.DockerHost != "" {
+		clientOpts = append(clientOpts, client.WithHost(opts.DockerHost))
 	}
 	cli, err := client.NewClientWithOpts(clientOpts...)
 	if err != nil {
@@ -385,12 +398,26 @@ func (d *Driver) ensureImage(ctx context.Context, ref string, force bool) error 
 }
 
 func (d *Driver) ensureNetwork(ctx context.Context) error {
-	if _, err := d.cli.NetworkInspect(ctx, engine.NetworkName, network.InspectOptions{}); err == nil {
+	cfg := d.meshCfg()
+	if n, err := d.cli.NetworkInspect(ctx, engine.NetworkName, network.InspectOptions{}); err == nil {
+		if cfg != nil && cfg.DefaultRange != "" && len(n.IPAM.Config) > 0 && n.IPAM.Config[0].Subnet != cfg.DefaultRange {
+			return engine.Permanent(fmt.Errorf("the default network here has the range %s, and every machine needs %s, the main machine's. Run `enclave agent leave` and join again",
+				n.IPAM.Config[0].Subnet, cfg.DefaultRange))
+		}
 		return nil
 	} else if !cerrdefs.IsNotFound(err) {
 		return d.classify(fmt.Errorf("inspect network: %w", err))
 	}
-	_, err := d.cli.NetworkCreate(ctx, engine.NetworkName, network.CreateOptions{Driver: "bridge", Labels: map[string]string{LabelManaged: "true"}})
+	opts := network.CreateOptions{Driver: "bridge", Labels: map[string]string{LabelManaged: "true"}}
+	if d.opts.Agent {
+		// Another machine takes the main machine's range for the default network (ADR-045).
+		if cfg == nil || cfg.DefaultRange == "" {
+			return errors.New("waiting for this machine's network settings from the main machine")
+		}
+		gw, _ := netip.ParsePrefix(cfg.DefaultRange)
+		opts.IPAM = &network.IPAM{Driver: "default", Config: []network.IPAMConfig{{Subnet: cfg.DefaultRange, Gateway: gw.Addr().Next().String()}}}
+	}
+	_, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return d.classify(fmt.Errorf("create network: %w", err))
 	}

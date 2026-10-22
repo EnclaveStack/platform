@@ -105,6 +105,9 @@ func (m *Monitor) judge(ctx context.Context, a *domain.Resource, c api.AlertCond
 	if ref == api.MachineRef {
 		return m.judgeMetric(ctx, c, store.MachineSeries, ref, now)
 	}
+	if c.Type == api.ConditionMachineOffline {
+		return m.judgeMachine(ctx, c, ref, now)
+	}
 	kind, name, _ := api.ParseRef(ref)
 	sub, err := m.Store.GetResourceByName(ctx, a.ProjectName(), kind, name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -329,4 +332,25 @@ func (m *Monitor) setAlertOutputs(ctx context.Context, a *domain.Resource, state
 		}
 	}
 	return m.Store.MergeOutputs(ctx, a.ID, map[string]any{"state": state, "since": since, "firing": firing})
+}
+
+// judgeMachine fires when a machine has been offline for forMinutes (MCH-06); a machine that is gone is no
+// data.
+func (m *Monitor) judgeMachine(ctx context.Context, c api.AlertCondition, ref string, now time.Time) (verdict, error) {
+	name := strings.TrimPrefix(ref, api.MachineRefPrefix)
+	v := verdict{key: ref, ref: ref, state: api.AlertOK}
+	mc, err := m.Store.GetMachineByName(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		v.state, v.message = api.AlertNoData, "The machine "+name+" doesn't exist any more."
+		return v, nil
+	}
+	if err != nil {
+		return v, err
+	}
+	if mc.State == api.MachineOffline && now.Sub(mc.StateSince) >= time.Duration(c.ForMinutes)*time.Minute {
+		minutes := now.Sub(mc.StateSince).Minutes()
+		v.state, v.value = api.AlertFiring, &minutes
+		v.message = fmt.Sprintf("The machine %s has been offline since %s.", name, mc.StateSince.Local().Format("15:04 on 2 Jan"))
+	}
+	return v, nil
 }

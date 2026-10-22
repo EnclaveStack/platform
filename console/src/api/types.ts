@@ -45,8 +45,14 @@ export interface GitSource {
   buildArgs?: Record<string, string>;
 }
 
+/** Where a placed kind runs (ADR-044, L3-002 §11.3): a machine, or labels the machine must have; neither lets EnclaveStack choose. */
+export interface Placed {
+  machine?: string;
+  machineLabels?: Record<string, string>;
+}
+
 /** Exactly one of image and source. */
-export interface AppSpec {
+export interface AppSpec extends Placed {
   image?: string;
   source?: GitSource;
   port?: number;
@@ -80,7 +86,7 @@ export interface DomainSpec {
 export type Overlap = 'forbid' | 'allow';
 
 /** A command on a schedule (ADR-017, L3-002 §6.2). Exactly one of app or image. */
-export interface JobSpec {
+export interface JobSpec extends Placed {
   schedule: string;
   timeZone?: string;
   app?: string;
@@ -166,13 +172,13 @@ export interface RunDetail extends Run {
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mongodb' | 'clickhouse';
-export interface DatabaseSpec {
+export interface DatabaseSpec extends Placed {
   engine: DatabaseEngine;
   version: string;
   network?: string;
   subnet?: string;
 }
-export interface CacheSpec {
+export interface CacheSpec extends Placed {
   engine: 'redis';
   version: string;
   maxMemoryMiB?: number;
@@ -222,7 +228,7 @@ export interface LoadBalancerCheck {
   healthyThreshold?: number;
   unhealthyThreshold?: number;
 }
-export interface LoadBalancerSpec {
+export interface LoadBalancerSpec extends Placed {
   port: number;
   protocol?: 'http' | 'tcp';
   targets: LoadBalancerTarget[];
@@ -257,7 +263,7 @@ export interface VolumeMount {
 }
 export type Power = 'running' | 'stopped';
 /** A VM run by QEMU (ADR-025). Image, keys and the first-boot script never change. */
-export interface VMSpec {
+export interface VMSpec extends Placed {
   /** ubuntu-24.04, debian-12, an https:// URL, or snapshot/<name>. */
   image: string;
   imageSha256?: string;
@@ -276,7 +282,7 @@ export interface VMSpec {
   power?: Power;
 }
 export type VolumeType = 'disk' | 'filesystem';
-export interface VolumeSpec {
+export interface VolumeSpec extends Placed {
   type: VolumeType;
   /** Disks only; grows only. */
   sizeGiB?: number;
@@ -307,7 +313,7 @@ export interface TopicSpec {
   retentionHours?: number;
   subscriptions?: Subscription[];
 }
-export interface SearchSpec {
+export interface SearchSpec extends Placed {
   version?: '2' | '3';
   memoryMiB?: number;
   network?: string;
@@ -348,7 +354,7 @@ export interface EmailRelay {
   /** A secret holding {"username","password"}. */
   credentialsSecret: string;
 }
-export interface EmailSpec {
+export interface EmailSpec extends Placed {
   mode?: EmailMode;
   relay?: EmailRelay;
   domain?: string;
@@ -472,6 +478,108 @@ export interface SpecByKind {
   channel: ChannelSpec;
   logexport: LogExportSpec;
   secretstore: SecretStoreSpec;
+  stack: StackSpec;
+}
+
+/** A stack: a catalogue entry or a template of one's own, installed as one thing (ADR-048, L3-002 §11.7). Exactly one of template and templateBody. */
+export interface StackSpec {
+  template?: string;
+  templateBody?: string;
+  version?: string;
+  parameters?: Record<string, string | number | boolean>;
+  /** Write-only: they become the stack's secrets and are never returned. */
+  secretParameters?: Record<string, string>;
+}
+
+export interface StackMember {
+  kind: Kind;
+  name: string;
+  id: string;
+  phase: Phase;
+}
+
+export type ParameterType = 'string' | 'number' | 'boolean' | 'secret' | 'hostname';
+
+export interface TemplateParameter {
+  name: string;
+  title: string;
+  description?: string;
+  type: ParameterType;
+  default?: string | number | boolean;
+  required?: boolean;
+}
+
+/** A resource a template creates, named as created ("<stack>" stands for the stack). */
+export interface TemplateMember {
+  kind: Kind;
+  name: string;
+  optional: boolean;
+}
+
+export interface CatalogueEntry {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  versions: string[];
+  builtIn: boolean;
+  parameters: TemplateParameter[];
+  members: TemplateMember[];
+  outputs: string[];
+}
+
+export type MachineState = 'waiting' | 'online' | 'offline';
+
+export interface MachineLink {
+  machine: string;
+  connected: boolean;
+  lastHandshakeAt: string | null;
+}
+
+/** One machine of GET /machines (L3-002 §11.2). */
+export interface MachineSummary {
+  id: string;
+  name: string;
+  title: string;
+  main: boolean;
+  state: MachineState;
+  since: string;
+  labels: Record<string, string>;
+  schedulable: boolean;
+  address: string | null;
+  os: string;
+  arch: string;
+  agentVersion: string;
+  engine: { driver: string; available: boolean; version: string; message: string };
+  cpus: number;
+  memoryTotalBytes: number;
+  memoryReservedBytes: number;
+  vms: { available: boolean; message: string; qemuVersion?: string; accelerator?: string };
+  lastSeenAt: string | null;
+  resources: number;
+  versionMismatch: boolean;
+  links: MachineLink[];
+  message: string;
+}
+
+/** The join code is shown once. */
+export interface AddedMachine {
+  machine: MachineSummary;
+  joinCode: string;
+  joinCommand: string;
+  expiresAt: string;
+}
+
+/** Absent fields stay; labels {} clears them. */
+export interface UpdateMachineInput {
+  labels?: Record<string, string>;
+  schedulable?: boolean;
+}
+
+/** "kind/name", with "project/" outside default. */
+export interface DrainResult {
+  moving: string[];
+  pinned: string[];
 }
 
 export type Outputs = Record<string, string | number | boolean>;
@@ -484,6 +592,8 @@ export interface Resource<K extends Kind = Kind> {
   name: string;
   generation: number;
   ownerId: string | null;
+  /** The ID of the stack it belongs to (ADR-048), or null. */
+  stack: string | null;
   spec: SpecByKind[K];
   status: Status;
   outputs: Outputs;
@@ -711,7 +821,7 @@ export interface DashboardSpec {
   widgets: Widget[];
 }
 
-export type ConditionType = 'metric' | 'crash_loop' | 'failed' | 'run_failed';
+export type ConditionType = 'metric' | 'crash_loop' | 'failed' | 'run_failed' | 'machine_offline';
 
 export interface AlertCondition {
   type: ConditionType;

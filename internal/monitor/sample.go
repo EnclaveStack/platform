@@ -43,6 +43,14 @@ func (s *sample) add(r *domain.Resource, metric string, v float64) {
 	s.points = append(s.points, store.Point{ResourceID: id, Metric: metric, TS: s.at, Value: v})
 }
 
+// addMachine adds a point to a machine's own series.
+func (s *sample) addMachine(machineID, metric string, v float64) {
+	s.points = append(s.points, store.Point{ResourceID: store.MachineSeriesOf(machineID), Metric: metric, TS: s.at, Value: v})
+}
+
+// machineTotals is what runs on one machine, summed.
+type machineTotals struct{ cpu, mem, failed float64 }
+
 // rates turns cumulative counters into per-second rates against the previous ones under key; deltas
 // holds counters whose increase (not rate) is wanted, such as restarts.
 func (m *Monitor) rates(key string, now time.Time, cur map[string]float64) (rates map[string]float64, deltas map[string]float64) {
@@ -86,11 +94,24 @@ func (m *Monitor) SampleOnce(ctx context.Context) error {
 	if err != nil {
 		m.Log.Debug("read edge request counters failed", "error", err)
 	}
-	var machineCPU, machineMem float64
-	failed := 0
+	// Every machine's series, the main one's always (MET-03, v0.8 one per machine).
+	machines := map[string]*machineTotals{api.MainMachine: {}}
+	if list, err := m.Store.ListMachines(ctx); err == nil {
+		for _, mc := range list {
+			machines[mc.ID] = &machineTotals{}
+		}
+	}
+	on := func(r *domain.Resource) *machineTotals {
+		t, ok := machines[r.MachineID()]
+		if !ok {
+			t = &machineTotals{}
+			machines[r.MachineID()] = t
+		}
+		return t
+	}
 	for _, r := range all {
 		if r.Phase == api.PhaseFailed {
-			failed++
+			on(r).failed++
 		}
 		if r.Phase != api.PhaseReady && r.Phase != api.PhaseUpdating {
 			continue
@@ -98,10 +119,10 @@ func (m *Monitor) SampleOnce(ctx context.Context) error {
 		switch {
 		case slices.Contains(api.ContainerKinds, r.Kind):
 			cpu, mem := m.sampleContainers(ctx, s, r, now)
-			machineCPU, machineMem = machineCPU+cpu, machineMem+mem
+			on(r).cpu, on(r).mem = on(r).cpu+cpu, on(r).mem+mem
 		case r.Kind == api.KindVM:
 			cpu, mem := m.sampleVM(ctx, s, r, now)
-			machineCPU, machineMem = machineCPU+cpu, machineMem+mem
+			on(r).cpu, on(r).mem = on(r).cpu+cpu, on(r).mem+mem
 		case r.Kind == api.KindQueue:
 			m.sampleQueue(ctx, s, r, now)
 		case r.Kind == api.KindTopic:
@@ -118,9 +139,12 @@ func (m *Monitor) SampleOnce(ctx context.Context) error {
 			}
 		}
 	}
-	s.add(nil, api.MetricCPU, machineCPU)
-	s.add(nil, api.MetricMemory, machineMem)
-	s.add(nil, api.MetricResourcesFailed, float64(failed))
+	for id, t := range machines {
+		s.addMachine(id, api.MetricCPU, t.cpu)
+		s.addMachine(id, api.MetricMemory, t.mem)
+		s.addMachine(id, api.MetricResourcesFailed, t.failed)
+	}
+	// The disk is the main machine's data folder, where EnclaveStack keeps its database.
 	if free, pct, err := diskUsage(m.DataDir); err == nil {
 		s.add(nil, api.MetricDiskFree, free)
 		s.add(nil, api.MetricDiskPercentFull, pct)

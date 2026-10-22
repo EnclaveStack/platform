@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Resource } from '../api/types';
 import { cliCommand, tofuBlock } from './codegen';
 
-const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'default', generation: 1, ownerId: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
+const base: Omit<Resource, 'kind' | 'name' | 'spec'> = { id: 'x', project: 'default', generation: 1, ownerId: null, stack: null, status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' };
 
 describe('use from code', () => {
   const app = { ...base, kind: 'app', name: 'api-web', spec: { image: 'ghcr.io/acme/api:1.4', port: 8080, publish: true, memoryMiB: 512, env: { LOG_LEVEL: 'info', GREETING: "it's on" }, secretEnv: { STRIPE_KEY: 'stripe-key' } } } as Resource;

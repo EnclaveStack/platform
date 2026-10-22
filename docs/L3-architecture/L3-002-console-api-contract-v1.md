@@ -6,7 +6,7 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v19 |
+| Version | v21 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -24,7 +24,7 @@ The contract between the EnclaveStack control plane and every client — the con
 | Topic | Rule |
 |---|---|
 | Base | `/api/v1`, JSON (UTF-8). A request with a body must send `Content-Type: application/json` (`415 UNSUPPORTED_MEDIA_TYPE`). Bodies ≤ 1 MiB (`413 PAYLOAD_TOO_LARGE`). Unknown JSON fields are rejected (`400 MALFORMED_REQUEST`). |
-| Authentication | Browser: cookie `es_session` (set by `/session` and `/setup`). Code: `Authorization: Bearer hc_pat_…`. Neither → `401 UNAUTHENTICATED`. |
+| Authentication | Browser: cookie `es_session` (set by `/session` and `/setup`). Code: `Authorization: Bearer es_pat_…`. Neither → `401 UNAUTHENTICATED`. |
 | Authorisation | Sessions have full access. Tokens have scope `read` (GET only) or `write` (everything except managing tokens). Wrong scope → `403 FORBIDDEN`. Token management and secret reveal need a session or a `write` token. |
 | CSRF | A cookie-authenticated `POST`/`PATCH`/`DELETE` must carry `X-Enclave-CSRF: 1` (`403 CSRF_REQUIRED`). No CORS headers are ever sent. |
 | Request ID | Every response carries `X-Request-Id` (the client's, if it is 1–64 chars of `[A-Za-z0-9._-]`, else generated); errors repeat it in `requestId`. |
@@ -80,7 +80,7 @@ Field-level `details[].code`: `REQUIRED`, `INVALID_FORMAT`, `TOO_SHORT`, `TOO_LO
 | `GET /api/v1/session` | — | `200 Session` | Works for cookie and token |
 | `DELETE /api/v1/session` | — | `204` | Clears cookie |
 | `GET /api/v1/tokens` | — | `200 {items: Token[]}` | Session or write token |
-| `POST /api/v1/tokens` | `{name, scope: "read"|"write", expiresInDays?: 1–365}` | `201 {token: Token, secret: "hc_pat_…"}` | Secret shown once |
+| `POST /api/v1/tokens` | `{name, scope: "read"|"write", expiresInDays?: 1–365}` | `201 {token: Token, secret: "es_pat_…"}` | Secret shown once |
 | `DELETE /api/v1/tokens/{id}` | — | `204` | Revoke |
 | `GET /api/v1/machine` | — | `200 Machine` | |
 | `GET /api/v1/resources` | query `kind`, `name`, `limit`, `cursor` | `200 {items: Resource[], nextCursor}` | Ordered by creation |
@@ -907,6 +907,194 @@ interface Notification { id: string; event: 'firing' | 'resolved' | 'repeat' | '
 
 Dashboards and alerts don't reference the resources they show or watch.
 
+## 11 · v0.8 additions (planned)
+
+This section specifies the v0.8 contract (`L2-010`; ADR-042 – ADR-048). As each phase ships, this section says so, in the same PR as `pkg/api`, `api/openapi.yaml`, the generated console file, both console adapters and the handlers (ADR-010).
+
+### 11.1 Kinds and identifiers
+
+`Kind` gains `stack` (`stk_`). Machines are not resources: like projects, they have their own endpoints (§11.2) and are named by their name; their IDs are `mch_…`, and `main` for the main machine.
+
+### 11.2 Machines
+
+```ts
+type MachineState = 'waiting' | 'online' | 'offline';
+interface MachineLink { machine: string; connected: boolean; lastHandshakeAt: string | null }
+interface MachineSummary {
+  id: string; name: string; title: string; main: boolean;   // main: name 'main', title the machine name from setup
+  state: MachineState; since: string;                        // since: when it entered the state
+  labels: Record<string, string>; schedulable: boolean;
+  address: string | null;                     // what the agent advertised; the main machine's public address or null
+  os: string; arch: string; agentVersion: string; engine: Engine;
+  cpus: number; memoryTotalBytes: number; memoryReservedBytes: number;
+  vms: VMSupport; lastSeenAt: string | null; resources: number;
+  versionMismatch: boolean;                   // MCH-10: true when the agent's minor version differs
+  links: MachineLink[];                       // XNET-06: one per other online machine
+  message: string;                            // why it can't take placements, or ''
+}
+interface MachineList { items: MachineSummary[] }
+interface AddMachine { name: string; labels?: Record<string, string> }
+interface AddedMachine { machine: MachineSummary; joinCode: string; joinCommand: string; expiresAt: string }   // code shown once
+interface UpdateMachine { labels?: Record<string, string> | null; schedulable?: boolean }   // labels {} clears them; absent or null keeps them
+interface JoinRequest { code: string; csr: string; advertise: string; agentPort: number; tunnelPort: number;
+                        os: string; arch: string; agentVersion: string }
+interface JoinResponse { machineId: string; name: string; certificate: string; ca: string; server: string }
+interface DrainResult { moving: string[]; pinned: string[] }   // "kind/name" (with "project/" outside default)
+```
+
+| Method and path | Who | Body → response |
+|---|---|---|
+| `GET /machines` | any signed-in | → `200 MachineList`; resource counts only cover projects the caller can see |
+| `POST /machines` | machine admin | `AddMachine` → `201 AddedMachine` (state `waiting`) |
+| `GET /machines/{name}` | any signed-in | → `200 MachineSummary` |
+| `PATCH /machines/{name}` | machine admin | `UpdateMachine` → `200 MachineSummary` |
+| `POST /machines/{name}/join-code` | machine admin | → `200 AddedMachine` with a new code; only while `waiting` → else `409 ACTION_NOT_SUPPORTED` |
+| `POST /machines/{name}/drain` | machine admin | → `202 DrainResult`; the main machine → `409 ACTION_NOT_SUPPORTED` |
+| `DELETE /machines/{name}?force=true` | machine admin | → `204`; anything placed there → `409 MACHINE_NOT_EMPTY` listing it; `force` on an online machine → `409 MACHINE_ONLINE`; `main` → `409 ACTION_NOT_SUPPORTED` |
+| `POST /machines/join` | public, rate-limited like sign-in | `JoinRequest` → `200 JoinResponse`; unknown, used or expired code → `410 JOIN_CODE_INVALID` |
+| `GET /machines/{name}/metrics?metric=…` | any signed-in | → `200 MetricData` (§10.4 machine metrics, for that machine: CPU, memory and failed resources of what runs there; the disk metrics are the main machine's data folder, so other machines' disk series are empty); `GET /machine/metrics` stays the main machine's |
+
+- `GET /machine` keeps describing the main machine; `PATCH /machine` keeps its settings.
+- `joinCommand` is `enclave agent join <server> --code <code>`, where `<server>` is the main machine's console URL, public address or listen address, in that order. A loopback address is replaced with a note that the other computer can't reach it.
+- Events on a machine: `GET /machines/{name}/events` → `200 EventList` (`added`, `joined`, `online`, `offline`, `drain_started`, `removed`, `version_mismatch`).
+
+### 11.3 Placement
+
+```ts
+interface Placed { machine?: string; machineLabels?: Record<string, string> }   // on AppSpec, DatabaseSpec, CacheSpec, JobSpec,
+                                                                                // LoadBalancerSpec, VMSpec, VolumeSpec, SearchSpec, EmailSpec
+// outputs of every placed resource: { machine: string, ... }; host is that machine's address
+```
+
+- `machine` names a machine; an unknown one → `422 FIELD_NOT_FOUND` on `spec.machine`. `machineLabels` has 1 – 10 entries, keys and values as labels (`[a-z0-9][a-z0-9._-]{0,62}`).
+- A resource that uses a volume must name the volume's machine or none; another → `422` on `spec.machine` naming the volume. Volumes on two machines → `422` on `spec.volumes`.
+- Not placed yet: `status.message` says why ("No machine has 1024 MiB free.", "No machine has the labels disk=ssd.", "No machine can run VMs.") and `outputs.machine` is absent.
+- `GET /resources?machine=<name>` lists what runs on a machine.
+- An app job (`JobSpec.app`) refuses `machine`: it runs where the app runs.
+
+### 11.4 Moving
+
+- `PATCH` with a new `machine` (or labels the current machine lacks) answers `202`, and the resource goes `updating` with steps `["move", …the kind's steps]`. `move`'s message counts bytes copied ("Copied 1.2 GB of 3.4 GB").
+- Moving a resource with data (database, cache, search, email, volume, VM) whose machine is offline → `409 MACHINE_OFFLINE`: "rack-1 is offline, so the data of orders can't be read. Restore a backup to a new database instead."
+- Moving to a machine that is offline, not schedulable or of another version → `422` on `spec.machine` with the reason.
+- Events: `move_started` ("Moving from mac-mini to rack-1."), `moved` ("Moved to rack-1 in 41 s; unavailable for 28 s.") and `move_failed` ("Copying the data failed: …; still running on mac-mini.").
+
+### 11.5 Catalogue
+
+```ts
+type ParameterType = 'string' | 'number' | 'boolean' | 'secret' | 'hostname';
+interface TemplateParameter { name: string; title: string; description?: string; type: ParameterType;
+                              default?: string | number | boolean; required?: boolean }
+interface TemplateMember { kind: Kind; name: string; optional: boolean }   // name as created, with ${stack} shown as "<stack>"
+interface CatalogueEntry { name: string; title: string; description: string; version: string; versions: string[];
+                           builtIn: boolean; parameters: TemplateParameter[]; members: TemplateMember[]; outputs: string[] }
+interface CatalogueList { items: CatalogueEntry[] }
+interface AddTemplate { body: string }   // YAML or JSON
+```
+
+| Method and path | Who | Body → response |
+|---|---|---|
+| `GET /catalogue` | any signed-in | → `200 CatalogueList`, built-ins first, then own templates, each by name |
+| `GET /catalogue/{name}` | any signed-in | → `200 CatalogueEntry` (`?version=` for an older one) |
+| `GET /catalogue/{name}/template` | any signed-in | → `200` the template's source (`text/yaml`) |
+| `POST /catalogue` | machine admin | `AddTemplate` → `201 CatalogueEntry`; an existing name with a higher version adds that version; the same version → `409 NAME_TAKEN`; a built-in's name → `409 NAME_TAKEN`; an invalid template → `422` with `details[].field` `line 12: resources[2].spec.port` |
+| `DELETE /catalogue/{name}` | machine admin | → `204`; a built-in → `409 ACTION_NOT_SUPPORTED`; stacks that use it → `409 RESOURCE_IN_USE` listing them |
+
+### 11.6 Template format
+
+```yaml
+name: wordpress                 # the catalogue name: resource name rules
+title: WordPress
+description: A WordPress site with its MySQL database and an uploads volume.
+version: 1.0.0                  # semver; one entry keeps every version added
+parameters:
+  - { name: domain, title: Domain, type: hostname }               # optional unless required: true
+  - { name: memoryMiB, title: Memory (MiB), type: number, default: 512 }
+resources:
+  - { kind: secret, name: salt, generate: 48 }                   # a random value of 48 characters
+  - kind: database
+    name: db
+    spec: { engine: mysql, version: "8.4" }
+  - kind: volume
+    name: uploads
+    spec: { type: filesystem }                                    # a folder: it has no size
+  - kind: app
+    name: ""                                                      # the stack's own name
+    spec:
+      image: wordpress:6.8.3-apache
+      port: 80
+      memoryMiB: "${param:memoryMiB}"                             # one placeholder: takes the number type
+      env: { WORDPRESS_DB_HOST: "${host:database/db}", WORDPRESS_DB_USER: "${ident:db}", WORDPRESS_DB_NAME: "${ident:db}" }
+      secretEnv: { WORDPRESS_DB_PASSWORD: "${name:db}-password", WORDPRESS_AUTH_SALT: "${name:salt}" }
+      volumes: [{ volume: "${name:uploads}", path: /var/www/html/wp-content }]
+  - kind: domain
+    name: site
+    when: "${param:domain}"                                       # left out when empty
+    spec: { hostname: "${param:domain}", app: "${name:}", tls: auto }
+outputs:
+  url: "https://${param:domain}"
+```
+
+- **Placeholders**: `${stack}`; `${project}`; `${param:<name>}`; `${name:<member>}` and `${name:}` (the stack's own name); `${host:<kind>/<member>}` (`es-<kind>-<name>` in `default`, `es-<kind>-<name>.<project>` elsewhere); `${ident:<member>}` (hyphens become underscores). A `secret` parameter renders as the name of the secret the stack made for it (`<stack>-<param>`). `$$` is a literal `$`.
+- **Validation**, before anything is created: unknown top-level or member keys, kinds, placeholders or parameters; duplicate member names; a `when` that isn't one placeholder; a parameter value of the wrong type or a missing required one. Then each rendered member's spec goes through the kind's validation. Errors name the member (`resources[2].spec.port`) and, for template errors, the line.
+- **Limits**: 64 KiB per template, 50 members, 30 parameters, 20 versions per entry.
+
+### 11.7 Stacks
+
+```ts
+interface StackSpec { template?: string; templateBody?: string; version?: string;   // exactly one of template, templateBody
+                      parameters?: Record<string, string | number | boolean>;
+                      secretParameters?: Record<string, string> }                 // write-only: never returned
+// outputs: { template: string; version: string; members: StackMember[]; outputs: Record<string, string>; ready: number; total: number }
+interface StackMember { kind: Kind; name: string; id: string; phase: Phase }
+interface Resource { /* earlier fields */ stack: string | null }                  // the stack a member belongs to
+```
+
+- Creating a stack is `POST /resources` with `kind: 'stack'`. It answers `201` with the stack `pending` and every member created `pending` in the same transaction. Any error answers `422` and creates nothing, with the member and field in each detail (`members.db.spec.version`).
+- `PATCH` a stack's `parameters`, `secretParameters` or `version` re-renders it: `202`, with members created, updated and marked `deleting` to match, in one transaction. `template` and `templateBody` are immutable (`409 IMMUTABLE_FIELD`).
+- `PATCH` or `DELETE` of a member → `409 PART_OF_STACK`: "orders-db is part of the stack orders. Change or delete the stack instead." Actions on members work.
+- `DELETE` of a stack → `202`; it is removed after its last member. A member something outside the stack uses → `409 RESOURCE_IN_USE` naming it.
+- `GET /resources?stack=<name>` lists a stack's members.
+
+### 11.8 Error codes
+
+`MACHINE_NOT_EMPTY` (409), `MACHINE_ONLINE` (409), `MACHINE_OFFLINE` (409), `JOIN_CODE_INVALID` (410), `PART_OF_STACK` (409).
+
+### 11.9 Validation rules
+
+| Field | Rule |
+|---|---|
+| machine `name` | resource name rules; unique; `main` is the main machine's and can't be taken |
+| `labels` | 0 – 10; key `[a-z0-9][a-z0-9._-]{0,62}`, value `[A-Za-z0-9._-]{0,63}` |
+| `spec.machine` | an existing machine; the volume's machine when the resource uses volumes; omitted for an app job |
+| `spec.machineLabels` | as `labels`, 1 – 10 |
+| `JoinRequest.advertise` | an IPv4 address or host name; `agentPort`, `tunnelPort` 1 – 65535 |
+| stack `template` | a catalogue name; `version` one of its versions |
+| stack `templateBody` | as `POST /catalogue` |
+| stack `parameters` | every key a parameter of the template; values of its type; `hostname` as a domain's hostname |
+
+### 11.10 Dependencies (CP-12)
+
+- A machine can't be removed while resources are placed on it (`MACHINE_NOT_EMPTY`).
+- A catalogue template can't be removed while stacks use it.
+- References between members of one stack don't block deleting the stack; references from outside do.
+
+### 11.11 Agent protocol (internal)
+
+Between the control plane and an agent only, over mutual TLS (ADR-042, ADR-043); never through the public API.
+
+| Method and path | Body → response |
+|---|---|
+| `GET /agent/v1/info` | → `{ version, protocol, machineId, os, arch, engine, cpus, memoryTotalBytes, vms, tunnelPublicKey }` |
+| `POST /agent/v1/driver/{Method}` | JSON arguments → JSON result, or a stream for the calls of ADR-042 |
+| `POST /agent/v1/hypervisor/{Method}` | as above |
+| `POST /agent/v1/calls/{id}/continue` | `{ error?: string }` → `204`: the answer to a `started` callback |
+| `PUT /agent/v1/files/{sha256}` | a file → `204`; refused when the body's digest differs |
+| `POST /agent/v1/renew` | → `{ csr }`; then `POST /agent/v1/certificate` `{ certificate }` → `204` |
+| `POST /agent/v1/sweep` | `{ keep: string[] }` → `{ removed: string[] }` (ADR-046) |
+
+Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'no_ca' | 'transient', message }`, with HTTP status 422, 503, 503, 404, 404 and 500 in that order.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -930,3 +1118,5 @@ Dashboards and alerts don't reference the resources they show or watch.
 | v17 | 2026-10-22 | Soupler Labs | §10 v0.7 contract (planned): projects on every resource, projects, users, invites, roles and scoped tokens, audit, metrics, dashboard, alert, channel, logexport and secretstore kinds, external secrets, test and refresh actions, incidents and notifications, new error codes, validation, dependencies |
 | v18 | 2026-10-22 | Soupler Labs | §10 served. §10.3: a token without a role gets its owner's strongest role (`write` from v0.6 clients too) |
 | v19 | 2026-10-22 | Soupler Labs | §10.3: invites and resets by email: `MachineSettings.inviteEmail` (absent keeps, null clears), `Machine.inviteEmail`, `Invitation.emailed` / `emailError` |
+| v20 | 2026-10-22 | Soupler Labs | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
+| v21 | 2026-10-22 | Soupler Labs | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |

@@ -47,7 +47,7 @@ func TestEveryProtectedRouteRequiresCredentials(t *testing.T) {
 			t.Errorf("%s %s without credentials: %d", rt[0], rt[1], rep.status)
 		}
 	}
-	bogus := raw{t: t, base: env.URL, token: "hc_pat_notarealtoken"}
+	bogus := raw{t: t, base: env.URL, token: "es_pat_notarealtoken"}
 	if rep := bogus.do("GET", "/api/v1/machine", nil, nil); rep.status != 401 {
 		t.Errorf("unknown token: %d", rep.status)
 	}
@@ -192,7 +192,7 @@ func TestTokenScopesRevocationAndExpiry(t *testing.T) {
 		if tk.Scope == api.ScopeRead {
 			readID = tk.ID
 		}
-		if !strings.HasPrefix(tk.Prefix, "hc_pat_") || len(tk.Prefix) != 13 {
+		if !strings.HasPrefix(tk.Prefix, "es_pat_") || len(tk.Prefix) != 13 {
 			t.Errorf("prefix %q", tk.Prefix)
 		}
 	}

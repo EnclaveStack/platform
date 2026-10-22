@@ -106,7 +106,7 @@ func Hash(secret string) string {
 // NewSessionID returns a cookie value.
 func NewSessionID() string { return RandomSecret(32) }
 
-// NewToken returns a token secret "hc_pat_…" and its display prefix.
+// NewToken returns a token secret "es_pat_…" and its display prefix.
 func NewToken() (secret, prefix string) {
 	secret = api.TokenPrefix + RandomSecret(32)
 	return secret, secret[:len(api.TokenPrefix)+6]

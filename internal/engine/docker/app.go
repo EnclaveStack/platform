@@ -279,6 +279,11 @@ func (d *Driver) ensureApp(ctx context.Context, in engine.EnsureInput, report en
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			var setup *probeSetupError
+			if errors.As(err, &setup) {
+				_ = d.discard(ctx, names, nil)
+				return nil, err
+			}
 			tail := d.tail(context.WithoutCancel(ctx), name, 5)
 			_ = d.discard(ctx, names, nil)
 			which := ""

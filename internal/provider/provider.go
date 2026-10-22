@@ -92,10 +92,11 @@ func (p *Provider) Resources(context.Context) []func() resource.Resource {
 	return []func() resource.Resource{newDatabase, newCache, newBucket, newApp, newSecret, newDomain, newMachineSettings, newJob, newBackup,
 		newNetwork, newFirewall, newLoadBalancer, newZone, newRecord, newVM, newVolume, newSnapshot,
 		newQueue, newTopic, newSearch, newTranscoder, newCDN, newEmail, newProject, newUser,
-		newDashboard, newAlert, newChannel, newLogExport, newSecretStore}
+		newDashboard, newAlert, newChannel, newLogExport, newSecretStore,
+		newMachine, newStack, newCatalogueTemplate}
 }
 
 // DataSources implements provider.Provider (TF-01).
 func (p *Provider) DataSources(context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{newMachineData, newSecretValueData, newCAData, newMetricsData}
+	return []func() datasource.DataSource{newMachineData, newSecretValueData, newCAData, newMetricsData, newMachinesData, newCatalogueData}
 }

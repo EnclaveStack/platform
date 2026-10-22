@@ -234,8 +234,8 @@ func TestOperateMigrationPutsEverythingInDefault(t *testing.T) {
 	now := ts(time.Now())
 	for _, q := range []string{
 		`INSERT INTO users (id, email, password_hash, created_at) VALUES ('usr_1', 'a@b.test', 'h', '` + now + `')`,
-		`INSERT INTO api_tokens (id, user_id, name, prefix, secret_hash, scope, created_at) VALUES ('tok_r', 'usr_1', 'r', 'hc_pat_r', 'hr', 'read', '` + now + `')`,
-		`INSERT INTO api_tokens (id, user_id, name, prefix, secret_hash, scope, created_at) VALUES ('tok_w', 'usr_1', 'w', 'hc_pat_w', 'hw', 'write', '` + now + `')`,
+		`INSERT INTO api_tokens (id, user_id, name, prefix, secret_hash, scope, created_at) VALUES ('tok_r', 'usr_1', 'r', 'es_pat_r', 'hr', 'read', '` + now + `')`,
+		`INSERT INTO api_tokens (id, user_id, name, prefix, secret_hash, scope, created_at) VALUES ('tok_w', 'usr_1', 'w', 'es_pat_w', 'hw', 'write', '` + now + `')`,
 		`INSERT INTO resources (id, kind, name, spec_json, generation, phase, last_transition_at, created_at, updated_at) VALUES ('app_1', 'app', 'web', '{}', 1, 'ready', '` + now + `', '` + now + `', '` + now + `')`,
 		`INSERT INTO resources (id, kind, name, spec_json, generation, phase, last_transition_at, created_at, updated_at) VALUES ('sec_1', 'secret', 'key', '{}', 1, 'ready', '` + now + `', '` + now + `', '` + now + `')`,
 		`INSERT INTO resource_refs VALUES ('app_1', 'sec_1', 'spec.secretEnv.K')`,

@@ -6,7 +6,7 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v20 |
+| Version | v22 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -361,6 +361,60 @@ Not yet walked by hand: a relay through a real provider, and a CDN with a public
 - **Error paths**: a wrong token → the store is Failed with the provider's message; a missing key → the secret is Failed; setting a value on a synced secret → `422`; deleting a store in use → `409`.
 - **Automated checks**: `go test ./internal/secretstores/...` (fakes of all five APIs, SigV4 verified); `make engine-docker` (`TestVaultAndOpenBaoForReal`: real Vault 1.20 and OpenBao 2.4); `go test ./internal/httpapi -run TestSecretsSync` (refresh while the engine is down); `make e2e`.
 
+## 2f · v0.8 walk-throughs (planned — run once each feature ships)
+
+The second machine in these walks is either a real Linux computer on the same network, or a Docker-in-Docker container acting as one (`L4-001` §v0.8): `make machine2` starts it with the Linux `enclave` binary inside and prints the join command; on Docker Desktop, run the server with `make server-in-docker`.
+
+### Feature: Machines and the agent — L2-010 MCH-01 – MCH-12, ADR-042, ADR-043
+- **Prerequisites**: the server on the Docker driver with v0.7 resources in it (an upgrade), listening where the other computer can reach it (`--listen 0.0.0.0:7070`).
+- **Steps and expected results**:
+  1. After the upgrade, `enclave machine ls` shows the main machine `online` with the machine's name; every resource reports `machine` = that name; `tofu plan` shows no change.
+  2. `enclave machine add rack-1 --label disk=ssd` prints a join command; the console's Machines page shows `rack-1` `waiting`.
+  3. On the other computer, run the command: within 15 s `rack-1` is `online` with its CPUs, memory, engine and agent version; the event list has `joined` and `online`.
+  4. Run the same command again: `410 JOIN_CODE_INVALID`.
+  5. `curl -k https://rack-1:7071/agent/v1/info` without a client certificate: the TLS handshake is refused.
+  6. Stop the agent: after 30 s `rack-1` is `offline`, with an event; an alert with `--machine-offline rack-1` fires. Start it: `online`, and the alert resolves.
+  7. `enclave machine update rack-1 --schedulable=false`: new resources never land there.
+  8. `enclave machine remove rack-1` with something on it: refused with the list.
+- **Error paths**: an expired code → `410`; an agent of another minor version → the machine shows the mismatch and takes no placements; removing the main machine → `409`.
+- **Automated checks**: `go test ./internal/agent/... ./internal/machines/...` (mutual TLS refusals, join codes, renewal); `go test ./internal/httpapi -run Machine`; `make e2e-machines`.
+
+### Feature: Placement and networks across machines — L2-010 PLC-01 – PLC-08, XNET-01 – XNET-08, ADR-044, ADR-045
+- **Steps and expected results**:
+  1. `enclave db create orders --machine rack-1 --wait`: `docker ps` on rack-1 shows `es-database-orders`; `get` shows `machine: rack-1` and `host` = rack-1's address.
+  2. An app `api` on the main machine with `DATABASE_HOST=orders.database.internal` connects; `nslookup orders.database.internal` inside it gives the same address as on rack-1.
+  3. A network `shop` (`10.40.0.0/16`) with `api` on the main machine and `worker` on rack-1: they reach each other by `.internal` name and private IP; a container in another network can't reach either.
+  4. A firewall allowing only `api` to reach `worker` on 8080: `api` gets through, a second app on the main machine is blocked.
+  5. `enclave machine get rack-1` shows its link to the main machine as connected.
+  6. A domain on the main machine routes to an app on rack-1 over HTTPS.
+  7. Create ten apps without `--machine`: they spread by free memory; an app with `--machine-label disk=ssd` lands on rack-1.
+  8. `iperf3` between an app on each machine: record the throughput and added latency (`L5-003`).
+- **Error paths**: `--machine nowhere` → `422`; an app mounting a volume on rack-1 with `--machine main` → `422`; a machine without room → the resource waits with "No machine has … MiB free".
+- **Automated checks**: `go test ./internal/engine/cluster/... ./internal/reconciler -run 'Placement|Mesh'`; `make engine-docker` (`TestMeshBetweenTwoEngines`, with a Docker-in-Docker engine); `make e2e-machines`.
+
+### Feature: Offline machines and moving — L2-010 FAIL-01 – FAIL-06, MOVE-01 – MOVE-07, MCH-08, ADR-046, ADR-047
+- **Steps and expected results**:
+  1. With `api` (two replicas, no volume) and `orders` on rack-1, power rack-1 off (or `docker pause` its container): within 2 minutes `api` runs on the main machine with an event naming both; `orders` waits with "rack-1 is offline since …".
+  2. Power it on: `api`'s old containers are gone from rack-1 (`docker ps`), `orders` carries on with its rows.
+  3. `enclave move database/orders --to main --wait`: the CLI prints bytes copied and the downtime; the rows are there; `api` reconnects by the same name; `privateIp` is unchanged.
+  4. `enclave move app/api --to rack-1` while `hey` sends requests through its domain: no failed request.
+  5. A VM with a disk volume moves to rack-1 and boots there with its files; SSH works at the new `sshAddress`.
+  6. `enclave machine drain rack-1 --wait`: everything not pinned is on the main machine; pinned resources are listed.
+- **Error paths**: moving `orders` while rack-1 is offline → `409 MACHINE_OFFLINE`; a move that fails mid-copy (stop the agent during the copy) → `move_failed`, and `orders` runs on its old machine with its data.
+- **Automated checks**: `go test ./internal/reconciler -run 'Offline|Reschedule|Move|Sweep|Drain'`; `make e2e-machines`.
+
+### Feature: Catalogue and stacks — L2-010 CAT-01 – CAT-09, ADR-048
+- **Steps and expected results**:
+  1. `enclave catalogue ls` lists the built-ins; `catalogue show wordpress` lists its parameters and members.
+  2. `enclave stack create blog --template wordpress --param domain=blog.localhost --wait`: `blog`, `blog-db`, `blog-content`, `blog-site` and their secrets are Ready; `https://blog.localhost` shows the WordPress installer; an upload survives a redeploy.
+  3. `enclave db delete blog-db` → `409 PART_OF_STACK`; `enclave restart app/blog` works.
+  4. `enclave stack update blog --param memoryMiB=768`: the app redeploys with 768 MiB; `--param domain=` removes `blog-site`.
+  5. `enclave catalogue add ./shop-worker.yaml`; `stack create staging-worker --template shop-worker --project shop-staging`.
+  6. `enclave stack delete blog` lists the database and the volume and asks; after it, nothing named `blog*` is left.
+  7. In OpenTofu, `enclave_stack` with `template = "ghost"` applies, plans clean, and destroys.
+- **Error paths**: a template with an unknown kind → `422` naming the line; a stack whose member name exists → `422`, nothing created; a parameter of the wrong type → `422`.
+- **Automated checks**: `go test ./internal/catalogue/...` (every built-in renders and validates); `go test ./internal/service ./internal/httpapi -run Stack`; `make provider-acceptance` (`TestAccStack`); `pnpm test` (catalogue and stack flows); `make e2e-machines` (WordPress for real).
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -389,3 +443,5 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v18 | 2026-10-22 | Soupler Labs | §2e v0.7 walk-throughs (planned): projects and roles, metrics and dashboards, alerts and channels, log export, secret stores |
 | v19 | 2026-10-22 | Soupler Labs | §2e: walk-throughs live; automated checks name the tests that exist |
 | v20 | 2026-10-22 | Soupler Labs | §2e: checks for emailed invites, rotation gaps, real Vault/OpenBao, refresh while the engine is down |
+| v21 | 2026-10-22 | Soupler Labs | §2f v0.8 walk-throughs (planned): machines and the agent, placement and networks across machines, offline machines and moving, catalogue and stacks |
+| v22 | 2026-10-22 | Soupler Labs | §2f: `make server-in-docker` for Docker Desktop; the WordPress walk names `blog-content` and changes memory, not a folder size |

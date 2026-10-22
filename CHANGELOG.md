@@ -19,6 +19,35 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 - `.gitignore` ignored the source package `internal/build/` through an unanchored `build/` rule, so the first CI run couldn't compile; the rule is now `/build/` only (lesson recorded in CLAUDE.md).
 
 ### Added
+- **v0.8 "Many machines" — built on every surface (2026-10-22, `L2-010`, ADR-042 – ADR-048).**
+  - **Machines**: `enclave machine add` gives a one-time join code; `enclave agent join` on the other computer joins it over mutual TLS from EnclaveStack's own CA. The main machine is `main`. Health checks mark a machine offline after 30 s. Labels and **Not schedulable** apply to every machine, the main one included. Remove is refused while anything runs there; `force` removes an offline machine. Each machine has its own metrics (`GET /machines/{name}/metrics`; disk is the main machine's only). Migration `0013_machines` puts every existing resource on `main`.
+  - **Placement**: placed kinds (app, database, cache, job, load balancer, VM, volume, search, email) run on the machine with the most free memory, on a named one (`machine`), or on one with the labels asked for (`machineLabels`). An app job runs where its app runs.
+  - **Networks across machines**: one WireGuard mesh container per machine, stand-ins for remote names and addresses, and per-machine address pools. Names, addresses and firewalls work across machines.
+  - **Offline machines and moving**: apps and image jobs without data restart elsewhere after 60 s; data waits for its machine, and a returning machine is swept first. `machine` on a resource moves it: data is copied first, then the switch, keeping its address; volumes take their apps and VMs with them. Drain moves everything not pinned.
+  - **Catalogue and stacks**: six built-ins (WordPress, Ghost, n8n, Uptime Kuma, Gitea, Plausible) and the machine's own YAML or JSON templates, with versions. A `stack` creates its members in one transaction, re-renders them when its parameters or version change, and deletes them together. Members refuse changes on their own (`409 PART_OF_STACK`).
+  - **Surfaces**:
+    - API: `L3-002` §11 and `api/openapi.yaml`;
+    - CLI: `machine add|ls|get|update|join-code|drain|remove|events`, `agent join|run|status|leave`, `--machine` / `--machine-label` on placed kinds, `ls --machine`, `move KIND/NAME --to`, `catalogue ls|show|add|remove`, `stack create|get|ls|update|delete`, `alert create --machine-offline`, and the server flags `--tunnel-address`, `--tunnel-port`, `--machine-check-interval`, `--machine-offline-after` and `--reschedule-after`;
+    - OpenTofu: `enclave_machine`, data source `enclave_machines`, `machine` and `machine_labels` on placed resources (a change moves in place), `enclave_stack`, `enclave_catalogue_template` and data source `enclave_catalogue`; importing a stack's member is refused with the stack's name;
+    - console: Machines and a machine's page, a Machine field in create forms, the machine on resources with an offline banner, Move, the machine picker on the machine dashboard, the **machine offline** alert, Catalogue with Install and Add template, Stacks with members, Edit parameters and Upgrade.
+  - **Version** `0.8.0-dev`. Agents of another minor version take no placements.
+  - **Tested**:
+    - the Go suite with the race detector;
+    - the real-Docker driver suite (`make engine-docker`), with the two-engine mesh test;
+    - OpenTofu acceptance (`TestAccMachinesPlacementAndMoves`, `TestAccStacksAndTemplates`);
+    - console Vitest (251), UI package (26) and Playwright (18);
+    - the single-machine e2e (`make e2e`);
+    - `make e2e-machines`, the server in a container and a Docker-in-Docker agent: the join, a cache on the second machine reached by name through a private network, the cache moved back with its data, and an app restarted on the main machine when the agent was stopped.
+  - **Not yet walked**: two physical computers, WireGuard throughput, moving a VM, and built-in stacks on a real engine (`L2-010` §5).
+  - **Dev and CI**: `make linux-binary`, `server-in-docker`, `machine2`, `machine2-down` and `e2e-machines`; a **Machines E2E** job, required in the rulesets (`L4-001`, `L4-002`).
+  - **Found while building and fixed**:
+    - `PATCH /machines/{name}` couldn't clear labels (`{}` was dropped); it now clears them.
+    - A network labelled as EnclaveStack's but outside the mesh (a leftover of another install on the same engine) had no address pool, so the health-check helper couldn't join it, and a rescheduled app failed. Such networks now use the engine's own addresses (`TestANetworkOutsideTheMeshIsLeftToTheEngine`).
+    - A failure to start the health-check helper was reported as the new revision failing its health check, which is permanent. It now keeps its own class, so a wait is retried.
+    - API tokens still began `hc_pat_` after the rename; they are now `es_pat_…`, as the rename entry says. Tokens saved by a local dev server before this stop working: sign in again.
+    - `catalogue ls` sorted the built-ins by title, case-sensitively, so `n8n` came last; they are now by name.
+    - The two-engine mesh test took an empty answer from the test server as final; it now tries until the server answers.
+- **v0.8 "Many machines" — specified (2026-10-22, `L2-010`, ADR-042 – ADR-048, DAR-034 – DAR-039).** More computers join one EnclaveStack through an agent over mutual TLS. Resources are placed on a machine, chosen by free memory or pinned. Private networks span machines through a WireGuard mesh, with stand-ins for remote names and per-machine address pools; this was spiked on Docker Desktop with a Docker-in-Docker second engine. Apps without data restart elsewhere when a machine goes offline. Resources move with their data, copied before the switch. A catalogue of built-in and own templates installs as one `stack`. The surface requirements are CON-54 – CON-60, CLI-46 – CLI-52 and TF-42 – TF-47; the contract is `L3-002` §11, data `L3-005` §10, security `L3-006` §10, reliability `L3-007` §13, tests `L5-001` §2f and `L5-002` §10, and setup `L4-001` (v0.8) and `L4-002` §5.
 - **v0.7 "Operate" — built on every surface (2026-10-22, `L2-009`, ADR-035 – ADR-041).**
   - **Projects** are namespaces. Names are unique per project; containers, networks, private DNS (`<name>.<kind>.<project>.internal`) and broker users carry the project; each project gets its own object-store user limited to its buckets. Everything from v0.6 is in `default` and keeps its names and addresses. Migration `0012_operate`.
   - **People and roles**: viewer, editor and admin, on the whole machine or per project. Invites and password resets are one-time links; an audit log records sign-ins, invites, roles, tokens and projects. A project you can't see answers 404; a role too weak answers 403.

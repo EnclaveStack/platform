@@ -4,7 +4,9 @@ import { KINDS, MACHINE_METRICS, METRICS, RULES } from '../api/generated';
 import type {
   AlertCondition, AlertSpec, ChannelSpec, ChannelType, ConditionType, DashboardSpec, Kind, LogDestination, LogExportSpec, Resource, SecretStoreProvider, SecretStoreSpec, Widget,
 } from '../api/types';
-import { logDestinationType, MACHINE_REF, metricOf } from '../lib/operate';
+import { useApi } from '../api/context';
+import { logDestinationType, MACHINE_REF, MACHINE_REF_PREFIX, metricOf } from '../lib/operate';
+import { useLoad } from '../lib/useLoad';
 import type { FieldErrors } from '../lib/validation';
 
 // Create and edit forms of the v0.7 kinds (L2-001 CON-49 – CON-52, L2.5-002 §14): dashboards, alerts,
@@ -30,6 +32,7 @@ const CONDITION_WORDS: Record<ConditionType, [string, string]> = {
   crash_loop: ['Keeps restarting', 'An app, database or other service restarts again and again.'],
   failed: ['Fails', 'Any resource whose state becomes Failed.'],
   run_failed: ['A run fails', 'A run of a job, backup or transcoder ends in failure.'],
+  machine_offline: ['A machine goes offline', 'Its agent stops answering for some minutes (v0.8).'],
 };
 const CHANNEL_WORDS: Record<ChannelType, [string, string]> = {
   email: ['Email', 'Through an email service of this project.'],
@@ -62,6 +65,8 @@ interface WidgetRow {
 
 /** The v0.7 forms' state and fields; `build` returns the spec to send. */
 export function useOperateForm(kind: Kind, existing?: Resource) {
+  const api = useApi();
+  const machines = useLoad(`alert-machines:${kind}`, () => (kind === 'alert' ? api.listMachines() : Promise.resolve([])));
   const spec = (existing && OPERATE_KINDS.includes(kind) ? existing.spec : {}) as Record<string, unknown>;
   const d = spec as Partial<DashboardSpec>;
   const a = spec as Partial<AlertSpec>;
@@ -137,6 +142,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
         const cond: AlertCondition = { type: condType, resources: condResources };
         if (condType === 'metric') Object.assign(cond, { metric: condMetric, operator, threshold: threshold.trim() === '' ? undefined : Number(threshold), forMinutes: num(forMinutes) });
         if (condType === 'crash_loop') Object.assign(cond, { restarts: num(restarts), windowMinutes: num(windowMinutes) });
+        if (condType === 'machine_offline') Object.assign(cond, { forMinutes: num(forMinutes) });
         const out: AlertSpec = { condition: cond, channels: alertChannels, repeatMinutes: num(repeat) ?? 0 };
         if (!enabled) out.enabled = false;
         return out as unknown as Record<string, unknown>;
@@ -285,6 +291,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
                     onChange={() => {
                       setCondType(t);
                       setCondResources([]);
+                      if (t === 'machine_offline') setForMinutes('1');
                     }} />
                 ))}
               </Stack>
@@ -321,6 +328,21 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
               </>
             )}
             {condType === 'failed' && refPicker('Of', condResources, setCondResources, 'spec.condition.resources', null, false, 'This project has no resources yet.')}
+            {condType === 'machine_offline' && (
+              <>
+                <Fieldset legend="Machines">
+                  <Stack gap={1}>
+                    {(machines.data ?? []).filter((m) => !m.main).map((m) => {
+                      const ref = MACHINE_REF_PREFIX + m.name;
+                      return <Checkbox key={ref} label={<Text mono size="sm">{m.name}</Text>} checked={condResources.includes(ref)}
+                        onChange={(e) => setCondResources(e.target.checked ? [...condResources, ref] : condResources.filter((x) => x !== ref))} />;
+                    })}
+                    {err('spec.condition.resources') && <Text size="sm" tone="bad" role="alert">{err('spec.condition.resources')}</Text>}
+                  </Stack>
+                </Fieldset>
+                {numberField('f-cond-for', 'For (minutes)', forMinutes, setForMinutes, 'spec.condition.forMinutes', '1–60.')}
+              </>
+            )}
             {condType === 'run_failed' && refPicker('Of', condResources, setCondResources, 'spec.condition.resources', RULES.runKinds as readonly Kind[], false, 'This project has no jobs, backups or transcoders yet.')}
             <Fieldset legend="Notify">
               <Stack gap={1}>

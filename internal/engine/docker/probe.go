@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/enclavestack/platform/internal/engine"
@@ -51,9 +50,12 @@ func (d *Driver) ensureProbe(ctx context.Context) error {
 		cfg := &container.Config{Image: d.opts.ProbeImage, Cmd: []string{"sleep", "2147483647"}, Labels: map[string]string{LabelManaged: "true", LabelKind: "system"}}
 		host := &container.HostConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 			Resources: container.Resources{Memory: 32 << 20}}
-		netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{engine.NetworkName: {}}}
+		netCfg, err := d.systemNetworking(ctx)
+		if err != nil {
+			return err
+		}
 		cctx, cancel := context.WithTimeout(ctx, stepTimeout)
-		_, err := d.cli.ContainerCreate(cctx, cfg, host, netCfg, nil, engine.ProbeName)
+		_, err = d.cli.ContainerCreate(cctx, cfg, host, netCfg, nil, engine.ProbeName)
 		cancel()
 		if err != nil && !strings.Contains(err.Error(), "already in use") {
 			return d.classify(fmt.Errorf("create probe helper: %w", err))
@@ -131,6 +133,13 @@ func effectiveCheck(s api.AppSpec) api.HealthCheck {
 	return api.HealthCheck{Type: api.HealthNone}
 }
 
+// probeSetupError is a failure to start the health-check helper: it says nothing about the revision,
+// so it keeps its own class (a machine waiting for addresses is retried) instead of failing the deploy.
+type probeSetupError struct{ err error }
+
+func (e *probeSetupError) Error() string { return "start the health-check helper: " + e.err.Error() }
+func (e *probeSetupError) Unwrap() error { return e.err }
+
 // probeRevision waits until a new revision passes its health check, reporting each attempt. It fails
 // fast if the container stops.
 func (d *Driver) probeRevision(ctx context.Context, name string, s api.AppSpec, report engine.Reporter) error {
@@ -141,7 +150,7 @@ func (d *Driver) probeRevision(ctx context.Context, name string, s api.AppSpec, 
 	}
 	if hc.Type != api.HealthCommand {
 		if err := d.ensureProbe(ctx); err != nil {
-			return err
+			return &probeSetupError{err}
 		}
 	}
 	if hc.StartPeriodSeconds > 0 {

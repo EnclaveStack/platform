@@ -47,13 +47,14 @@ var kindAliases = map[string]api.Kind{
 	"channel": api.KindChannel, "channels": api.KindChannel,
 	"logexport": api.KindLogExport, "logexports": api.KindLogExport,
 	"secretstore": api.KindSecretStore, "secretstores": api.KindSecretStore,
+	"stack": api.KindStack, "stacks": api.KindStack,
 }
 
 func parseKind(s string) (api.Kind, error) {
 	if k, ok := kindAliases[strings.ToLower(s)]; ok {
 		return k, nil
 	}
-	return "", usagef("unknown kind %q: use app, database (db), cache, bucket, secret, domain, job, backup, network, firewall (fw), loadbalancer (lb), zone, record, vm, volume (vol), snapshot (snap), queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport or secretstore", s)
+	return "", usagef("unknown kind %q: use app, database (db), cache, bucket, secret, domain, job, backup, network, firewall (fw), loadbalancer (lb), zone, record, vm, volume (vol), snapshot (snap), queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore or stack", s)
 }
 
 const pollEvery = 500 * time.Millisecond
@@ -157,7 +158,7 @@ func (a *app) finish(ctx context.Context, c *client.Client, r api.Resource, wait
 }
 
 func (a *app) lsCmd() *cobra.Command {
-	var kind string
+	var kind, machine string
 	var all bool
 	cmd := &cobra.Command{
 		Use: "ls", Aliases: []string{"list"}, Short: "List resources", Args: cobra.NoArgs,
@@ -169,35 +170,48 @@ func (a *app) lsCmd() *cobra.Command {
 					return err
 				}
 			}
-			return a.list(cmd.Context(), k, all)
+			return a.listWhere(cmd.Context(), client.ListOptions{Kind: k, AllProjects: all, Machine: machine})
 		},
 	}
 	cmd.Flags().StringVar(&kind, "kind", "", "only this kind")
+	cmd.Flags().StringVar(&machine, "machine", "", "only what runs on this machine")
 	cmd.Flags().BoolVarP(&all, "all-projects", "A", false, "every project you can see, with a PROJECT column")
 	return cmd
 }
 
 func (a *app) list(ctx context.Context, kind api.Kind, allProjects bool) error {
+	return a.listWhere(ctx, client.ListOptions{Kind: kind, AllProjects: allProjects})
+}
+
+func (a *app) listWhere(ctx context.Context, o client.ListOptions) error {
+	allProjects := o.AllProjects
 	c, err := a.client()
 	if err != nil {
 		return err
 	}
-	items, err := c.ListAllResourcesIn(ctx, kind, allProjects)
+	items, err := c.ListAll(ctx, o)
 	if err != nil {
 		return err
 	}
+	many, _ := a.manyMachines(ctx, c)
 	if a.output == "json" {
 		return a.json(api.ResourceList{Items: items})
 	}
 	rows := [][]string{}
 	for _, r := range items {
 		row := []string{string(r.Kind), r.Name, phaseText(r), endpoint(r), r.ID}
+		if many {
+			row = append(row[:3], append([]string{machineOf(r)}, row[3:]...)...)
+		}
 		if allProjects {
 			row = append([]string{r.Project}, row...)
 		}
 		rows = append(rows, row)
 	}
 	header := []string{"KIND", "NAME", "PHASE", "ENDPOINT", "ID"}
+	if many {
+		header = []string{"KIND", "NAME", "PHASE", "MACHINE", "ENDPOINT", "ID"}
+	}
 	if allProjects {
 		header = append([]string{"PROJECT"}, header...)
 	}
@@ -475,7 +489,7 @@ func (a *app) dbCmd() *cobra.Command {
 	create := &cobra.Command{
 		Use: "create NAME", Short: "Create a database (engine and version can't change later)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.create(cmd.Context(), api.KindDatabase, args[0], api.DatabaseSpec{Engine: engine, Version: version, Network: cp.network, Subnet: cp.subnet}, wait)
+			return a.create(cmd.Context(), api.KindDatabase, args[0], api.DatabaseSpec{Engine: engine, Version: version, Network: cp.network, Subnet: cp.subnet, Placed: cp.placed()}, wait)
 		},
 	}
 	var versions []string
@@ -516,7 +530,7 @@ func (a *app) cacheCmd() *cobra.Command {
 		Use: "create NAME", Short: "Create a Redis cache", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.create(cmd.Context(), api.KindCache, args[0], api.CacheSpec{Engine: api.CacheEngine, Version: api.CacheVersion, MaxMemoryMiB: mem,
-				Network: cp.network, Subnet: cp.subnet}, wait)
+				Network: cp.network, Subnet: cp.subnet, Placed: cp.placed()}, wait)
 		},
 	}
 	create.Flags().IntVar(&mem, "max-memory", api.CacheMemoryDefault, "max memory in MiB (64–4096)")
@@ -702,7 +716,7 @@ func (a *app) jobCmd() *cobra.Command {
 				return err
 			}
 			spec := api.JobSpec{Schedule: cf.schedule, TimeZone: cf.zone, App: cf.target, Image: cf.image, Command: args[1:], Env: env,
-				SecretEnv: senv, TimeoutSeconds: int(cf.timeout.Seconds()), Overlap: cf.overlap, MemoryMiB: cf.memory, Network: cf.place.network, Subnet: cf.place.subnet,
+				SecretEnv: senv, TimeoutSeconds: int(cf.timeout.Seconds()), Overlap: cf.overlap, MemoryMiB: cf.memory, Network: cf.place.network, Subnet: cf.place.subnet, Placed: cf.place.placed(),
 				Volumes: mounts}
 			return a.create(cmd.Context(), api.KindJob, args[0], spec, cf.wait)
 		},
@@ -1224,7 +1238,7 @@ func (a *app) appCmd() *cobra.Command {
 				return err
 			}
 			spec := api.AppSpec{Image: cf.image, Source: src, Port: cf.port, Env: env, SecretEnv: senv, Command: cf.command, Publish: cf.publish, MemoryMiB: cf.memory,
-				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts}
+				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts, Placed: cf.place.placed()}
 			return a.create(cmd.Context(), api.KindApp, args[0], spec, cf.wait)
 		},
 	}

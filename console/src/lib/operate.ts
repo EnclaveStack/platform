@@ -6,7 +6,9 @@ import { normalizePrefix, validateEmail, validateName, validWebhookUrl, type Fie
 // v0.7 (L3-002 §10.6): validation of the operate kinds with the same rules and wording as pkg/api
 // operate.go, metric formatting, and the metric catalogue's lookups.
 
-export const MACHINE_REF = 'machine';
+export const MACHINE_REF = RULES.machineRef;
+/** A machine in a machine_offline condition: machine/NAME (v0.8). */
+export const MACHINE_REF_PREFIX = RULES.machineRefPrefix;
 
 const inRange = (v: number | undefined, lo: number, hi: number) => v !== undefined && Number.isInteger(v) && v >= lo && v <= hi;
 
@@ -102,8 +104,16 @@ export function validateAlert(s: AlertSpec): FieldErrors {
     case 'run_failed':
       Object.assign(e, validateRefs(refs, 'spec.condition.resources', 1, RULES.alertResourcesMax, RULES.runKinds));
       break;
+    case 'machine_offline':
+      // v0.8 (MCH-06): machines, as machine/NAME.
+      if (refs.length < 1 || refs.length > RULES.alertResourcesMax) e['spec.condition.resources'] = `Name 1–${RULES.alertResourcesMax} machines, as machine/NAME.`;
+      refs.forEach((ref, i) => {
+        if (!ref.startsWith(MACHINE_REF_PREFIX) || validateName(ref.slice(MACHINE_REF_PREFIX.length))) e[`spec.condition.resources[${i}]`] = 'Name a machine as machine/NAME.';
+      });
+      if (!inRange(c.forMinutes ?? 1, RULES.alertForMin, RULES.alertForMax)) e['spec.condition.forMinutes'] = 'Use 1–60 minutes.';
+      break;
     default:
-      e['spec.condition.type'] = 'Choose metric, crash_loop, failed or run_failed.';
+      e['spec.condition.type'] = 'Choose metric, crash_loop, failed, run_failed or machine_offline.';
   }
   Object.assign(e, validateNames(s.channels ?? [], 'spec.channels', 1, RULES.alertChannelsMax, 'channels'));
   if (!inRange(s.repeatMinutes ?? 0, 0, RULES.alertRepeatMax)) e['spec.repeatMinutes'] = 'Use 0 (never) to 1440 minutes.';

@@ -6,7 +6,7 @@
 | Document ID | L3-005-data-model-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v13 |
+| Version | v14 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -135,6 +135,24 @@ These ship as migrations with the phases they serve (`L2-009`, ADR-035 – ADR-0
 | `resource_refs.field` values | `spec.channels[<i>]`, `spec.email.service`, `spec.webhook.secret`, `spec.secret`, `spec.destination.bucket.bucket`, `spec.destination.s3.credentialsSecret`, `spec.destination.<type>.headersSecret`, `spec.<provider>.tokenSecret`, `spec.<provider>.credentialsSecret`, `spec.source.store` |
 | Docker and MinIO objects | Containers and networks of projects other than `default` carry `.<project>` (ADR-035); MinIO users `es-p-<project>` and policies `es-p-<project>` |
 
+## 10 · v0.8 changes (planned)
+
+These ship as migration `0013_machines` with the phases they serve (`L2-010`, ADR-042 – ADR-048). It leaves existing rows valid: everything is on the main machine.
+
+| Change | Detail |
+|---|---|
+| `machines` (new) | `id` primary key (`main`, or `mch_…`), `name` unique, `state` (`waiting`/`online`/`offline`), `state_since`, `labels_json`, `schedulable`, `address`, `agent_port`, `tunnel_port`, `tunnel_public_key`, `cert_serial`, `cert_not_after`, `info_json` (os, arch, versions, CPUs, memory, VM support), `last_seen_at`, `join_code_hash` (unique, null once used), `join_expires_at`, `created_at`. `main` is inserted with the name `main`; its title is the machine name in `settings` |
+| `machine_ca` (new) | one row: `cert_pem`, `key_ciphertext` (sealed with the master key, ADR-043), `created_at` |
+| `resources` | Rebuilt by `0013`: gains `machine_id TEXT NOT NULL DEFAULT 'main' REFERENCES machines(id)` and `stack_id TEXT` (the stack a member belongs to); indexes `(machine_id)` and `(stack_id)`. `kind` CHECK gains `stack`. `requested_action` gains `move` |
+| `address_pool` (new) | `(network, address)` primary key, `machine_id` (cascades with the machine); `network` is the engine network's name (`enclave` for the default network) (ADR-045) |
+| `machine_events` (new) | `id` autoincrement, `machine_id`, `type`, `message`, `created_at`; 200 newest per machine kept |
+| `catalogue_templates` (new) | `(name, version)` primary key, `title`, `body`, `created_at`, `created_by` (ADR-048) |
+| Settings | `mesh_default_range`: the default network's range, read from the main machine when the second machine joins |
+| Stack secrets | `<stack>-<param>` for each `secret` parameter and every `generate` member, owned by the stack (`owner_id`) |
+| `resource_refs.field` values | `spec.machine` is not a reference (machines aren't resources); `spec.template` names a catalogue entry, checked by the service |
+| Docker objects | On every machine: `es-system-mesh` and the volume `es-system-mesh-data` (two or more machines); stand-ins `es-standin-<12 hex>` labelled `enclave.standin-of=<container>` and `enclave.standin-machine=<machine id>`; every managed object gains the label `enclave.machine=<machine id>` |
+| Agent state | `~/.enclave-agent`: `key.pem`, `cert.pem`, `ca.pem`, `agent.json` (machine ID, server URL, ports), mode 0700/0600; `files/` holds uploaded snapshot copies by digest |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -152,3 +170,4 @@ These ship as migrations with the phases they serve (`L2-009`, ADR-035 – ADR-0
 | v11 | 2026-10-21 | Soupler Labs | §7 shipped (0010_compute_kinds); references and files as stored |
 | v12 | 2026-10-21 | Soupler Labs | §8 v0.6 changes (planned): new kinds and the purge action, transcoder runs and seen objects, subscription counters, managed secrets, references, engine objects |
 | v13 | 2026-10-22 | Soupler Labs | §9 v0.7 changes (planned): projects and the project column, users and roles, members, invites, tokens with roles, audit, metric series, points and rollups, alert state, incidents, notifications, log export cursors and stats, refs |
+| v14 | 2026-10-22 | Soupler Labs | §10 v0.8 changes (planned): machines, machine CA, machine and stack columns on resources, address pools, machine events, catalogue templates, stack secrets, engine labels, agent state |

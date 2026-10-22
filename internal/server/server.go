@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,11 +22,14 @@ import (
 	"github.com/enclavestack/platform/internal/auth"
 	"github.com/enclavestack/platform/internal/dns"
 	"github.com/enclavestack/platform/internal/dns/providers"
+	"github.com/enclavestack/platform/internal/domain"
 	"github.com/enclavestack/platform/internal/engine"
+	"github.com/enclavestack/platform/internal/engine/cluster"
 	"github.com/enclavestack/platform/internal/engine/docker"
 	"github.com/enclavestack/platform/internal/engine/fake"
 	"github.com/enclavestack/platform/internal/engine/qemu"
 	"github.com/enclavestack/platform/internal/httpapi"
+	"github.com/enclavestack/platform/internal/machines"
 	"github.com/enclavestack/platform/internal/mail"
 	memorymail "github.com/enclavestack/platform/internal/mail/memory"
 	"github.com/enclavestack/platform/internal/messaging"
@@ -72,6 +74,16 @@ type Config struct {
 	TelegramAPI    string        // Telegram Bot API base URL for alert channels; "" = https://api.telegram.org
 	ConsoleURL     string        // the address people open the console at, for links in alerts and invites; "" = none
 	ManualMonitor  bool          // tests: don't run the monitor's loops; they call it directly
+	// v0.8 (ADR-046): how often machines are checked and how long one may stay silent; 0 = 10 s and 30 s.
+	MachineCheck   time.Duration
+	MachineOffline time.Duration
+	// TunnelAddress is where other machines reach this one's tunnel; TunnelPort its UDP port (ADR-045).
+	TunnelAddress string
+	TunnelPort    int
+	// MeshEvery is how often the mesh is synced; 0 = 5 s. RescheduleAfter is how long a machine is offline
+	// before its apps start elsewhere; 0 = 60 s (ADR-046).
+	MeshEvery       time.Duration
+	RescheduleAfter time.Duration
 }
 
 // Running is a started control plane.
@@ -94,8 +106,10 @@ type Running struct {
 	Mail   *memorymail.Client
 	// Monitor samples metrics, evaluates alerts, sends notifications and ships logs (tests drive it).
 	Monitor *monitor.Monitor
-	Store   *store.Store
-	Log     *slog.Logger
+	// Machines knows every machine and checks their agents (ADR-042 – ADR-046).
+	Machines *machines.Manager
+	Store    *store.Store
+	Log      *slog.Logger
 
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -110,22 +124,6 @@ func DefaultDataDir() string {
 		return ".enclave"
 	}
 	return filepath.Join(home, ".enclave")
-}
-
-// linkBase is where links in alerts point: the console URL the operator gave, else the listen address
-// when others can reach it. A loopback address only opens on this machine, so it makes no link (NCH-02).
-func linkBase(consoleURL, listenURL string) string {
-	if consoleURL != "" {
-		return consoleURL
-	}
-	u, err := url.Parse(listenURL)
-	if err != nil {
-		return ""
-	}
-	if ip := net.ParseIP(u.Hostname()); u.Hostname() == "localhost" || ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
-		return ""
-	}
-	return listenURL
 }
 
 // Start opens everything, binds the listener and serves in the background. logOut receives logs.
@@ -217,8 +215,33 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		return nil, fmt.Errorf("unknown driver %q (use docker or fake)", cfg.Driver)
 	}
 
+	// Every engine call goes through the router to the machine it concerns (ADR-044); with one machine it
+	// reaches drv and hv as before.
+	mgr := &machines.Manager{Store: st, Box: box, Local: drv, LocalHV: hv, Now: time.Now, Log: log.With("component", "machines"),
+		Interval: cfg.MachineCheck, OfflineAfter: cfg.MachineOffline, TunnelAddress: cfg.TunnelAddress, TunnelPort: cfg.TunnelPort}
+	if err := mgr.Load(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+	router := cluster.New(mgr)
+	var rec *reconciler.Reconciler
+	mgr.Changed = func(_, state string) {
+		if rec == nil {
+			return
+		}
+		rec.MeshChanged() // peers and stand-ins follow who is online (ADR-045)
+		if state == api.MachineOnline {
+			rec.RetryWaiting(context.Background())
+		}
+	}
+	// New containers are announced to every machine before they take traffic (XNET-07).
+	router.Hooks = cluster.Hooks{
+		Started: func(ctx context.Context, _ *domain.Resource) error { return rec.SyncMesh(ctx) },
+		Changed: func(*domain.Resource) { rec.MeshChanged() },
+	}
 	metrics := observability.NewMetrics()
-	rec := reconciler.New(st, drv, box, log.With("component", "reconciler"), metrics)
+	rec = reconciler.New(st, router, box, log.With("component", "reconciler"), metrics)
+	rec.Machines, rec.MeshEvery, rec.RescheduleAfter = mgr, cfg.MeshEvery, cfg.RescheduleAfter
 	if cfg.PollInterval > 0 {
 		rec.PollInterval = cfg.PollInterval
 	}
@@ -231,7 +254,7 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	rec.Opener, rec.TempDir = opener, filepath.Join(cfg.DataDir, "tmp")
 	rec.Git = build.Git{TempDir: rec.TempDir}
 	rec.DNS, rec.ACME = dnsOpener, issuer
-	rec.Hypervisor, rec.SnapshotDir = hv, filepath.Join(cfg.DataDir, "snapshots")
+	rec.Hypervisor, rec.SnapshotDir = router, filepath.Join(cfg.DataDir, "snapshots")
 	if err := os.MkdirAll(rec.SnapshotDir, 0o700); err != nil {
 		st.Close()
 		return nil, fmt.Errorf("create %s: %w", rec.SnapshotDir, err)
@@ -255,12 +278,17 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	rec.Broker, rec.HTTP = messaging.NewPool(openBroker, rec.BrokerEndpoint), &http.Client{}
 	authSvc := &service.Auth{Store: st, Throttle: auth.NewThrottle(5, 15*time.Minute, time.Now), Now: time.Now, Log: log}
 	authSvc.ConsoleURL = func(context.Context) string { return cfg.ConsoleURL } // invite links (IAM-04)
-	resSvc := &service.Resources{Store: st, Box: box, Engine: drv, Hypervisor: hv, SnapshotDir: rec.SnapshotDir, Queue: rec, Now: time.Now, Log: log,
+	resSvc := &service.Resources{Store: st, Box: box, Engine: router, Hypervisor: router, SnapshotDir: rec.SnapshotDir, Queue: rec, Now: time.Now, Log: log,
 		Messaging: rec.Broker, Mail: mailClient, Metrics: metrics}
 	authSvc.SendMail = resSvc.SendSystemEmail // invite links (IAM-04)
+	resSvc.MachineOnline = mgr.Online
 	idem := &service.Idempotency{Store: st, Now: time.Now}
+	var listenURL string // set once the listener is bound
+	serverURL := func(context.Context) string { return service.ServerURL(cfg.ConsoleURL, listenURL) }
+	machineSvc := &service.Machines{Store: st, Manager: mgr, Queue: rec, Now: time.Now, Log: log,
+		Throttle: auth.NewThrottle(10, 15*time.Minute, time.Now), ServerURL: serverURL, Links: rec.MeshLinks}
 	h := httpapi.New(authSvc, resSvc, idem, st.Ping, log, metrics, httpapi.Config{
-		RateLimit: cfg.RateLimit, SecureCookies: cfg.SecureCookies, Assets: webui.FS(cfg.ConsoleDir)})
+		RateLimit: cfg.RateLimit, SecureCookies: cfg.SecureCookies, Assets: webui.FS(cfg.ConsoleDir), Machines: machineSvc})
 
 	code, err := authSvc.PrepareSetupCode(ctx)
 	if err != nil {
@@ -276,14 +304,19 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	r := &Running{URL: "http://" + ln.Addr().String(), SetupCode: code, Fake: fk, FakeHypervisor: fakeHV, Backups: memBackups, Git: memGit, DNS: memDNS, ACME: localACME, Broker: memBroker, Mail: memMail, Store: st, Log: log, cancel: cancel, done: make(chan struct{})}
-	mon := &monitor.Monitor{Store: st, Box: box, Driver: drv, Hypervisor: hv, Broker: rec.Broker, Mail: mailClient, HTTP: &http.Client{}, Opener: opener,
+	listenURL = "http://" + ln.Addr().String()
+	r := &Running{URL: listenURL, SetupCode: code, Fake: fk, FakeHypervisor: fakeHV, Backups: memBackups, Git: memGit, DNS: memDNS, ACME: localACME, Broker: memBroker, Mail: memMail, Store: st, Log: log, Machines: mgr, cancel: cancel, done: make(chan struct{})}
+	mon := &monitor.Monitor{Store: st, Box: box, Driver: router, Hypervisor: router, Broker: rec.Broker, Mail: mailClient, HTTP: &http.Client{}, Opener: opener,
 		Metrics: metrics, Now: time.Now, Log: log.With("component", "monitor"), DataDir: cfg.DataDir, Interval: cfg.MetricInterval, TelegramAPI: cfg.TelegramAPI,
-		ConsoleURL: func(context.Context) string { return linkBase(cfg.ConsoleURL, r.URL) }}
+		ConsoleURL: serverURL}
 	r.Monitor = mon
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		mgr.Run(runCtx)
+	}()
 	go func() {
 		defer wg.Done()
 		rec.Run(runCtx)

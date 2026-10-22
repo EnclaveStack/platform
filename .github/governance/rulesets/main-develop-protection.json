@@ -33,6 +33,7 @@
             { "context": "Provider Acceptance" },
             { "context": "Console E2E" },
             { "context": "Engine E2E" },
+            { "context": "Machines E2E" },
             { "context": "Load Test" },
             { "context": "Secret Scan" }
         ]

@@ -20,6 +20,10 @@ import (
 // ErrUnavailable means the engine cannot be reached (Docker stopped). It is transient.
 var ErrUnavailable = errors.New("container engine unavailable")
 
+// ErrMachineOffline means the resource's machine doesn't answer (ADR-046). Like ErrUnavailable it is
+// transient and not counted as an attempt; the wrapped message names the machine and since when.
+var ErrMachineOffline = errors.New("machine offline")
+
 // PermanentError marks a failure that retrying cannot fix (L3-007 §1).
 type PermanentError struct{ Err error }
 
@@ -188,6 +192,9 @@ type Mount struct {
 
 // Placement is where a container joins. The reconciler resolves it from the spec's network and subnet.
 type Placement struct {
+	// Address is an address to keep, given by the control plane when a resource moves (ADR-047); "" lets
+	// the driver choose.
+	Address string
 	// Network is the engine network's name; "" means NetworkName.
 	Network string
 	// Subnet is the CIDR to take a fixed address from, or "" for the engine's automatic range (the
@@ -345,8 +352,8 @@ type Driver interface {
 	// Build builds an image from a tar build context with BuildKit, writing readable log lines to log
 	// (ADR-019). A failing Dockerfile is a permanent error naming the failing step.
 	Build(ctx context.Context, in BuildInput, log io.Writer) (BuildResult, error)
-	// ImageExists reports whether an image is present locally.
-	ImageExists(ctx context.Context, ref string) (bool, error)
+	// HasImage reports whether an image is present on the machine r runs on (a source app's last build).
+	HasImage(ctx context.Context, r *domain.Resource, ref string) (bool, error)
 	// RemoveBuiltImages removes an app's built images except those tagged in keep.
 	RemoveBuiltImages(ctx context.Context, r *domain.Resource, keep []string) error
 
@@ -408,6 +415,90 @@ type Driver interface {
 	// caller sees whether the checkpoint's own line is still kept), or after fallback for a container it
 	// doesn't name.
 	LogsSince(ctx context.Context, r *domain.Resource, since map[string]time.Time, fallback time.Time, limit int) ([]ContainerLogLine, error)
+
+	// v0.8 (ADR-045): networks across machines. Each is a call to one machine's engine.
+	// ConfigureMesh applies this machine's whole mesh configuration; with Enabled false it removes the mesh,
+	// its stand-ins and the address pools. MeshStatus reads the tunnel's public key and handshakes.
+	ConfigureMesh(ctx context.Context, cfg MeshConfig) (MeshStatus, error)
+	MeshStatus(ctx context.Context) (MeshStatus, error)
+	// NetworkEndpoints lists this machine's EnclaveStack networks with their ranges and the managed
+	// containers on them (stand-ins and the mesh left out).
+	NetworkEndpoints(ctx context.Context) ([]NetworkInfo, error)
+
+	// v0.8 (ADR-047): moving a resource with its data.
+	// StopResource stops a resource's containers and keeps them, with their data; Restart starts them again.
+	StopResource(ctx context.Context, r *domain.Resource) error
+	// ExportData writes a database's, cache's, search or email service's data volume into w as a tar
+	// stream, consistent while it is stopped; ImportData fills the same volume on this machine from one.
+	ExportData(ctx context.Context, r *domain.Resource, w io.Writer) error
+	ImportData(ctx context.Context, r *domain.Resource, src io.Reader) error
+}
+
+// MeshConfig is one machine's part of the mesh (ADR-045).
+type MeshConfig struct {
+	Enabled bool
+	// TunnelPort is the tunnel's UDP port, published on TunnelBind (default every address).
+	TunnelPort int
+	TunnelBind string
+	// DefaultRange is the default network's range on every machine: the main machine's.
+	DefaultRange string
+	// Networks are the ranges of every EnclaveStack network, by engine name, so the mesh joins them all.
+	Networks map[string]string
+	Peers    []MeshPeer
+	// Pools are the addresses this machine gives its containers, by engine network.
+	Pools    map[string][]string
+	StandIns []StandIn
+}
+
+// MeshMember is a joined machine as the mesh sync sees it: its engine while it is online, and its tunnel.
+type MeshMember struct {
+	ID, Name  string
+	Main      bool
+	Online    bool
+	Driver    Driver
+	PublicKey string
+	// Endpoint is where the other machines reach its tunnel ("host:port"), "" when it can't be reached.
+	Endpoint   string
+	TunnelPort int
+}
+
+// MeshPeer is another machine of the mesh: its tunnel's key and address, and the addresses that live there.
+type MeshPeer struct {
+	MachineID string
+	PublicKey string
+	Endpoint  string
+	Addresses []string
+}
+
+// StandIn holds, on this machine, a container's address and names that live on another one.
+type StandIn struct {
+	Network string
+	Address string
+	Aliases []string
+	// Of names the container it stands in for, and Machine the machine it is on.
+	Of      string
+	Machine string
+}
+
+// MeshStatus is a machine's tunnel: its public key and when it last heard from each peer, by public key.
+type MeshStatus struct {
+	PublicKey  string
+	Handshakes map[string]time.Time
+}
+
+// NetworkInfo is one engine network on a machine and what is on it.
+type NetworkInfo struct {
+	Name    string
+	Subnet  string
+	Members []NetworkMember
+}
+
+// NetworkMember is one managed container on a network: its address and the names it answers to.
+type NetworkMember struct {
+	Container  string
+	Address    string
+	Aliases    []string
+	ResourceID string
 }
 
 // ContainerStats are one container's counters. CPUSeconds, the network and disk byte counts are

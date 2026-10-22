@@ -96,6 +96,8 @@ type LoadBalancerSpec struct {
 	Algorithm   string               `json:"algorithm,omitempty"`
 	HealthCheck *LoadBalancerCheck   `json:"healthCheck,omitempty"`
 	Publish     bool                 `json:"publish,omitempty"`
+	// Placed chooses the machine it runs on (ADR-044).
+	Placed
 }
 
 // DNS providers (ADR-023).

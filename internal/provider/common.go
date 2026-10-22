@@ -184,6 +184,14 @@ func (b *base) importByName(ctx context.Context, req resource.ImportStateRequest
 		resp.Diagnostics.Append(apiDiag("Import", err))
 		return
 	}
+	if r.Stack != nil { // TF-46: a stack's member is managed through its stack
+		stack := *r.Stack
+		if st, err := b.c.GetResource(ctx, stack); err == nil {
+			stack = st.Name
+		}
+		resp.Diagnostics.AddError("Import failed", fmt.Sprintf("%s %s is part of the stack %s: manage it with enclave_stack, and read it with the data sources.", b.kind, r.Name, stack))
+		return
+	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), r.ID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), r.Name)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("project"), r.Project)...)

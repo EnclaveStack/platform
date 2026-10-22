@@ -6,7 +6,7 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v20 |
+| Version | v22 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -46,7 +46,7 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 ## ADR-007 — Authentication: sessions for browsers, personal API tokens for code
 - **Status**: Accepted (DAR-006)
 - **Context**: Browsers need cookie sessions; the CLI, CI jobs and OpenTofu need bearer credentials that can be scoped and revoked. A freshly installed control plane must not be claimable by whoever reaches it first.
-- **Decision**: Passwords hashed with **argon2id** (64 MiB, 3 iterations, 2 lanes, 16-byte salt). Browser sessions: random 32-byte ID, only its SHA-256 stored, cookie `es_session` `HttpOnly; SameSite=Strict; Path=/` (+ `Secure` when served over TLS), 7-day sliding expiry; state-changing requests with a cookie must carry `X-Enclave-CSRF: 1` (a custom header cannot be sent cross-site without a CORS preflight, which the server never grants). API tokens: `hc_pat_` + 32 random bytes (base32), SHA-256 stored, scopes `read` / `write`, optional expiry, last-used tracking, revocable. First-run setup requires a one-time **setup code** printed to the server's terminal (and log) at first start. Login throttling: 5 failures per email+IP per 15 min → `429` with `Retry-After`.
+- **Decision**: Passwords hashed with **argon2id** (64 MiB, 3 iterations, 2 lanes, 16-byte salt). Browser sessions: random 32-byte ID, only its SHA-256 stored, cookie `es_session` `HttpOnly; SameSite=Strict; Path=/` (+ `Secure` when served over TLS), 7-day sliding expiry; state-changing requests with a cookie must carry `X-Enclave-CSRF: 1` (a custom header cannot be sent cross-site without a CORS preflight, which the server never grants). API tokens: `es_pat_` + 32 random bytes (base32), SHA-256 stored, scopes `read` / `write`, optional expiry, last-used tracking, revocable. First-run setup requires a one-time **setup code** printed to the server's terminal (and log) at first start. Login throttling: 5 failures per email+IP per 15 min → `429` with `Retry-After`.
 - **Consequences**: Credentials are never stored in recoverable form. `enclave login` exchanges a password for a token via a short-lived session. Full threat model: `L3-006`.
 
 ## ADR-008 — One binary for server and CLI; Cobra commands
@@ -671,6 +671,109 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
   - **Store reconcile** runs `Test`: wrong credentials or an unreachable store make it `failed` with the provider's message (credentials never appear in messages).
 - **Consequences**: values never touch the logs or events. A rotated value reaches apps at their next deploy, like a secret edited by hand.
 
+## ADR-042 — Machines and the agent: the control plane calls each agent over mutual TLS
+- **Status**: Accepted (DAR-034) — planned for v0.8, `L2-010` MCH-01 – MCH-12
+- **Context**: v0.8 runs resources on more than one computer. The control plane stays on the main machine (`L2-010` §6). Everything it does to the engine today goes through `engine.Driver` and `engine.Hypervisor` (ADR-006, ADR-025), in process.
+- **Decision**:
+  - **The agent** is `enclave agent run`, the same binary. It runs the Docker driver and the QEMU hypervisor of the computer it's on, with no store, no reconciler and no API of its own, and serves them to the control plane over HTTPS on port 7071. It keeps its identity in `~/.enclave-agent` (mode 0700): its private key, its certificate, the CA certificate, the machine ID and its settings.
+  - **One request per engine call.** `POST /agent/v1/<driver|hypervisor>/<Method>` carries the arguments as JSON and returns the result as JSON. Errors keep their class: permanent (`engine.Permanent`), engine unavailable (`engine.ErrUnavailable`), no VMs (`engine.ErrNoVMs`), job missing (`engine.ErrJobMissing`), no CA (`engine.ErrNoCA`), or transient, each with its message. The caller's deadline travels in `X-Enclave-Deadline`, and the agent cancels the call when the control plane hangs up.
+  - **Streams.** Calls that read or write data stream the request or response body. The arguments then travel in `X-Enclave-Args` (base64url JSON), and an error found after the stream started arrives in the `X-Enclave-Error` trailer. These calls are `Dump`, `Restore`, `SnapshotVolume`, `RestoreVolume`, the data-volume copies of ADR-047, and the disk copies. A build sends its context directory as a tar body and gets its log lines back.
+  - **Callbacks.** `Ensure` and `EnsureVM` report steps, notes and events while they work, and `Ensure` calls the `Started` hook (ADR-021) before new containers take traffic. Their response is a stream of JSON lines: `step`, `note`, `event`, `started` and finally `result` or `error`. On `started`, the control plane runs the hook and answers `POST /agent/v1/calls/<id>/continue`; the agent waits for that answer before going on.
+  - **Files the control plane holds** reach the agent before the call that needs them: a snapshot file used as a VM image or to fill a disk volume is uploaded to the agent's cache (`PUT /agent/v1/files/<sha256>`) and the call names the agent's copy. `SnapshotDisk` streams the copy back and the control plane writes it to its snapshot directory.
+  - **Version.** `GET /agent/v1/info` returns the agent's version, protocol (1), engine and host facts, VM support and tunnel public key. A different minor version is shown on the machine and nothing new is placed there (MCH-10).
+  - **Health.** The control plane calls `info` on each machine every 10 seconds with a 5-second timeout (ADR-046).
+- **Consequences**:
+  - `internal/agent` holds the server (on the agent) and the client (`agent.Remote`, which implements `engine.Driver` and `engine.Hypervisor`). Both are tested against each other in-process, over real TLS, with the fake driver behind the server.
+  - Secret values (`EnsureInput.Env`, passwords, relays) cross the wire inside mutual TLS only. The agent never logs a request body.
+  - Throughput of data copies is that of one HTTPS stream through the main machine.
+
+## ADR-043 — Machine identity: an EnclaveStack certificate authority, one-time join codes
+- **Status**: Accepted — planned for v0.8, `L2-010` MCH-02 – MCH-04, MCH-09
+- **Decision**:
+  - **Certificate authority.** The first `machine add` creates an ECDSA P-256 CA, valid 10 years. Its key is kept in the store, encrypted with the machine's master key (`secretbox`, ADR-007). The control plane gets a client certificate from it at every start (CN `enclave-control-plane`, valid 30 days, kept in memory).
+  - **Join codes.** `POST /machines` makes a machine in state `waiting` with a code: 20 random bytes, base32, shown once. The store keeps its SHA-256 and an expiry one hour away. A new code for the same machine (`POST /machines/{name}/join-code`) replaces the old one.
+  - **Joining.** `enclave agent join <main> --code C` makes an ECDSA P-256 key and sends `POST /api/v1/machines/join` (public, rate-limited) with the code, a certificate request, the address the agent advertises, its agent and tunnel ports, and its facts. A valid, unexpired, unused code returns the machine ID, a certificate for the agent (URI SAN `enclave://machine/<id>`, valid 1 year), the CA certificate and the control plane's URL. The code is spent in the same transaction. The control plane then calls the agent's `info` to bring the machine `online`.
+  - **Mutual TLS.** TLS 1.3 only. The agent requires a client certificate chaining to the CA with CN `enclave-control-plane`. The control plane requires the agent's certificate to chain to the CA, carry this machine's URI SAN, and have the serial recorded for it.
+  - **Renewal.** When an agent's certificate has less than 60 days left, the control plane asks for a new request (`POST /agent/v1/renew`), signs it and the agent switches to it.
+  - **Removal.** Removing a machine deletes its row, so the control plane never trusts that certificate again. `enclave agent leave` removes EnclaveStack's containers, volumes and networks on that computer and deletes `~/.enclave-agent`.
+- **Consequences**: a stolen agent identity can't act as the control plane, because only the control plane's client certificate opens an agent. A stolen join code is useless after one use or one hour. Backups of the store include the encrypted CA key, which only the master key opens.
+
+## ADR-044 — Placement: one machine per resource, kept in the store; an engine router
+- **Status**: Accepted (DAR-039) — planned for v0.8, `L2-010` PLC-01 – PLC-08
+- **Decision**:
+  - **Store.** A `machines` table holds each machine. The main machine is the row `main`, made by the migration with the machine name. `resources` gains `machine_id` (default `main`), so every existing row is on the main machine.
+  - **Spec.** App, database, cache, job, load balancer, VM, volume, search and email specs gain `machine` and `machineLabels`. Placement is the reconciler's: a resource with no machine is placed by `domain.ChooseMachine` before its first ensure, in a transaction that counts every resource's reservation per machine (CP-16 per machine). It considers online, schedulable machines of the same minor version, with the labels and the support the kind needs, and the machine of the volumes it uses (PLC-04). The resource is placed on the one with the most free memory, the main machine on a tie. If none fits, the resource waits with the reason and tries again every 30 seconds.
+  - **Pinned kinds.** Buckets, queues, topics, domains, CDNs, transcoders, zones, records and the system containers stay on `main`. Secrets, networks, firewalls, backups, snapshots and the v0.7 kinds have no runtime of their own and keep `main`.
+  - **Engine router.** `internal/engine/cluster.Router` implements `engine.Driver` and `engine.Hypervisor`. It routes each call by the machine of the resource it names: in process for `main`, `agent.Remote` for the others. Calls naming no resource go to the machine they concern. The edge, broker, object store, certificates, transcoding and project store access go to `main`. Networks go to every online machine. A job run goes to its job's machine, a build to its app's machine, a dump to its database's machine. A call to an offline machine fails at once with `ErrMachineOffline`, which the reconciler treats like `ErrUnavailable`, with the machine in the message. The reconciler, services and monitor keep their single `Driver` and `Hypervisor`, so archtest still forbids services the state-changing calls.
+  - **Outputs.** Every placed resource reports `machine` (its name). Published ports bind on that machine's publish address, and `host` is the machine's advertised address.
+- **Consequences**:
+  - `domain.Resource` gains `Machine` (an ID); the router reads it, so nothing below the reconciler changes signature.
+  - With one machine, the router sends everything to `main` and every output keeps its value (PLC-08).
+
+## ADR-045 — Networks across machines: a mesh container per machine, stand-ins, address pools
+- **Status**: Accepted (DAR-035, DAR-036; spiked 2026-10-22) — planned for v0.8, `L2-010` XNET-01 – XNET-08
+- **Context**: networks are Docker bridges, one per machine. On Docker Desktop the engine runs in a VM behind NAT, so nothing outside a container can join a bridge or route into it (ADR-026).
+- **Decision**:
+  - **Every network on every machine.** The router ensures each network on every online machine, with the same range. The default network `enclave` takes the main machine's range on every other machine. A machine that has a foreign network overlapping that range reports it, as NET-01 does.
+  - **Mesh container.** With two or more machines, each machine runs `es-system-mesh` from `enclave.local/mesh:<hash>`. The image is built on the machine through the build path (ADR-019) from an embedded Dockerfile: a pinned `golang` stage compiles the `es-mesh` helper (standard library only), and a pinned `alpine` stage adds `wireguard-tools`, `iproute2` and `nftables`.
+    - It runs with only `NET_ADMIN`, `net.ipv4.ip_forward=1`, and the volume `es-system-mesh-data` for its private key.
+    - It is connected to every EnclaveStack network with a fixed MAC per network (`02:65:73` and three bytes of the network's hash) and an address from its pool.
+    - It publishes the tunnel port (51820/udp) on the machine's tunnel address.
+    - It holds one WireGuard interface `es0` with a peer for every other online machine. A peer's allowed IPs are that machine's container addresses, one /32 each.
+  - **Routing.** For every remote address, the mesh adds a /32 route over `es0` and a proxy neighbour entry on the network's interface, so local containers' ARP for it is answered by the mesh. No address is translated: the receiver sees the real source, and firewalls (ADR-021) match unchanged.
+  - **Isolation.** The mesh's nftables table forwards only between `es0` and a network's interface when both source and destination are in that network's range. It clamps TCP MSS to the path, and drops everything else. Ranges never overlap (NET-01), so traffic can't cross networks. Nothing forwarded from `es0` leaves through an interface with internet, so `internet: false` holds (XNET-05).
+  - **Stand-ins.** For every container on another machine, in every network, each machine runs a stand-in `es-standin-<hash>`: a container on that network with the remote container's address and aliases. Docker's DNS therefore answers `.internal` names and stable aliases with remote addresses, and the local engine never hands the address out. A stand-in runs `es-mesh standin`, which deletes its own copy of the address, points it at the mesh (route and permanent neighbour entry to the mesh's fixed MAC) and forwards whatever it receives. Docker announces a new endpoint's address even when told not to (spike, DAR-035); a neighbour that cached the stand-in still reaches the right machine. A stand-in has only `NET_ADMIN`, forwarding on and redirects off, and about 1 MiB of memory.
+  - **Address pools.** With two or more machines, every container connected to a network takes an explicit address: the lowest free address of its machine's pool within its subnet. The table `address_pool (network, address, machine_id)` assigns each address to at most one machine. The control plane keeps at least eight free addresses (fewer in small subnets, never fewer than a placement needs) in each machine's pool for each subnet it uses. It passes the pools with the mesh configuration. A machine whose pool is empty waits with a transient error until it's topped up. When the second machine joins, the addresses the main machine already uses go into its pool first.
+  - **Mesh sync.** A loop in the reconciler builds the whole mesh configuration of each machine every 5 seconds, and at once after a placed resource's containers change. The configuration holds its peers, its pools, its stand-ins, and the default network's range. `Driver.ConfigureMesh` applies it whole and idempotently, as `ConfigureEdge` does. The router wraps `Started` (ADR-021), so a new revision's addresses are announced to every machine before its health check (XNET-07). `Driver.NetworkEndpoints` lists a machine's managed containers per network (name, address, aliases), which the sync reads.
+  - **Keys.** `es-mesh` makes the machine's WireGuard key on first start and keeps it in its volume. The public key is reported by `info` and handed to the peers. Private keys never leave their machine.
+- **Consequences**:
+  - **Engine contract:** the `Driver` gains `ConfigureMesh`, `MeshStatus` (peers and their last handshake, XNET-06) and `NetworkEndpoints`. `Placement` gains `Address` (an address to keep, ADR-047).
+  - **One machine:** no mesh, no stand-ins, no pools; addresses are chosen as in v0.7.
+  - **Limits:** one stand-in per remote container per machine; throughput is WireGuard's, measured in `L5-003`.
+
+## ADR-046 — Offline machines: health checks, apps restarted elsewhere, clean-up on return
+- **Status**: Accepted — planned for v0.8, `L2-010` MCH-06, FAIL-01 – FAIL-06
+- **Decision**:
+  - **Health.** `internal/machines.Monitor` calls `info` on every machine every 10 seconds (5-second timeout). It records `last_seen_at` and the facts. It turns a machine `offline` after 30 seconds without an answer and `online` at the first answer, with an event on the machine and on what runs there. The monitor's alerts gain the condition `machine` (offline, for 1 – 60 minutes, default 1) on named machines.
+  - **Waiting.** A call to an offline machine fails at once with `ErrMachineOffline`. The reconciler waits 30 seconds between tries and the message reads "`<machine>` is offline since `<time>`". Drift checks skip resources on offline machines. The phase doesn't change (FAIL-01).
+  - **Restarting elsewhere.** Once a machine has been offline for 60 seconds, the reconciler re-places every app (and image job) on it that has no volume, no `machine` of its own, and labels another machine has. It sets the new machine, bumps nothing in the spec, and deploys a new revision there, with an event naming both machines (FAIL-02). Everything else waits (FAIL-03).
+  - **Clean-up.** When a machine comes back, the router first calls `Sweep` on it with the IDs of resources still placed there. The machine removes the containers of every other resource EnclaveStack manages (revisions, replicas, job runs), never volumes. Only then is the machine `online` for placement and mesh sync (FAIL-04).
+  - **Main machine down.** Agents keep what runs (containers restart unless stopped, VMs keep running); nothing changes until the control plane is back (FAIL-06).
+- **Consequences**: a flapping machine moves its apps at most once per outage, because a re-placed app stays where it went.
+
+## ADR-047 — Moving: copy, then switch
+- **Status**: Accepted (DAR-037) — planned for v0.8, `L2-010` MOVE-01 – MOVE-07, MCH-08
+- **Decision**:
+  - **Trigger.** A resource whose spec `machine` (or labels) no longer matches its `machine_id` is moved by its next ensure. While its machine is offline, a resource with data refuses the change, in the service, with the reason (FAIL-03).
+  - **App or job.** The resource gets the new `machine_id` and a normal deploy: the new revision starts on the new machine, takes traffic once healthy, and then the router removes every container of the app on the old machine (MOVE-01).
+  - **Database, cache, search, email.**
+    - The container on the old machine is stopped.
+    - Its data volume streams to the new machine: `Driver.ExportData` writes the volume as a tar stream through a short-lived helper container, and `Driver.ImportData` fills a new volume of the same name.
+    - The address moves from the old machine's pool to the new one's, and the container is created there with `Placement.Address` set to it.
+    - Once healthy, the old container and volume are removed.
+    - If any step before that fails, the container on the old machine is started again and the resource stays there (MOVE-02, MOVE-06).
+    - The interruption, from stop to healthy, is recorded in the move's event.
+  - **Volume.** What uses it is stopped first: apps and jobs on the old machine are removed, VMs shut down. Then the files are copied (`SnapshotVolume` into `RestoreVolume`, ADR-028) or the disk (`ExportDisk` into `ImportDisk`). The volume and its users get the new `machine_id`, and the users are reconciled there (MOVE-03).
+  - **VM.** The VM is shut down (VM-06), its root disk and attached disk volumes are copied, its link container is created on the new machine with the same address, and the VM is started there. The old directory is removed after it boots (MOVE-04).
+  - **Load balancer.** Started on the new machine with the same address, then removed from the old one (MOVE-05).
+  - **Progress.** A move adds the step `move` with the bytes copied in the message, refreshed every second.
+  - **Drain.** Marks the machine not schedulable and sets a new machine on every resource there that has no `machine` of its own (MCH-08). Each move is then an ordinary one.
+- **Consequences**: the `Driver` gains `ExportData`, `ImportData` and `Stop`; the `Hypervisor` gains `ExportDisk` and `ImportDisk` (a disk file as a stream). A move needs the free space of the copy on the new machine; the error says so when it's missing.
+
+## ADR-048 — Catalogue and stacks: templates of API specs, members created in one transaction
+- **Status**: Accepted (DAR-038) — planned for v0.8, `L2-010` CAT-01 – CAT-09
+- **Decision**:
+  - **Templates.** A template is YAML or JSON with `name`, `title`, `description`, `version` (semver), `parameters`, `resources` and `outputs` (`L3-002` §11.6). Each resource is a `kind`, a `name` (empty for the stack's own name, otherwise the member is `<stack>-<name>`), a `spec` in the API's form, and optionally `when`, which leaves the member out when it renders empty or `false`. A secret member may say `generate: <length>` instead of a value.
+  - **Placeholders.** `${stack}`, `${project}`, `${param:<name>}`, `${name:<member>}` (the member's full name), `${host:<kind>/<member>}` (the name apps reach it by: its container name, which carries the project, ADR-035) and `${ident:<member>}` (a database's database and user name). A string that is exactly one placeholder takes the parameter's type (number, boolean). Anything else is text. There are no loops, expressions, functions, files or network access.
+  - **Catalogue.** Built-in templates are embedded in the binary (`internal/catalogue/builtin`), with images pinned by version. Own templates are rows of `catalogue_templates (name, body, version, created_at, created_by)`, added and removed by machine admins. A name can't shadow a built-in.
+  - **Stack.** A new kind, `stack`. Its spec is `template`, or `templateBody` given inline, plus `version` (default: the newest), `parameters` and `secretParameters`, which are write-only and stored as the stack's secrets.
+    - Creating one renders the template and validates every member with the same code path as a hand-made create (`createIn`, refactored out of `create`), in one transaction. The installer's role, names, references, placement and quotas are checked. Nothing is created unless everything is valid (CAT-08, CAT-09).
+    - Members carry `stack_id`. An update re-renders and diffs in one transaction: new members are created, changed ones updated (`updateIn`), and removed ones marked `deleting`.
+  - **Phases.** The stack's reconcile aggregates its members: `ready` when all are ready, `failed` when one is (its message names it), otherwise in progress. It checks again whenever a member changes phase.
+  - **Protection.** The service refuses `update` and `delete` of a member, naming its stack (CAT-06). Actions are allowed. CP-12 ignores references between members of the same stack.
+  - **Delete.** Deleting the stack marks every member `deleting` in one transaction. A member that something outside the stack still uses refuses the whole delete, with the list. The stack is removed when its last member is. Members delete in any order; a network that still has containers retries until they're gone.
+- **Consequences**: stacks add no engine calls of their own. A template is never run as code, so a template from a stranger can create no more than its installer could by hand.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -695,3 +798,5 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v18 | 2026-10-22 | Soupler Labs | ADR-029 – ADR-034 implemented, with as-built notes: hyphens kept in stream names, dead letters move at the next receive, host ports fixed at create (found on real Docker), MongoDB 7.0 default (kernel refusal), LOGIN relay auth without TLS, manual transcode refused at concurrency, shared run metrics |
 | v19 | 2026-10-22 | Soupler Labs | ADR-035 – ADR-041 for v0.7: projects as namespaces, roles and scoped tokens, built-in metrics, alerts, notification outbox, log shipper, external secret stores (planned) |
 | v20 | 2026-10-22 | Soupler Labs | ADR-040 as implemented: inclusive reads, skip counts, rotation gaps |
+| v21 | 2026-10-22 | Soupler Labs | ADR-042 – ADR-048 for v0.8: agent over mutual TLS, machine identity and join codes, placement and the engine router, networks across machines (mesh, stand-ins, address pools; spiked), offline machines, moving, catalogue and stacks (planned) |
+| v22 | 2026-10-22 | Soupler Labs | Token prefix `es_pat_` (was `hc_pat_` after the rename) |

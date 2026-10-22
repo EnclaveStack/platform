@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -23,9 +24,10 @@ import (
 )
 
 type appModel struct {
-	ID           types.String    `tfsdk:"id"`
-	Name         types.String    `tfsdk:"name"`
-	Project      types.String    `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Image        types.String    `tfsdk:"image"`
 	Source       *sourceGitModel `tfsdk:"source"`
 	BuiltCommit  types.String    `tfsdk:"built_commit"`
@@ -95,10 +97,12 @@ func (r *appResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		Description: "A long-running container. Every field except name changes in place (the container is recreated).",
 		Attributes: map[string]schema.Attribute{
-			"id":      idAttr(),
-			"name":    nameAttr("app"),
-			"project": projectAttr(),
-			"image":   schema.StringAttribute{Optional: true, Description: "Container image, e.g. nginx:1.27-alpine. Exactly one of image or source."},
+			"id":             idAttr(),
+			"name":           nameAttr("app"),
+			"project":        projectAttr(),
+			"machine":        machineAttr(),
+			"machine_labels": machineLabelsAttr(),
+			"image":          schema.StringAttribute{Optional: true, Description: "Container image, e.g. nginx:1.27-alpine. Exactly one of image or source."},
 			"source": schema.SingleNestedAttribute{Optional: true,
 				Description: "Build the app from a Git repository and its Dockerfile (BuildKit). Exactly one of image or source. A redeploy builds the ref's latest commit.",
 				Attributes: map[string]schema.Attribute{
@@ -159,7 +163,7 @@ func (r *appResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 func (m *appModel) spec(ctx context.Context) (api.AppSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	s := api.AppSpec{Image: m.Image.ValueString(), Port: int(m.Port.ValueInt64()), Publish: m.Publish.ValueBool(), MemoryMiB: int(m.MemoryMiB.ValueInt64()),
-		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Replicas: int(m.Replicas.ValueInt64()), Volumes: mountsOf(m.Volumes)}
+		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Replicas: int(m.Replicas.ValueInt64()), Volumes: mountsOf(m.Volumes), Placed: m.placed()}
 	if g := m.Source; g != nil {
 		s.Source = &api.GitSource{Git: g.Git.ValueString(), Ref: g.Ref.ValueString(), Dockerfile: g.Dockerfile.ValueString(), Context: g.Context.ValueString(),
 			CredentialsSecret: g.CredentialsSecret.ValueString()}
@@ -245,6 +249,7 @@ func (m *appModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.AppSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Image = types.StringValue(r.ID), types.StringValue(r.Name), strOrNull(s.Image)
 	m.Source = fillSource(s.Source, m.Source)
 	m.BuiltCommit = outString(r, "builtCommit")
@@ -347,6 +352,7 @@ func (r *appResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		"port": nilIfZero(spec.Port), "command": nilIfEmpty(spec.Command), "env": nilIfEmptyMap(spec.Env), "secretEnv": nilIfEmptyMap(spec.SecretEnv),
 		"strategy": spec.Strategy, "healthCheck": spec.HealthCheck, // a nil check encodes as null: cleared
 		"network": nilIfEmptyString(spec.Network), "subnet": nilIfEmptyString(spec.Subnet), "replicas": spec.Replicas, "volumes": nilIfNoMounts(spec.Volumes)}
+	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update app", err))

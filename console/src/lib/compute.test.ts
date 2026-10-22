@@ -7,7 +7,7 @@ import { diskSerial, validateMounts, validateSnapshot, validateVM, validateVolum
 // v0.5 rules (L3-002 §8.4) and "Use from code" (CON-36), kept equal to pkg/api and the CLI/provider.
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXTqZbAPryM1c8TBIUjg6rtRL1Dfr2uR7E954v/Icd4 test@enclave';
-const res = (kind: Resource['kind'], name: string, spec: object): Resource => ({ id: 'x', kind, name, project: 'default', generation: 1, ownerId: null, spec: spec as never,
+const res = (kind: Resource['kind'], name: string, spec: object): Resource => ({ id: 'x', kind, name, project: 'default', generation: 1, ownerId: null, stack: null, spec: spec as never,
   status: { phase: 'ready', message: '', observedGeneration: 1, attempts: 0, steps: [], lastTransitionAt: '' }, outputs: {}, createdAt: '', updatedAt: '' });
 
 describe('VM, volume and snapshot validation', () => {

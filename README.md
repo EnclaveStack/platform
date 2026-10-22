@@ -6,7 +6,7 @@ Part of **EnclaveStack**. Role: Product codebase (apps, services, shared package
 
 ## What it is
 
-EnclaveStack turns one Mac or Linux machine into your own small cloud: **apps** (any container image), **PostgreSQL databases**, **Redis caches**, **S3-compatible buckets** and **encrypted secrets**, plus private **networks**, **firewalls**, **load balancers**, **DNS records**, **VMs**, **volumes**, **snapshots**, and **projects, roles, metrics, alerts, log export and outside secret stores** to run it day to day — managed from three equal surfaces over one API:
+EnclaveStack turns a Mac or Linux machine — or several — into your own small cloud: **apps** (any container image), **PostgreSQL databases**, **Redis caches**, **S3-compatible buckets** and **encrypted secrets**, plus private **networks**, **firewalls**, **load balancers**, **DNS records**, **VMs**, **volumes**, **snapshots**, and **projects, roles, metrics, alerts, log export and outside secret stores** to run it day to day, **more machines** joined over an encrypted tunnel, and a **catalogue** of ready-made stacks — managed from three equal surfaces over one API:
 
 | Console | CLI | OpenTofu |
 |---|---|---|
@@ -16,15 +16,16 @@ EnclaveStack turns one Mac or Linux machine into your own small cloud: **apps** 
 
 | Part | State |
 |---|---|
-| Control plane (Go) — API, reconciler, Docker driver | v0.2 – v0.7 built (unreleased; nothing published yet) |
-| CLI (`enclave`) | v0.2 – v0.7 built (unreleased; nothing published yet) |
-| OpenTofu / Terraform provider (`enclavestack/enclave`) | v0.2 – v0.7 built (unreleased; nothing published yet); local builds (registry publishing at public launch) |
-| Web console | v0.2 – v0.7 built (unreleased; nothing published yet), on the `@enclavestack/ui` design system |
+| Control plane (Go) — API, reconciler, Docker driver | v0.2 – v0.8 built (unreleased; nothing published yet) |
+| CLI (`enclave`) | v0.2 – v0.8 built (unreleased; nothing published yet) |
+| OpenTofu / Terraform provider (`enclavestack/enclave`) | v0.2 – v0.8 built (unreleased; nothing published yet); local builds (registry publishing at public launch) |
+| Web console | v0.2 – v0.8 built (unreleased; nothing published yet), on the `@enclavestack/ui` design system |
 | Zero-downtime deploys with health checks, domains + automatic HTTPS, scheduled jobs, backups + restore, builds from Git | v0.3, built and tested on every surface (unreleased) |
 | Networks with subnets and private DNS, firewalls (nftables), app replicas and load balancers (HAProxy), DNS zones and records (Cloudflare, Route 53), certificates through DNS-01 and wildcard domains | v0.4, built and tested on every surface (unreleased); the DNS providers are tested against local fakes of their APIs, not the live services |
 | VMs run by QEMU (HVF on macOS, KVM on Linux) in your networks with SSH and first-boot scripts, volumes (disks for VMs, folders for apps and jobs), snapshots | v0.5, built and tested on every surface (unreleased); walked live on Apple silicon; Linux with KVM runs in CI from v0.5 on |
 | MySQL, MongoDB and ClickHouse databases; queues and topics (NATS JetStream) with dead letters and signed webhooks; search (OpenSearch); email that is kept to look at or relayed through your provider (Mailpit); a CDN in front of an app or bucket (nginx); transcoders that convert media dropped in a bucket (FFmpeg) | v0.6, built and tested on every surface and on real Docker (unreleased); a relay through a real email provider is not yet walked by hand |
 | Projects (namespaces with their own names and private DNS), people with viewer / editor / admin roles per project, invites and tokens limited to a role and projects; metrics sampled by EnclaveStack itself with graphs and dashboards; alerts (metric thresholds, crash loops, failures) to email, webhooks, Slack, Discord or Telegram; log export to a bucket, S3, HTTP, OpenTelemetry or Grafana Loki; secrets read from Vault / OpenBao, 1Password, AWS Secrets Manager, Doppler or Infisical | v0.7, built and tested on every surface and on real Docker (unreleased); real Slack/Discord/Telegram/email delivery and the real 1Password, AWS, Doppler and Infisical services are not yet walked by hand (Vault and OpenBao are verified for real) |
+| More machines joined with `enclave agent join` (mutual TLS); resources placed on a machine by free memory, a name or labels; private networks across machines over WireGuard; apps restarted elsewhere when a machine goes offline; moving a resource with its data; draining a machine; a catalogue of six built-in stacks (WordPress, Ghost, n8n, Uptime Kuma, Gitea, Plausible) plus your own templates, installed as one `stack` | v0.8, built on every surface (unreleased); two machines tested for real with a Docker-in-Docker second machine; two physical computers not yet walked by hand |
 
 ## Quick start (from source)
 

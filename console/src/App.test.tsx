@@ -310,7 +310,7 @@ describe('console', () => {
     await user.click(screen.getByRole('button', { name: 'Create token' }));
     await screen.findByText(/won't see this token again/);
     const block = screen.getByRole('status', { name: 'New token' });
-    const secret = within(block).getAllByText(/^hc_pat_/)[0]!.textContent ?? '';
+    const secret = within(block).getAllByText(/^es_pat_/)[0]!.textContent ?? '';
     expect(within(block).getByRole('button', { name: 'Done' })).toBeDisabled();
     await user.click(within(block).getByLabelText("I've copied it"));
     await user.click(within(block).getByRole('button', { name: 'Done' }));

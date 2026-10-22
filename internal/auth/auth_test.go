@@ -32,7 +32,7 @@ func TestPasswordHashRoundTripAndMismatch(t *testing.T) {
 func TestTokensAndSessionsAreRandomAndHashed(t *testing.T) {
 	a, pa := NewToken()
 	b, _ := NewToken()
-	if a == b || !strings.HasPrefix(a, "hc_pat_") || len(a) < 50 || !strings.HasPrefix(a, pa) {
+	if a == b || !strings.HasPrefix(a, "es_pat_") || len(a) < 50 || !strings.HasPrefix(a, pa) {
 		t.Errorf("token %q prefix %q", a, pa)
 	}
 	h1, h2 := Hash(a), Hash(a)

@@ -6,7 +6,7 @@
 | Document ID | L3-006-security-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v10 |
+| Version | v11 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -129,6 +129,21 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | Secret stores (ADR-041) | Outside credentials leaking; values exposed | Store tokens and keys are EnclaveStack secrets; fetched values are encrypted at rest like any secret and never logged, put in events or returned except by reveal (editor). Provider error bodies are cut to 512 bytes and scrubbed of the request's credentials before they reach a message |
 | Metrics | Information about other projects | Metrics follow the resource's project; the machine's dashboard shows totals only |
 
+## 10 · v0.8 additions (planned)
+
+| Area | Threat | Control |
+|---|---|---|
+| Agent channel (ADR-042, ADR-043) | Someone else commanding an agent; an agent impersonated | Mutual TLS 1.3 only, from an EnclaveStack CA: an agent accepts only the control plane's client certificate (CN `enclave-control-plane`), and the control plane accepts only the certificate recorded for that machine (URI SAN and serial). The agent has no other listener |
+| CA key | Signing rogue agents or a rogue control plane | ECDSA P-256 key sealed with the master key in the store; never written in clear, never sent. The control plane's own certificate lives 30 days in memory only |
+| Join codes | A stolen or guessed code joining a rogue computer | 20 random bytes, shown once, stored as SHA-256, single use, one hour; `POST /machines/join` is throttled like sign-in and records each attempt in the audit list. A machine admin sees the join as an event and can remove it |
+| Removed machines | A removed computer keeping access | Its row is deleted, so its certificate is never trusted again. Its stand-ins and peers disappear from every machine at the next mesh sync (5 s), which cuts it out of the tunnel |
+| Secrets over the wire | Secret values seen on the network | Engine inputs with secret values cross only the mutual-TLS channel; the agent never logs bodies or arguments. Values live in memory on the agent only as long as the call |
+| Tunnel (ADR-045) | Traffic between machines read or forged | WireGuard (Curve25519, ChaCha20-Poly1305); each machine makes its key and keeps it in its mesh volume; the control plane hands out public keys only. A peer accepts packets only from the addresses placed on that machine (allowed IPs) |
+| Crossing networks | Machines joining networks that should stay apart | The mesh forwards only when source and destination are in the same network's range, with `drop` as the policy; `internet: false` networks get no route out through the mesh. Stand-ins forward only towards the mesh |
+| Mesh and stand-in privileges | A helper container used to escape | Both run with `NET_ADMIN` only (no other capability, no privileged mode, no host network, no mounts except the mesh's key volume), from images built on the machine with pinned bases; their programs are standard-library Go that renders rules from validated addresses only |
+| Catalogue (ADR-048) | A template doing more than its installer may | Templates are data, never code: members are API specs validated like a hand-made create, with the installer's role, in the installer's project. Only machine admins add templates. Built-in images are pinned by version |
+| Machines in the API | Learning about other projects through machines | A machine's resource count covers only projects the caller can see; the list of what runs there is filtered the same way |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -143,3 +158,4 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | v8 | 2026-10-21 | Soupler Labs | §7 controls built; the frame-port guard and the socket-directory check are tested |
 | v9 | 2026-10-21 | Soupler Labs | §8 v0.6 additions (planned): broker isolation, message and email access, webhooks, database engine users, search auth, email relay, CDN bucket policy, transcoder sandboxing |
 | v10 | 2026-10-22 | Soupler Labs | §9 v0.7 additions (planned): roles, project isolation, invites, removal, last admin, audit, notifications, log export, secret stores, metrics |
+| v11 | 2026-10-22 | Soupler Labs | §10 v0.8 additions (planned): agent channel and CA, join codes, removed machines, secrets over the wire, tunnel, network crossing, helper privileges, catalogue templates, machine visibility |

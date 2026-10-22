@@ -47,6 +47,7 @@ function keyFact(r: Resource): string {
   if (r.kind === 'dashboard') return `${(r.spec as { widgets?: unknown[] }).widgets?.length ?? 0} widget(s)`;
   if (r.kind === 'logexport') return o.linesSent !== undefined ? `${String(o.linesSent)} lines sent` : '';
   if (r.kind === 'secretstore') return (r.spec as { provider?: string }).provider ?? '';
+  if (r.kind === 'stack') return o.total !== undefined ? `${String(o.ready)} of ${String(o.total)} ready` : '';
   if (r.kind === 'snapshot') return `${String(o.type ?? '')}${o.sizeBytes !== undefined ? ` · ${formatBytes(Number(o.sizeBytes))}` : ''}`;
   if (o.host && o.port) return `${String(o.host)}:${String(o.port)}`;
   if (o.internalHost) return String(o.internalHost);
@@ -71,6 +72,9 @@ export function SectionPage() {
   const noVMs = kind === 'vm' && machine.data && !machine.data.vms.available ? machine.data.vms.message : '';
   const fix = noVMs.match(/(?:Install QEMU|Upgrade QEMU|Install it|Run): (.+)$/)?.[1];
   const anyBusy = (list.data ?? []).some((r) => inProgress(r.status.phase));
+  // With more than one machine, each card says where it runs (CON-56).
+  const machines = useLoad('section-machines', () => api.listMachines());
+  const manyMachines = (machines.data?.length ?? 0) > 1;
   // Follow progress every second; otherwise refresh quietly every 5 s so resources made from the CLI or
   // OpenTofu show up without a reload (ADR-003: one API, three surfaces).
   usePolling(true, anyBusy ? 1000 : 5000, list.reload);
@@ -106,8 +110,9 @@ export function SectionPage() {
   const selectedId = machineView ? undefined : (id ?? list.data?.find((r) => r.status.phase !== 'deleting')?.id);
   const total = (list.data ?? []).filter((r) => r.status.phase !== 'deleting').length;
   // Viewers see no create button (CON-48); the tooltip says who can.
+  // Stacks are installed from the catalogue (CON-59).
   const newButton = canCreate
-    ? <Button variant="dark" icon={<Icons.Plus />} onClick={() => setCreating(true)}>New {section.noun}</Button>
+    ? <Button variant="dark" icon={<Icons.Plus />} onClick={() => (kind === 'stack' ? navigate('/catalogue') : setCreating(true))}>New {section.noun}</Button>
     : <Text size="xs" tone="subtle" title={needRole('editor', createIn)}>View only</Text>;
 
   return (
@@ -159,6 +164,7 @@ export function SectionPage() {
                       <span>{r.status.phase === 'ready' ? section.noun : r.status.phase}</span>
                       {fact && <Text mono truncate>{fact}</Text>}
                       {!project && <Badge tone="soft" mono>{r.project}</Badge>}
+                      {manyMachines && r.outputs.machine !== undefined && <Badge tone="soft" mono>{String(r.outputs.machine)}</Badge>}
                     </>
                   }
                 />

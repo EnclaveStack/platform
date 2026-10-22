@@ -131,3 +131,22 @@ describe('http adapter, v0.7 (L3-002 §10)', () => {
     expect((f.calls[3]!.init.headers as Record<string, string>)['X-Enclave-CSRF']).toBe('1');
   });
 });
+
+describe('http adapter, v0.8 (L3-002 §11)', () => {
+  it('calls the machine and catalogue endpoints', async () => {
+    const f = fakeFetch([json(200, { items: [] }), json(201, { machine: {}, joinCode: 'c', joinCommand: 'x', expiresAt: '' }), () => new Response(null, { status: 204 }),
+      json(202, { moving: [], pinned: [] }), json(200, { items: [] }), json(200, {}), json(201, {})]);
+    const api = createHttpApi('/api/v1', { fetch: f.fn, sleep: noSleep });
+    await api.listMachines();
+    await api.addMachine('rack-1', { disk: 'ssd' });
+    await api.removeMachine('rack-1', true);
+    await api.drainMachine('rack-1');
+    await api.listCatalogue();
+    await api.getCatalogueEntry('wordpress', '1.0.0');
+    await api.addTemplate('name: x');
+    expect(f.calls.map((c) => `${c.init.method ?? ''} ${c.url}`)).toEqual(['GET /api/v1/machines', 'POST /api/v1/machines', 'DELETE /api/v1/machines/rack-1?force=true',
+      'POST /api/v1/machines/rack-1/drain', 'GET /api/v1/catalogue', 'GET /api/v1/catalogue/wordpress?version=1.0.0', 'POST /api/v1/catalogue']);
+    expect(JSON.parse(String(f.calls[1]!.init.body))).toEqual({ name: 'rack-1', labels: { disk: 'ssd' } });
+    expect(JSON.parse(String(f.calls[6]!.init.body))).toEqual({ body: 'name: x' });
+  });
+});

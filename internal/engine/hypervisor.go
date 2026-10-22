@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/enclavestack/platform/pkg/api"
 )
@@ -43,6 +44,11 @@ type Hypervisor interface {
 	// VMStats reads a running VM process's cumulative CPU time and resident memory (ADR-037);
 	// ok is false when it doesn't run.
 	VMStats(ctx context.Context, vmID string) (stats ProcessStats, ok bool, err error)
+
+	// v0.8 (ADR-047): moving disks. ExportDisk writes a stopped VM's root disk (VMID) or a disk volume
+	// (DiskID) into w as a flat qcow2 file; ImportDisk puts one in its place on this machine.
+	ExportDisk(ctx context.Context, d DiskRef, w io.Writer) error
+	ImportDisk(ctx context.Context, d DiskRef, src io.Reader) error
 }
 
 // ProcessStats are a VM process's counters.

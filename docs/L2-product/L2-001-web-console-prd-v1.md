@@ -6,7 +6,7 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v12 |
+| Version | v13 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -94,6 +94,13 @@ A single **operator** (the machine's admin) in v0.2. Roles and multiple users ar
 | CON-51 | **Channels** section: the form per type (email service and recipients; webhook URL and signing secret; Slack, Discord or Telegram with a secret); the detail has **Deliveries** and "Send a test" (NCH-*) | Must — v0.7 |
 | CON-52 | **Log exports** section: sources picked from the project's resources (or all), destination per type, filter and flush interval; the detail shows lines sent, lag and the last error. **Secret stores** section: the form per provider and "Test connection"; the secret form offers "From a secret store" (store, key, field) next to a value, and a synced secret shows its store, key, last sync and "Refresh now" (LOG-*, EXT-*) | Must — v0.7 |
 | CON-53 | "Use from code" covers the v0.7 kinds and the project of every resource; an **Audit** page (machine admins) lists the audit entries (IAM-09) | Must — v0.7 |
+| CON-54 | A **Machines** page (everyone who sees the machine; changes for machine admins): each machine with its state, address, CPUs, memory used and reserved, engine and agent version, VM support and resource count. "Add machine" asks for a name and labels and shows the join command, copyable, with what the other computer needs (MCH-03); the page shows the machine as `waiting` until it joins, then `online`, without a reload (`L2-010` MCH-*) | Must — v0.8 |
+| CON-55 | A machine's page: its facts, its tunnel link to each other machine (connected, last heard), what runs on it (linked), its events, and the actions **Not schedulable** / **Schedulable**, **Drain** (lists what moves and what is pinned) and **Remove** (refused with the list while anything runs there; `force` for an offline machine, asking first and naming what fails) (MCH-*) | Must — v0.8 |
+| CON-56 | Every form of a placed kind has **Machine**: "Choose for me" (default) or a machine, with its free memory, and optional required labels. Every placed resource shows its machine in the header and in lists; a resource on an offline machine shows a banner "`<machine>` is offline since …" (PLC-*, FAIL-01) | Must — v0.8 |
+| CON-57 | **Move to another machine** on placed resources: pick the machine; the dialog says what happens (a rolling deploy for apps; a stop, a copy and a start, with the size to copy, for data; the apps or VMs that move with a volume) and the progress shows the bytes copied. Refused while the machine is offline, with the reason (MOVE-*, FAIL-03) | Must — v0.8 |
+| CON-58 | The **Machine** dashboard (`L2-009` DSH-04) gains a machine picker; alerts offer **Machine offline** as a condition with the machines to watch (MCH-06) | Must — v0.8 |
+| CON-59 | A **Catalogue** page: the built-in entries and the machine's own templates as cards (title, description, what it creates); **Install** opens a form generated from the entry's parameters (name, project, values, an optional domain) and creates the stack. Machine admins **Add template** from a file (errors shown with the line) and remove their own (CAT-01 – CAT-04) | Must — v0.8 |
+| CON-60 | A **Stacks** section: list with phase; a stack's page shows its template and version, its parameters, its outputs (links), and its members with their phases, linked. **Edit parameters**, **Upgrade** (when a newer version exists, with what changes) and **Delete** (lists members with data, asks first). A member's page says "Part of stack `<name>`" and hides edit and delete (CAT-05 – CAT-07) | Must — v0.8 |
 
 ## Version history
 
@@ -111,3 +118,4 @@ A single **operator** (the machine's admin) in v0.2. Roles and multiple users ar
 | v10 | 2026-10-21 | Soupler Labs | v0.6 requirements CON-37 – CON-44: database engines, queues, topics, search, transcoders, CDN, email (L2-008) |
 | v11 | 2026-10-22 | Soupler Labs | CON-37 – CON-44 shipped |
 | v12 | 2026-10-22 | Soupler Labs | v0.7 requirements CON-45 – CON-53: projects, people, tokens, roles in the interface, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
+| v13 | 2026-10-22 | Soupler Labs | v0.8 requirements CON-54 – CON-60: machines, a machine's page, placement in forms, moving, machine metrics and the offline alert, catalogue, stacks (L2-010) |

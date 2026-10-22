@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -34,9 +35,10 @@ func stableInt(desc string) schema.Int64Attribute {
 // ─── enclave_database ────────────────────────────────────────────────────
 
 type databaseModel struct {
-	ID             types.String   `tfsdk:"id"`
-	Name           types.String   `tfsdk:"name"`
-	Project        types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Engine         types.String   `tfsdk:"engine"`
 	Version        types.String   `tfsdk:"version"`
 	NativePort     types.Int64    `tfsdk:"engine_port_native"`
@@ -70,9 +72,11 @@ func (r *databaseResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 	resp.Schema = schema.Schema{
 		Description: "A database: PostgreSQL, MySQL, MongoDB or ClickHouse. Its owner password lives in the managed secret named by password_secret; read it with the enclave_secret_value data source.",
 		Attributes: map[string]schema.Attribute{
-			"id":      idAttr(),
-			"name":    nameAttr("database"),
-			"project": projectAttr(),
+			"id":             idAttr(),
+			"name":           nameAttr("database"),
+			"project":        projectAttr(),
+			"machine":        machineAttr(),
+			"machine_labels": machineLabelsAttr(),
 			"engine": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(api.DatabaseEngine),
 				Description:   "postgres (default), mysql, mongodb or clickhouse. Changing it replaces the database (and its data).",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
@@ -101,6 +105,7 @@ func (m *databaseModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var spec api.DatabaseSpec
 	_ = json.Unmarshal(r.Spec, &spec)
+	m.fillMachine(r, spec.Placed)
 	m.ID, m.Name, m.Engine, m.Version = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(spec.Engine), types.StringValue(spec.Version)
 	m.Host, m.Port, m.NativePort = outString(r, "host"), outInt(r, "port"), outInt(r, "nativePort")
 	m.InternalHost, m.InternalPort = outString(r, "internalHost"), outInt(r, "internalPort")
@@ -118,7 +123,7 @@ func (r *databaseResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 	res, err := r.createAndWait(ctx, plan.Project, plan.Name.ValueString(), api.DatabaseSpec{Engine: plan.Engine.ValueString(), Version: plan.Version.ValueString(),
-		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString()}, timeout)
+		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString(), Placed: plan.placed()}, timeout)
 	if res.ID != "" {
 		plan.fill(res)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...) // keep a failed resource in state so it can be fixed or destroyed
@@ -159,6 +164,7 @@ func (r *databaseResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 	patch := placementPatch(plan.Network, state.Network, plan.Subnet, state.Subnet)
+	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update database", err))
@@ -188,9 +194,10 @@ func (r *databaseResource) ImportState(ctx context.Context, req resource.ImportS
 // ─── enclave_cache ───────────────────────────────────────────────────────
 
 type cacheModel struct {
-	ID           types.String   `tfsdk:"id"`
-	Name         types.String   `tfsdk:"name"`
-	Project      types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	MaxMemoryMiB types.Int64    `tfsdk:"max_memory_mib"`
 	Host         types.String   `tfsdk:"host"`
 	Port         types.Int64    `tfsdk:"port"`
@@ -219,9 +226,11 @@ func (r *cacheResource) Schema(ctx context.Context, _ resource.SchemaRequest, re
 	resp.Schema = schema.Schema{
 		Description: "A Redis cache, persisted to disk.",
 		Attributes: map[string]schema.Attribute{
-			"id":      idAttr(),
-			"name":    nameAttr("cache"),
-			"project": projectAttr(),
+			"id":             idAttr(),
+			"name":           nameAttr("cache"),
+			"project":        projectAttr(),
+			"machine":        machineAttr(),
+			"machine_labels": machineLabelsAttr(),
 			"max_memory_mib": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(api.CacheMemoryDefault),
 				Description: "Maximum memory in MiB (64–4096). Changes in place.",
 				Validators:  []validator.Int64{int64validator.Between(api.CacheMemoryMinMiB, api.CacheMemoryMaxMiB)}},
@@ -242,6 +251,7 @@ func (m *cacheModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var spec api.CacheSpec
 	_ = json.Unmarshal(r.Spec, &spec)
+	m.fillMachine(r, spec.Placed)
 	m.ID, m.Name, m.MaxMemoryMiB = types.StringValue(r.ID), types.StringValue(r.Name), types.Int64Value(int64(spec.MaxMemoryMiB))
 	m.Host, m.Port = outString(r, "host"), outInt(r, "port")
 	m.InternalHost, m.InternalPort = outString(r, "internalHost"), outInt(r, "internalPort")
@@ -258,7 +268,7 @@ func (r *cacheResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 	res, err := r.createAndWait(ctx, plan.Project, plan.Name.ValueString(), api.CacheSpec{Engine: api.CacheEngine, Version: api.CacheVersion, MaxMemoryMiB: int(plan.MaxMemoryMiB.ValueInt64()),
-		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString()}, timeout)
+		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString(), Placed: plan.placed()}, timeout)
 	if res.ID != "" {
 		plan.fill(res)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -297,6 +307,7 @@ func (r *cacheResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	patch := placementPatch(plan.Network, state.Network, plan.Subnet, state.Subnet)
+	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	if !plan.MaxMemoryMiB.Equal(state.MaxMemoryMiB) {
 		patch["maxMemoryMiB"] = plan.MaxMemoryMiB.ValueInt64()
 	}

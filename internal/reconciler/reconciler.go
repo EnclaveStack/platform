@@ -102,6 +102,12 @@ type Reconciler struct {
 	HTTP           *http.Client
 	DeliveryTick   time.Duration
 	TranscodeWatch time.Duration
+	// Machines places resources on machines (ADR-044); nil keeps everything on the main machine.
+	Machines Directory
+	// MeshEvery is how often the mesh is synced (DefaultMeshEvery, ADR-045); RescheduleAfter how long a
+	// machine is offline before its apps start elsewhere (DefaultRescheduleAfter, ADR-046).
+	MeshEvery       time.Duration
+	RescheduleAfter time.Duration
 
 	queue    chan string
 	mu       sync.Mutex
@@ -119,6 +125,10 @@ type Reconciler struct {
 	hashes    map[string]string
 	watchedAt map[string]time.Time
 	startedAt time.Time
+	// v0.8: the mesh sync's state, one pass at a time, and the addresses moves keep, by resource ID.
+	mesh   meshState
+	meshMu sync.Mutex
+	keep   sync.Map
 }
 
 // New builds a reconciler with production defaults; tests override fields before Run.
@@ -151,10 +161,14 @@ func (r *Reconciler) Run(ctx context.Context) {
 			}
 		}()
 	}
-	r.wg.Add(3)
+	r.wg.Add(4)
 	go func() {
 		defer r.wg.Done()
 		r.driftLoop(ctx)
+	}()
+	go func() {
+		defer r.wg.Done()
+		r.meshLoop(ctx)
 	}()
 	go func() {
 		defer r.wg.Done()
@@ -258,8 +272,10 @@ func (r *Reconciler) process(ctx context.Context, id string) {
 			opErr = r.restart(opCtx, res, log)
 		case res.RequestedAction == api.ActionPurge:
 			opErr = r.purge(opCtx, res)
+		case res.RequestedAction == domain.ActionMove:
+			opErr = r.ensureWithMove(opCtx, res, log)
 		default:
-			opErr = r.ensure(opCtx, res, log)
+			opErr = r.ensureWithMove(opCtx, res, log)
 		}
 	}()
 	r.Metrics.ReconcileDuration.WithLabelValues(string(res.Kind)).Observe(r.Now().Sub(started).Seconds())
@@ -316,6 +332,9 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	}
 	if res.Phase == api.PhaseProvisioning || res.Phase == api.PhaseUpdating {
 		res.Steps = domain.NewSteps(domain.StepNames[res.Kind]...)
+	}
+	if err := r.place(ctx, res); err != nil {
+		return err
 	}
 	res.Message, res.UpdatedAt = "", now
 	if res.Kind == api.KindApp {
@@ -392,6 +411,12 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 			api.KindQueue: r.ensureQueue, api.KindTopic: r.ensureTopic, api.KindCDN: r.ensureCDN, api.KindTranscoder: r.ensureTranscoder}[res.Kind]
 		var err error
 		outputs, err = ensure(ctx, res, &progress{r: r, ctx: ctx, res: res, gen: gen})
+		if err != nil {
+			return err
+		}
+	} else if res.Kind == api.KindStack {
+		var err error
+		outputs, err = r.ensureStack(ctx, res, &progress{r: r, ctx: ctx, res: res, gen: gen})
 		if err != nil {
 			return err
 		}
@@ -479,7 +504,7 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	}
 	done := r.Now()
 	prevLatest, _ := asInt64(res.Outputs[engine.OutputLatestRevision])
-	res.Outputs = outputs
+	res.Outputs = r.withMachine(ctx, res, outputs)
 	if res.Kind == api.KindApp {
 		res.Outputs = withOutput(res.Outputs, engine.OutputLastDeploy, engine.DeploySucceeded)
 		if n, ok := asInt64(outputs[engine.OutputServingRevision]); ok {
@@ -511,6 +536,7 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 		r.event(ctx, res, "redeployed", msg)
 	}
 	r.event(ctx, res, "ready", "Ready.")
+	r.refreshStack(ctx, res)
 	if res.Kind == api.KindApp {
 		r.syncEdgeForApp(ctx, res, log)
 		r.syncLoadBalancersForApp(ctx, res, log)
@@ -533,6 +559,9 @@ func (r *Reconciler) inputs(ctx context.Context, res *domain.Resource) (engine.E
 	network, subnet := placementOf(spec)
 	if in.Placement, err = r.placement(ctx, res.Project, network, subnet); err != nil {
 		return in, err
+	}
+	if a, ok := r.kept(res.ID); ok {
+		in.Placement.Address = a // a move keeps its address (ADR-047)
 	}
 	if slices.Contains(firewallKinds, res.Kind) {
 		if in.Firewall, err = r.policyFor(ctx, res); err != nil {
@@ -667,6 +696,10 @@ func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog
 		if err := r.deleteFromBroker(ctx, res); err != nil {
 			return err
 		}
+	} else if res.Kind == api.KindStack {
+		if err := r.deleteStack(ctx, res); err != nil {
+			return err
+		}
 	} else if res.Kind == api.KindTranscoder || isOperateKind(res.Kind) {
 		// Nothing on the engine: a transcoder's runs are rows (deleted with it) and what it wrote stays
 		// (TRN-08); the v0.7 kinds' state is rows the monitor keeps, deleted with them.
@@ -724,6 +757,9 @@ func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog
 		return err
 	}
 	r.Metrics.ReconcileTotal.WithLabelValues(string(res.Kind), "deleted").Inc()
+	if res.Stack != "" {
+		r.Enqueue(res.Stack) // the stack goes after its last member
+	}
 	log.Info("resource deleted")
 	return nil
 }
@@ -738,6 +774,23 @@ func (r *Reconciler) fail(ctx context.Context, res *domain.Resource, cause error
 		next := now.Add(EngineDownRetry)
 		res.NextAttemptAt, res.Message = &next, engineWaitMessage
 		log.Warn("engine unavailable; will retry", "retry_in", EngineDownRetry.String())
+		r.Metrics.ReconcileTotal.WithLabelValues(string(res.Kind), "retry").Inc()
+	case errors.Is(cause, engine.ErrMachineOffline):
+		// Not an attempt: the resource waits for its machine with the reason (FAIL-01).
+		next := now.Add(NotPlacedRetry)
+		res.NextAttemptAt, res.Message = &next, truncate(offlineMessage(cause))
+		log.Warn("machine offline; will retry", "reason", res.Message, "retry_in", NotPlacedRetry.String())
+		r.Metrics.ReconcileTotal.WithLabelValues(string(res.Kind), "retry").Inc()
+	case errors.Is(cause, errMembers):
+		next := now.Add(StackRetry)
+		res.NextAttemptAt, res.Message = &next, truncate(strings.TrimPrefix(cause.Error(), errMembers.Error()+": "))
+		if res.Phase != api.PhaseDeleting {
+			res.Message = "Waiting for members: " + res.Message + "."
+		}
+	case errors.Is(cause, errNotPlaced):
+		next := now.Add(NotPlacedRetry)
+		res.NextAttemptAt, res.Message = &next, truncate(strings.TrimPrefix(cause.Error(), errNotPlaced.Error()+": "))
+		log.Info("no machine fits yet; will retry", "reason", res.Message, "retry_in", NotPlacedRetry.String())
 		r.Metrics.ReconcileTotal.WithLabelValues(string(res.Kind), "retry").Inc()
 	case errors.Is(cause, engine.ErrNoVMs) && res.Phase != api.PhaseDeleting:
 		// Not a failure: the VM waits, with the fix in its message, until QEMU is there (VM-11).
@@ -772,6 +825,7 @@ func (r *Reconciler) fail(ctx context.Context, res *domain.Resource, cause error
 			res.Outputs = withOutput(res.Outputs, engine.OutputLastDeploy, engine.DeployFailed)
 		}
 		r.event(ctx, res, "failed", msg)
+		r.refreshStack(ctx, res)
 		log.Error("reconcile failed", "error", msg, "permanent", engine.IsPermanent(cause))
 		r.Metrics.ReconcileTotal.WithLabelValues(string(res.Kind), "failed").Inc()
 	default:
@@ -872,7 +926,7 @@ func (r *Reconciler) CheckDrift(ctx context.Context) {
 	}
 	r.checkRecords(ctx, ready)
 	for _, res := range ready {
-		if res.Kind == api.KindSecret || res.Kind == api.KindJob || res.Kind == api.KindBackup || isOperateKind(res.Kind) || res.RequestedAction != "" {
+		if res.Kind == api.KindSecret || res.Kind == api.KindJob || res.Kind == api.KindBackup || res.Kind == api.KindStack || isOperateKind(res.Kind) || res.RequestedAction != "" {
 			continue // no long-running runtime to drift
 		}
 		if res.Kind == api.KindFirewall {
@@ -942,4 +996,13 @@ func (r *Reconciler) updateGauges(ctx context.Context) {
 	for _, res := range all {
 		r.Metrics.Resources.WithLabelValues(string(res.Kind), string(res.Phase)).Inc()
 	}
+}
+
+// offlineMessage is what a resource waiting for its machine says: "rack-1 is offline since 10:42 on 3 Nov."
+func offlineMessage(err error) string {
+	msg := strings.TrimPrefix(err.Error(), engine.ErrMachineOffline.Error()+": ")
+	if !strings.HasSuffix(msg, ".") {
+		msg += "."
+	}
+	return msg
 }

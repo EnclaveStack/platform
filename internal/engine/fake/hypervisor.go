@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -23,6 +24,8 @@ type Hypervisor struct {
 	vms     map[string]*VM
 	disks   map[string]*disk
 	images  map[string]int // image key → VMs using it
+	// roots are root disks copied here for VMs not made yet (ADR-047).
+	roots map[string]snapshotFile
 }
 
 // VM is the fake's view of one VM.
@@ -156,6 +159,10 @@ func (h *Hypervisor) EnsureVM(ctx context.Context, in engine.VMInput, report eng
 	defer h.mu.Unlock()
 	v := h.vms[in.ID]
 	report.Step("image", api.StepDone)
+	if snap, moved := h.roots[in.ID]; v == nil && moved { // its root disk came from another machine (ADR-047)
+		root = snap.Contents
+		delete(h.roots, in.ID)
+	}
 	if v == nil {
 		v = &VM{Image: in.Image, SSHKeys: slices.Clone(in.SSHKeys), RootGiB: in.Spec.DiskGiB, Root: root}
 		h.vms[in.ID] = v
@@ -333,4 +340,51 @@ func readSnapshotFile(path string) (snapshotFile, error) {
 		return snap, err
 	}
 	return snap, json.Unmarshal(b, &snap)
+}
+
+// ExportDisk implements engine.Hypervisor: the disk as its snapshot file's JSON.
+func (h *Hypervisor) ExportDisk(_ context.Context, d engine.DiskRef, w io.Writer) error {
+	h.mu.Lock()
+	var snap snapshotFile
+	switch {
+	case d.DiskID != "":
+		disk := h.disks[d.DiskID]
+		if disk == nil {
+			h.mu.Unlock()
+			return fmt.Errorf("the disk %s doesn't exist", d.DiskID)
+		}
+		snap = snapshotFile{SizeGiB: disk.sizeGiB, Contents: disk.contents}
+	default:
+		v := h.vms[d.VMID]
+		if v == nil {
+			h.mu.Unlock()
+			return fmt.Errorf("the VM %s doesn't exist", d.VMID)
+		}
+		if v.Running {
+			h.mu.Unlock()
+			return engine.Permanent(fmt.Errorf("the VM %s runs; stop it before copying its disk", d.VMID))
+		}
+		snap = snapshotFile{SizeGiB: v.RootGiB, Contents: v.Root}
+	}
+	h.mu.Unlock()
+	return json.NewEncoder(w).Encode(snap)
+}
+
+// ImportDisk implements engine.Hypervisor: a root disk waits for its VM, which takes it when it is made.
+func (h *Hypervisor) ImportDisk(_ context.Context, d engine.DiskRef, src io.Reader) error {
+	var snap snapshotFile
+	if err := json.NewDecoder(src).Decode(&snap); err != nil {
+		return engine.Permanent(fmt.Errorf("the copied disk isn't one (fake): %w", err))
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if d.DiskID != "" {
+		h.disks[d.DiskID] = &disk{sizeGiB: snap.SizeGiB, contents: snap.Contents}
+		return nil
+	}
+	if h.roots == nil {
+		h.roots = map[string]snapshotFile{}
+	}
+	h.roots[d.VMID] = snap
+	return nil
 }

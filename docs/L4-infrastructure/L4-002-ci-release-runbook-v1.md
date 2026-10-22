@@ -6,7 +6,7 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v4 |
+| Version | v6 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -54,6 +54,10 @@ make load                                              # needs k6; DURATION=30s 
 
 The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, installs `qemu-system-x86` and `qemu-utils`, and runs `make engine-qemu` before `make e2e`, so the e2e suite's VM part runs too (ADR-025). The real-QEMU tests download the Debian 12 image once per run into `~/.cache/enclave-test/` (about 350 MB). The job was added on 2026-10-21 and hasn't run in GitHub Actions yet: everything in it passed locally on an Apple M4 with HVF.
 
+## 5 · Two machines in CI (v0.8, planned)
+
+`go.yml` gains **Machines E2E** (`make e2e-machines`): the server runs in a container on the runner's Docker, and a Docker-in-Docker container acts as the second machine (ADR-042 – ADR-047). It joins, places, reaches across machines through a private network, moves a cache with its data, and cuts the agent off so an app restarts elsewhere. It runs on every pull request and becomes a required check in the same PR that adds it. The real-Docker suite (`make engine-docker`) gains the two-engine mesh test, which also uses Docker-in-Docker; GitHub's Ubuntu runners allow privileged containers.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -62,3 +66,5 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 | v2 | 2026-10-20 | Soupler Labs | Actual workflow and job names, make targets, staticcheck v0.8.2, OpenTofu acceptance environment |
 | v3 | 2026-10-21 | Soupler Labs | v0.5: KVM and QEMU in Engine E2E, make engine-qemu (§4) |
 | v4 | 2026-10-22 | Soupler Labs | Quality Checks and Tests run the JS workspace only (the Go suite ran twice per push); Go Quality, Go Tests, Provider Acceptance and Console E2E are required checks; workflows renamed to Console Checks (was CI) and Go and End-to-End Tests; all workflows PR-only (no push or nightly), Engine E2E and Load Test run on every PR and are required |
+| v5 | 2026-10-22 | Soupler Labs | §5 two machines in CI (planned): Machines E2E job, the two-engine mesh test |
+| v6 | 2026-10-22 | Soupler Labs | §5: what Machines E2E covers, as built |

@@ -1,0 +1,39 @@
+name: n8n
+title: n8n
+description: n8n workflow automation with its PostgreSQL database and a volume for its settings.
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "Serve n8n and its webhooks at this host name, with HTTPS.", type: hostname }
+resources:
+  - kind: database
+    name: db
+    spec: { engine: postgres, version: "16" }
+  - kind: secret
+    name: key
+    generate: 48
+  - kind: volume
+    name: data
+    spec: { type: filesystem }
+  - kind: app
+    name: ""
+    spec:
+      image: n8nio/n8n:2.45.2
+      port: 5678
+      memoryMiB: 1024
+      env:
+        DB_TYPE: postgresdb
+        DB_POSTGRESDB_HOST: "${host:database/db}"
+        DB_POSTGRESDB_PORT: "5432"
+        DB_POSTGRESDB_DATABASE: "${ident:db}"
+        DB_POSTGRESDB_USER: "${ident:db}"
+        WEBHOOK_URL: "https://${param:domain}/"
+      secretEnv:
+        DB_POSTGRESDB_PASSWORD: "${name:db}-password"
+        N8N_ENCRYPTION_KEY: "${name:key}"
+      volumes: [{ volume: "${name:data}", path: /home/node/.n8n }]
+  - kind: domain
+    name: site
+    when: "${param:domain}"
+    spec: { hostname: "${param:domain}", app: "${name:}" }
+outputs:
+  url: "https://${param:domain}"

@@ -2,12 +2,16 @@ package provider
 
 import (
 	"context"
+	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/enclavestack/platform/pkg/api"
 )
 
 // Placement in a network (L2-003 TF-16, ADR-020): network and subnet change in place.
@@ -29,9 +33,9 @@ func placementPatch(planNet, stateNet, planSub, stateSub types.String) map[strin
 	return patch
 }
 
-// movedPlacement reports whether a plan changes the network or subnet.
+// movedPlacement reports whether a plan changes the network, subnet or machine.
 func movedPlacement(ctx context.Context, plan tfsdk.Plan, state tfsdk.State) bool {
-	for _, attr := range []string{"network", "subnet"} {
+	for _, attr := range []string{"network", "subnet", "machine"} {
 		var p, s types.String
 		if plan.GetAttribute(ctx, path.Root(attr), &p).HasError() || state.GetAttribute(ctx, path.Root(attr), &s).HasError() {
 			return true
@@ -73,4 +77,88 @@ func placedString(desc string) schema.StringAttribute {
 
 func placedInt(desc string) schema.Int64Attribute {
 	return schema.Int64Attribute{Computed: true, Description: desc, PlanModifiers: []planmodifier.Int64{placed{}}}
+}
+
+// Placement on a machine (L2-003 TF-43, ADR-042): machine is optional and computed, so the machine
+// EnclaveStack chose reads back without a diff; changing it moves the resource in place.
+
+// placementModel is embedded in every placed kind's model.
+type placementModel struct {
+	Machine       types.String            `tfsdk:"machine"`
+	MachineLabels map[string]types.String `tfsdk:"machine_labels"`
+}
+
+func (m *placementModel) machineOf() *placementModel { return m }
+
+// machineAware is a model with a machine.
+type machineAware interface{ machineOf() *placementModel }
+
+func machineAttr() schema.StringAttribute {
+	return schema.StringAttribute{Optional: true, Computed: true,
+		Description:   "The machine to run on (default: EnclaveStack chooses, and this reads back its choice). Changing it moves the resource, with its data, in place; apply waits for the move.",
+		PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}
+}
+
+func machineLabelsAttr() schema.MapAttribute {
+	return schema.MapAttribute{Optional: true, ElementType: types.StringType,
+		Description: "Labels the machine must have, when machine isn't set (key=value, all must match)."}
+}
+
+func (m *placementModel) placed() api.Placed {
+	p := api.Placed{}
+	if !m.Machine.IsUnknown() {
+		p.Machine = m.Machine.ValueString()
+	}
+	for k, v := range m.MachineLabels {
+		if p.MachineLabels == nil {
+			p.MachineLabels = map[string]string{}
+		}
+		p.MachineLabels[k] = v.ValueString()
+	}
+	return p
+}
+
+// placedFields is the placement as spec fields, for kinds whose spec is a map.
+func (m *placementModel) placedFields() map[string]any {
+	out := map[string]any{}
+	p := m.placed()
+	if p.Machine != "" {
+		out["machine"] = p.Machine
+	}
+	if len(p.MachineLabels) > 0 {
+		out["machineLabels"] = p.MachineLabels
+	}
+	return out
+}
+
+// fillMachine reads back where the resource runs and the labels it asks for.
+func (m *placementModel) fillMachine(r api.Resource, spec api.Placed) {
+	m.Machine = outString(r, "machine")
+	if m.Machine.IsNull() && spec.Machine != "" {
+		m.Machine = types.StringValue(spec.Machine)
+	}
+	if len(spec.MachineLabels) == 0 && len(m.MachineLabels) == 0 {
+		return // keep an empty map as configured
+	}
+	m.MachineLabels = map[string]types.String{}
+	for k, v := range spec.MachineLabels {
+		m.MachineLabels[k] = types.StringValue(v)
+	}
+}
+
+// machinePatch moves the resource when the planned machine differs, and changes its labels.
+func (m *placementModel) machinePatch(state *placementModel) map[string]any {
+	patch := map[string]any{}
+	if !m.Machine.IsUnknown() && !m.Machine.IsNull() && !m.Machine.Equal(state.Machine) {
+		patch["machine"] = m.Machine.ValueString()
+	}
+	plan, prior := m.placed().MachineLabels, state.placed().MachineLabels
+	if !maps.Equal(plan, prior) {
+		if len(plan) == 0 {
+			patch["machineLabels"] = nil
+		} else {
+			patch["machineLabels"] = plan
+		}
+	}
+	return patch
 }

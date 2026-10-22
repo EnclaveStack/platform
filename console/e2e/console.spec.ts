@@ -541,7 +541,7 @@ test('API tokens work for code and stop working when revoked', async ({ playwrig
   await page.getByLabel('Name', { exact: true }).fill('ci');
   await page.getByRole('button', { name: 'Create token' }).click();
   const token = (await page.getByRole('status', { name: 'New token' }).getByLabel('Token', { exact: true }).textContent())!.trim();
-  expect(token).toMatch(/^hc_pat_/);
+  expect(token).toMatch(/^es_pat_/);
   const cli = await playwright.request.newContext({ baseURL: page.url().split('/settings')[0], extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
   expect((await cli.get('/api/v1/machine')).status()).toBe(200);
   await page.getByLabel("I've copied it").check();

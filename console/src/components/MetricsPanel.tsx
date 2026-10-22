@@ -1,7 +1,7 @@
-import { Alert, Button, Card, EmptyState, Grid, Icons, Inline, LineChart, SegmentedTabs, Skeleton, Stack, TabPanel, Text, type ChartSeries } from '@enclavestack/ui';
+import { Alert, Button, Card, EmptyState, Field, Grid, Icons, Inline, LineChart, SegmentedTabs, Select, Skeleton, Stack, TabPanel, Text, type ChartSeries } from '@enclavestack/ui';
 import { useState } from 'react';
 import { useApi } from '../api/context';
-import { MACHINE_METRICS, type MetricUnit } from '../api/generated';
+import { MACHINE_METRICS, RULES, type MetricUnit } from '../api/generated';
 import type { DashboardSpec, MetricData, Resource } from '../api/types';
 import { formatMetric, metricInfo, metricOf, metricsOf, parseRef, RANGES, type RangeId } from '../lib/operate';
 import { useLoad } from '../lib/useLoad';
@@ -86,12 +86,22 @@ function Charts({ data, titles, label }: { data: MetricData; titles: (metric: st
 export function MachineDashboard() {
   const api = useApi();
   const [range, setRange] = useState<RangeId>('1h');
+  // v0.8 (CON-58): one machine's series at a time; disk metrics are the main machine's only.
+  const [machine, setMachine] = useState<string>(RULES.mainMachine);
+  const machines = useLoad('dashboard-machines', () => api.listMachines());
   const { from, to } = rangeWindow(range);
-  const data = useLoad(`metrics:machine:${range}`, () => api.getMachineMetrics([], from, to));
+  const data = useLoad(`metrics:machine:${machine}:${range}`, () => api.getMachineMetricsOf(machine, [], from, to));
   usePolling(true, REFRESH_MS, data.reload);
   const title = (m: string) => MACHINE_METRICS.find((x) => x.name === m)?.title ?? m;
   return (
     <Stack gap={4}>
+      {(machines.data?.length ?? 0) > 1 && (
+        <Field id="dash-machine" label="Machine" hint={machine === RULES.mainMachine ? undefined : 'Disk charts are the main machine’s only.'}>
+          <Select id="dash-machine" value={machine} onChange={(e) => setMachine(e.target.value)}>
+            {machines.data?.map((m) => <option key={m.id} value={m.name}>{m.main ? `${m.name} (${m.title})` : m.name}</option>)}
+          </Select>
+        </Field>
+      )}
       <RangePicker range={range} onChange={setRange} idPrefix="range" />
       <TabPanel idPrefix="range" id={range}>
         {data.error && <LoadError error={data.error} retry={data.reload} />}

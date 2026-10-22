@@ -53,6 +53,9 @@ func (r *Reconciler) ensureVM(ctx context.Context, res *domain.Resource, rep eng
 	if in.Placement, err = r.placement(ctx, res.Project, spec.Network, spec.Subnet); err != nil {
 		return nil, err
 	}
+	if a, ok := r.kept(res.ID); ok {
+		in.Placement.Address = a // a move keeps the link's address (ADR-047)
+	}
 	if in.Firewall, err = r.policyFor(ctx, res); err != nil {
 		return nil, err
 	}

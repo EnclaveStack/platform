@@ -175,7 +175,12 @@ func (p *progress) trace(aux json.RawMessage) {
 	}
 }
 
-// ImageExists implements engine.Driver.
+// HasImage implements engine.Driver: this engine is r's machine.
+func (d *Driver) HasImage(ctx context.Context, _ *domain.Resource, ref string) (bool, error) {
+	return d.ImageExists(ctx, ref)
+}
+
+// ImageExists reports whether an image is present in this engine.
 func (d *Driver) ImageExists(ctx context.Context, ref string) (bool, error) {
 	if _, err := d.cli.ImageInspect(ctx, ref); err == nil {
 		return true, nil

@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { useApi } from '../api/context';
 import { RULES } from '../api/generated';
 import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
+import { isPlaced, MachineFields, usePlacement } from '../components/MachineFields';
 import { DiskPicker, freeDisks, IMAGE_TITLES, MountEditor, mountRows, mountsOf, VM_SIZES, type MountRow } from '../components/ComputeFields';
 import { DATA_IMMUTABLE, DATA_KINDS, useDataForm } from '../components/DataFields';
 import { OPERATE_IMMUTABLE, OPERATE_KINDS, useOperateForm } from '../components/OperateFields';
@@ -219,6 +220,8 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const [srcKey, setSrcKey] = useState(source?.key ?? '');
   const [srcField, setSrcField] = useState(source?.field ?? '');
 
+  const placement = usePlacement(existing);
+  const machines = useLoad(`form-machines:${kind}`, () => (isPlaced(kind) && !existing ? api.listMachines() : Promise.resolve([])));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -229,6 +232,8 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
 
   function buildSpec(): Record<string, unknown> {
     switch (kind) {
+      case 'stack':
+        return {}; // stacks are installed from the catalogue (StackForm)
       case 'network': {
         const n: NetworkSpec = { cidr: cidr.trim(), internet };
         const rows = subnets.filter((r) => r.key.trim() || r.value.trim());
@@ -373,6 +378,10 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
     }
   }
 
+  /** The spec with its machine and labels (CON-56); an app job runs where its app runs. */
+  const machinePlaced = isPlaced(kind) && !(kind === 'job' && runWith === 'app');
+  const specOf = () => (machinePlaced ? placement.apply(buildSpec()) : buildSpec());
+
   function validate(): FieldErrors {
     const e: FieldErrors = {};
     if (!editing) {
@@ -381,7 +390,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
     }
     if (kind === 'app' && port.trim() && !/^\d+$/.test(port.trim())) e['spec.port'] = 'Use a port from 1 to 65535.';
     if (kind === 'secret' && editing && valueFrom === 'value' && !value && !source) return e; // no new value: nothing to change
-    const found = { ...e, ...(kind === 'network' && !editing ? validateNetwork(buildSpec() as unknown as NetworkSpec, networks.map((n) => (n.spec as NetworkSpec).cidr)) : validateSpec(kind, buildSpec())) };
+    const found = { ...e, ...(kind === 'network' && !editing ? validateNetwork(buildSpec() as unknown as NetworkSpec, networks.map((n) => (n.spec as NetworkSpec).cidr)) : validateSpec(kind, specOf())) };
     if (kind === 'backup') {
       // An empty picker reads better as "choose one" than as the API's exactly-one rule.
       if (!sourceName) found['spec.source'] = `Choose a ${sourceKind}.`;
@@ -395,7 +404,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
 
   /** For edits: only fields that changed; maps are replaced whole and cleared with null (L3-002 §2). */
   function patch(): Record<string, unknown> {
-    const next = buildSpec();
+    const next = specOf();
     if (kind === 'secret') {
       if (valueFrom === 'store') return { source: buildSpec().source, value: null };
       return value ? { value, ...(source ? { source: null } : {}) } : {};
@@ -446,7 +455,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         }
         r = await api.updateResource(existing.id, p, existing.generation);
       } else {
-        r = await api.createResource(kind, name.trim(), buildSpec() as never, project);
+        r = await api.createResource(kind, name.trim(), specOf() as never, project);
       }
       onDone(r);
     } catch (err) {
@@ -1157,6 +1166,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           onConfirm={() => void send()} onCancel={() => setRestartWhy(null)} />
       )}
 
+      {machinePlaced && !editing && machines.data && <MachineFields placement={placement} machines={machines.data} errors={errors} />}
       {noVMs && <Alert tone="warn">VMs can't be created yet: {noVMs}</Alert>}
       <Button type="submit" variant="dark" size="lg" block disabled={busy || Boolean(noVMs)}>
         {busy ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save changes' : `Create ${section.noun}`}

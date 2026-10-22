@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/go-connections/nat"
 
@@ -271,7 +270,10 @@ func (d *Driver) createEdge(ctx context.Context) error {
 			"443/tcp": {{HostIP: addr, HostPort: strconv.Itoa(httpsPort)}},
 		},
 	}
-	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{engine.NetworkName: {}}}
+	netCfg, err := d.systemNetworking(ctx)
+	if err != nil {
+		return err
+	}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
 	if _, err := d.cli.ContainerCreate(cctx, cfg, host, netCfg, nil, engine.EdgeName); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -193,9 +194,10 @@ func newTopic() resource.Resource {
 // ─── enclave_search (TF-30) ──────────────────────────────────────────────
 
 type searchModel struct {
-	ID             types.String   `tfsdk:"id"`
-	Name           types.String   `tfsdk:"name"`
-	Project        types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Version        types.String   `tfsdk:"version"`
 	MemoryMiB      types.Int64    `tfsdk:"memory_mib"`
 	Network        types.String   `tfsdk:"network"`
@@ -212,7 +214,7 @@ func (m *searchModel) ids() (types.String, types.String) { return m.ID, m.Name }
 func (m *searchModel) limits() timeouts.Value            { return m.Timeouts }
 
 func (m *searchModel) spec() any {
-	return api.SearchSpec{Version: m.Version.ValueString(), MemoryMiB: int(m.MemoryMiB.ValueInt64()), Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString()}
+	return api.SearchSpec{Version: m.Version.ValueString(), MemoryMiB: int(m.MemoryMiB.ValueInt64()), Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Placed: m.placed()}
 }
 
 func (m *searchModel) patch() map[string]any {
@@ -223,6 +225,7 @@ func (m *searchModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.SearchSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Version = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(s.Version)
 	m.MemoryMiB = defaultKeep(m.MemoryMiB, s.MemoryMiB, api.SearchMemoryDefaultMiB)
 	m.Network, m.Subnet = strOrNull(s.Network), strOrNull(s.Subnet)
@@ -236,9 +239,11 @@ func newSearch() resource.Resource {
 			return schema.Schema{
 				Description: "An OpenSearch service with an admin user (password in password_secret). Changing memory restarts it; indexes are kept.",
 				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("search service"),
-					"project": projectAttr(),
+					"id":             idAttr(),
+					"name":           nameAttr("search service"),
+					"project":        projectAttr(),
+					"machine":        machineAttr(),
+					"machine_labels": machineLabelsAttr(),
 					"version": schema.StringAttribute{Optional: true, Computed: true, Description: "OpenSearch major version, 3 (default) or 2. Changing it replaces the service.",
 						Validators:    []validator.String{stringvalidator.OneOf(api.SearchVersions...)},
 						PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIfConfigured(), stringplanmodifier.UseStateForUnknown()}},
@@ -438,9 +443,10 @@ type relayModel struct {
 }
 
 type emailModel struct {
-	ID               types.String   `tfsdk:"id"`
-	Name             types.String   `tfsdk:"name"`
-	Project          types.String   `tfsdk:"project"`
+	ID      types.String `tfsdk:"id"`
+	Name    types.String `tfsdk:"name"`
+	Project types.String `tfsdk:"project"`
+	placementModel
 	Relay            *relayModel    `tfsdk:"relay"`
 	Domain           types.String   `tfsdk:"domain"`
 	KeepMessages     types.Int64    `tfsdk:"keep_messages"`
@@ -469,12 +475,17 @@ func (m *emailModel) patch() map[string]any {
 	return p
 }
 
-func (m *emailModel) spec() any { return m.patch() }
+func (m *emailModel) spec() any {
+	p := m.patch()
+	maps.Copy(p, m.placedFields())
+	return p
+}
 
 func (m *emailModel) fill(r api.Resource) {
 	m.Project = types.StringValue(r.Project)
 	var s api.EmailSpec
 	_ = json.Unmarshal(r.Spec, &s)
+	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Mode = types.StringValue(r.ID), types.StringValue(r.Name), types.StringValue(s.Mode)
 	if s.Relay == nil {
 		m.Relay = nil
@@ -510,9 +521,11 @@ func newEmail() resource.Resource {
 			return schema.Schema{
 				Description: "An SMTP service for apps. Without relay it keeps every message to look at; with relay it also delivers through your provider.",
 				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("email service"),
-					"project": projectAttr(),
+					"id":             idAttr(),
+					"name":           nameAttr("email service"),
+					"project":        projectAttr(),
+					"machine":        machineAttr(),
+					"machine_labels": machineLabelsAttr(),
 					"relay": schema.SingleNestedAttribute{Optional: true, Description: "Deliver through this SMTP relay (your provider).",
 						Attributes: map[string]schema.Attribute{
 							"host":               schema.StringAttribute{Required: true, Description: "The relay's host."},

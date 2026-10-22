@@ -6,7 +6,7 @@
 | Document ID | L1-002-coolify-study-and-service-roadmap-v1 |
 | Layer | L1 — Vision & Strategy |
 | Status | Draft |
-| Version | v9 |
+| Version | v11 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -92,7 +92,7 @@ Each phase adds resource kinds that work in all three surfaces (console, CLI, Op
 | | notification channels | SNS / Chatbot | Cloud Monitoring channels | 3.15 |
 | | projects (namespaces), users, roles, scoped tokens per project | IAM, accounts | IAM, projects | existing tokens (ADR-035, ADR-036) |
 | | external secret back-ends | Secrets Manager integrations | Secret Manager | 3.11 |
-| **v0.8: many machines** | machine (agent over mutual TLS), placement, migration | Regions/AZs (conceptually) | Zones | 3.9 + ADR on the agent protocol |
+| **v0.8: many machines** (built) | machine (agent over mutual TLS), placement, migration | Regions/AZs (conceptually) | Zones | 3.9 + ADR on the agent protocol |
 | | catalogue (one-click stacks) | AWS Marketplace / Quick Starts | Marketplace | 3.1 |
 
 The catalogue (3.1) does not depend on later phases. It can start as soon as v0.3 lands, because entries only compose kinds that already exist.
@@ -109,6 +109,7 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 - **v0.6 is specified** (2026-10-21): the whole row (queues, topics, MySQL, MongoDB, ClickHouse, search, transcoders, CDN, email) in `L2-008`, plus `L2-001` CON-37 – CON-44, `L2-002` CLI-29 – CLI-36 and `L2-003` TF-27 – TF-33; `L3-003` ADR-029 – ADR-034 and `L3-004` DAR-021 – DAR-026.
 - **v0.6 is built** (2026-10-22), unreleased. It is tested on every surface, on real Docker and by the built-binary e2e. MongoDB defaults to 7.0, because 8.0 refuses Docker Desktop's current kernel. A relay through a real email provider hasn't been walked by hand yet.
 - **v0.7 is specified** (2026-10-22): the whole row in `L2-009`, plus `L2-001` CON-45 – CON-53, `L2-002` CLI-37 – CLI-45 and `L2-003` TF-34 – TF-41; `L3-003` ADR-035 – ADR-041 and `L3-004` DAR-027 – DAR-033. Projects are full namespaces (the owner's call: "why wait for later"), with `default` keeping every v0.6 name. Metrics are kept by EnclaveStack itself; secret stores are Vault/OpenBao, 1Password, AWS Secrets Manager, Doppler and Infisical; logs go to buckets, HTTP, OTLP and Loki.
+- **v0.8 is built** (2026-10-22) on every surface and tested with two machines, the second a Docker-in-Docker agent (`L2-010` §5). It was specified the same day: the whole row in `L2-010`, plus `L2-001` CON-54 – CON-60, `L2-002` CLI-46 – CLI-52 and `L2-003` TF-42 – TF-47; `L3-003` ADR-042 – ADR-048 and `L3-004` DAR-034 – DAR-039. Networks span machines over WireGuard (spiked on Docker Desktop with a Docker-in-Docker second engine), apps without data restart elsewhere when a machine goes offline, and the catalogue has built-in and own templates installed as stacks, all chosen with the owner. The control plane stays on one machine.
 
 ## Version history
 
@@ -123,3 +124,5 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 | v7 | 2026-10-21 | Soupler Labs | v0.6 specified (L2-008): the whole row, with NATS JetStream, OpenSearch and catch + relay email chosen with the owner |
 | v8 | 2026-10-22 | Soupler Labs | v0.6 built (unreleased) |
 | v9 | 2026-10-22 | Soupler Labs | v0.7 specified (L2-009): projects as namespaces, built-in metrics, five secret stores and four log destinations chosen with the owner |
+| v10 | 2026-10-22 | Soupler Labs | v0.8 specified: `L2-010` and its engineering chain |
+| v11 | 2026-10-22 | Soupler Labs | v0.8 built |

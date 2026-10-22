@@ -6,7 +6,7 @@
 | Document ID | L3-001-system-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v16 |
+| Version | v17 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -66,6 +66,11 @@ EnclaveStack is **one Go binary** (`enclave`) that is both the control plane (`e
 | Monitor *(v0.7: planned)* | `internal/monitor` (sampler, alert evaluator, notifier, log shipper) | Metric points and rollups, alert state and incidents, the notification outbox, log export checkpoints (ADR-037 – ADR-040) | Read-only engine and hypervisor methods (`Stats`, `LogsSince`, edge metrics), `internal/messaging` stats, `internal/mail`, HTTP to channels and log destinations, the store | Handlers; state-changing engine methods |
 | Secret stores *(v0.7: planned)* | `internal/secretstores` (Vault, 1Password Connect, AWS Secrets Manager, Doppler, Infisical clients); `internal/sigv4` (shared with Route 53) | Fetching outside secret values, used by the reconciler (ADR-041) | HTTPS to the providers | The store, the engine |
 | Authorization *(v0.7: planned)* | `internal/service` (`Principal.Require`), `internal/store` (projects, members, invites, audit) | Roles per project and machine, token limits, invites, audit (ADR-036) | The store | — |
+| Agent *(v0.8: planned)* | `internal/agent` (server on the other machine, `agent.Remote` client on the main one), `enclave agent` | Serving one machine's Docker driver and hypervisor over mutual TLS; joining; certificate renewal; uploads; sweeping (ADR-042, ADR-043) | The machine's own Docker Engine and QEMU | The store (it has none) |
+| Engine router *(v0.8: planned)* | `internal/engine/cluster` | Sending each engine call to the machine of its resource; networks to every machine; `ErrMachineOffline`; announcing new containers to the mesh (ADR-044) | In-process drivers for `main`, `agent.Remote` for the others | The store (it reads machines through a port) |
+| Machines *(v0.8: planned)* | `internal/machines` (health monitor, CA and join codes, placement queries), `internal/store` machines and address pools | Machine state, identity, health checks, offline detection, choosing a machine (ADR-043, ADR-044, ADR-046) | The router, the store | Handlers |
+| Mesh *(v0.8: planned)* | `es-system-mesh` and `es-standin-*` containers running `es-mesh` (`internal/mesh`, built into its image from its own source); configured by the driver's `ConfigureMesh` from the reconciler's mesh sync | WireGuard peers, routes and proxy neighbours for remote addresses, isolation rules, stand-ins for remote names, address pools (ADR-045) | Engine API; WireGuard between machines | The store |
+| Catalogue *(v0.8: planned)* | `internal/catalogue` (template parsing, placeholders, built-in templates), `internal/service` (stacks) | Templates, rendering, members of stacks (ADR-048) | Nothing: pure; the service validates and stores what it renders | The engine |
 | Engine services *(v0.6: planned)* | The driver's database plans (MySQL, MongoDB, ClickHouse), `es-search-<name>` (OpenSearch), `es-email-<name>` (Mailpit), `es-cdn-<name>` (nginx), transcode runs (FFmpeg) | Containers, their configuration files, dumps and restores, cache purges, transcodes fed through the archive API (ADR-030 – ADR-034) | Engine API | The store |
 ## 3 · Data ownership
 
@@ -94,6 +99,7 @@ EnclaveStack is **one Go binary** (`enclave`) that is both the control plane (`e
 5. **Schedules.** Every second the scheduler claims due job and backup runs and adopts runs that are still `running`, so a run starts once even across a crash (ADR-017, ADR-018).
 6. **Recovery.** On start, the reconciler resumes every resource still in progress (CP-09). Interrupted app deploys are discarded and started again (ADR-016).
 7. **Delete.** The service refuses while references exist (CP-12); otherwise the reconciler removes the engine objects, then the rows and the resources the deleted one owns.
+8. **Many machines (v0.8).** The reconciler, services and monitor call one `engine.Driver` and `engine.Hypervisor`: the router. The router sends each call to the machine of its resource, through `agent.Remote` over mutual TLS for every machine but the main one. Every 5 s, and after a placed resource's containers change, the mesh sync gives each machine its tunnel peers, address pools and stand-ins. The machines monitor calls each agent every 10 s, marks machines offline, and has apps restarted elsewhere (ADR-042 – ADR-046).
 
 ## 5 · Architecture Decision Records
 
@@ -136,3 +142,4 @@ ADR-001 and ADR-002 are recorded here; ADR-003 onward are in `L3-003`, with thei
 | v14 | 2026-10-21 | Soupler Labs | v0.5 components built |
 | v15 | 2026-10-21 | Soupler Labs | v0.6 components (planned): message broker, delivery loop, mail client, engine services for the new engines and kinds (ADR-029 – ADR-034) |
 | v16 | 2026-10-22 | Soupler Labs | v0.7 components (planned): monitor (sampler, alerts, notifier, log shipper), secret stores and the shared SigV4 signer, authorization (ADR-035 – ADR-041) |
+| v17 | 2026-10-22 | Soupler Labs | v0.8 components (planned): agent, engine router, machines, mesh, catalogue; runtime flow 8 (ADR-042 – ADR-048) |

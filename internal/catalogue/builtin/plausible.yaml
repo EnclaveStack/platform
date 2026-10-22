@@ -1,0 +1,40 @@
+name: plausible
+title: Plausible Analytics
+description: Privacy-friendly web analytics, with PostgreSQL for settings and ClickHouse for events.
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "Plausible needs the address it is opened at.", type: hostname, required: true }
+resources:
+  - kind: database
+    name: db
+    spec: { engine: postgres, version: "16" }
+  - kind: database
+    name: events
+    spec: { engine: clickhouse, version: "26.3" }
+  - kind: secret
+    name: key
+    generate: 64
+  - kind: secret
+    name: database-url
+    value: "postgres://${ident:db}:${password:db}@${host:database/db}:5432/${ident:db}"
+  - kind: secret
+    name: events-url
+    value: "http://${ident:events}:${password:events}@${host:database/events}:8123/${ident:events}"
+  - kind: app
+    name: ""
+    spec:
+      image: ghcr.io/plausible/community-edition:v3.2.1
+      port: 8000
+      memoryMiB: 1024
+      command: ["sh", "-c", "/entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"]
+      env:
+        BASE_URL: "https://${param:domain}"
+      secretEnv:
+        SECRET_KEY_BASE: "${name:key}"
+        DATABASE_URL: "${name:database-url}"
+        CLICKHOUSE_DATABASE_URL: "${name:events-url}"
+  - kind: domain
+    name: site
+    spec: { hostname: "${param:domain}", app: "${name:}" }
+outputs:
+  url: "https://${param:domain}"

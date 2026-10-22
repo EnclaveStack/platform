@@ -12,7 +12,7 @@ import (
 )
 
 func fastClient(url string) (*Client, *[]time.Duration) {
-	c := New(url, "hc_pat_test")
+	c := New(url, "es_pat_test")
 	var waits []time.Duration
 	c.Sleep = func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
 	return c, &waits
@@ -21,7 +21,7 @@ func fastClient(url string) (*Client, *[]time.Duration) {
 func TestRetriesTransientStatusesThenSucceeds(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer hc_pat_test" || r.Header.Get(api.HeaderCSRF) != "1" {
+		if r.Header.Get("Authorization") != "Bearer es_pat_test" || r.Header.Get(api.HeaderCSRF) != "1" {
 			t.Errorf("missing auth or CSRF header")
 		}
 		if calls.Add(1) < 3 {
