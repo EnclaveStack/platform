@@ -414,14 +414,40 @@ func (d *Driver) ensureNetwork(ctx context.Context) error {
 		if cfg == nil || cfg.DefaultRange == "" {
 			return errors.New("waiting for this machine's network settings from the main machine")
 		}
-		gw, _ := netip.ParsePrefix(cfg.DefaultRange)
-		opts.IPAM = &network.IPAM{Driver: "default", Config: []network.IPAMConfig{{Subnet: cfg.DefaultRange, Gateway: gw.Addr().Next().String()}}}
+		opts.IPAM = subnetIPAM(cfg.DefaultRange)
+	} else {
+		// The mesh takes fixed addresses on it, and Docker before 29 allows that only on a network created
+		// with its subnet: take the range Docker picks, then create the network with it.
+		probe, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts)
+		if err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				return nil
+			}
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		n, err := d.cli.NetworkInspect(ctx, probe.ID, network.InspectOptions{})
+		if err != nil {
+			return d.classify(fmt.Errorf("inspect network: %w", err))
+		}
+		if err := d.cli.NetworkRemove(ctx, probe.ID); err != nil {
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		if len(n.IPAM.Config) == 0 {
+			return d.classify(errors.New("create network: Docker gave the default network no range"))
+		}
+		opts.IPAM = subnetIPAM(n.IPAM.Config[0].Subnet)
 	}
 	_, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return d.classify(fmt.Errorf("create network: %w", err))
 	}
 	return nil
+}
+
+// subnetIPAM is a network's address settings for cidr, its gateway the first address.
+func subnetIPAM(cidr string) *network.IPAM {
+	gw, _ := netip.ParsePrefix(cidr)
+	return &network.IPAM{Driver: "default", Config: []network.IPAMConfig{{Subnet: cidr, Gateway: gw.Addr().Next().String()}}}
 }
 
 func (d *Driver) inspect(ctx context.Context, name string) (*container.InspectResponse, error) {

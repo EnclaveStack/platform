@@ -108,7 +108,7 @@ func (r *Reconciler) SyncMesh(ctx context.Context) error {
 		}
 	}
 	if defaultRange == "" {
-		// The main machine has no default network yet; nothing runs anywhere else either.
+		// The main machine didn't list its networks (logged above): the others wait for its range.
 		return nil
 	}
 	nets, err := r.meshNetworks(ctx, defaultRange)

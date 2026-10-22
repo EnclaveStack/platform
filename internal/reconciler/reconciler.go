@@ -516,6 +516,10 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 		return engine.Permanent(err)
 	}
 	res.ObservedGeneration, res.Attempts, res.NextAttemptAt, res.RequestedAction, res.UpdatedAt = gen, 0, nil, "", done
+	if res.Kind == api.KindApp {
+		// Before ready, so ready means its domains already route to the new port.
+		r.syncEdgeForApp(ctx, res, log)
+	}
 	ok, err := r.Store.SaveStatus(ctx, res, gen)
 	if err != nil {
 		return err
@@ -538,7 +542,6 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	r.event(ctx, res, "ready", "Ready.")
 	r.refreshStack(ctx, res)
 	if res.Kind == api.KindApp {
-		r.syncEdgeForApp(ctx, res, log)
 		r.syncLoadBalancersForApp(ctx, res, log)
 	}
 	if slices.Contains(firewallKinds, res.Kind) {

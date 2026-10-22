@@ -6,7 +6,7 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v6 |
+| Version | v7 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
 | Owner | Soupler Labs |
@@ -24,7 +24,7 @@ How platform is built, tested and released in CI, and how to reproduce each CI j
 | Workflow | Trigger | Jobs |
 |---|---|---|
 | `ci.yml` — **Console Checks** (governance template) | PR into `develop`/`main`; manual | Quality Checks (`pnpm -r lint`, `pnpm -r type-check`), Tests (`pnpm -r test`): the JavaScript workspace only. Go is `go.yml`'s, so the race-enabled Go suite runs once per PR, not twice |
-| `go.yml` — **Go and End-to-End Tests** | PR into `develop`/`main`; manual | **Go Quality** (vet incl. tagged suites, staticcheck, generated contract current), **Go Tests** (race, coverage), **Provider Acceptance** (OpenTofu), **Console E2E** (Playwright + Chrome); **Engine E2E** (Docker driver, the QEMU hypervisor with KVM, built-binary e2e including a VM), **Load Test** (k6, 30 s) |
+| `go.yml` — **Go and End-to-End Tests** | PR into `develop`/`main`; manual | **Go Quality** (vet incl. tagged suites, staticcheck, generated contract current), **Go Tests** (race, coverage), **Provider Acceptance** (OpenTofu), **Console E2E** (Playwright + Chrome; the server is compiled in its own step first); **Engine E2E** (Docker driver, the QEMU hypervisor with KVM, built-binary e2e including a VM), **Load Test** (k6, 30 s, 10 read + 2 write users, `L5-003` §2) |
 | `pr-governance.yml`, `secret-scan.yml`, `branch-policy.yml` | Governance template | Unchanged, except `secret-scan.yml` is PR-only too |
 
 Every workflow runs on pull requests only (plus **Run workflow** for a one-off), and every job above is a required check. There are no push or nightly runs: each commit reaches `develop` or `main` through a PR that already ran the full suite, so a push trigger only re-ran it on the same commit. `L5-002` §5 sets that the real-engine e2e and load test run on every PR.
@@ -68,3 +68,4 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 | v4 | 2026-10-22 | Soupler Labs | Quality Checks and Tests run the JS workspace only (the Go suite ran twice per push); Go Quality, Go Tests, Provider Acceptance and Console E2E are required checks; workflows renamed to Console Checks (was CI) and Go and End-to-End Tests; all workflows PR-only (no push or nightly), Engine E2E and Load Test run on every PR and are required |
 | v5 | 2026-10-22 | Soupler Labs | §5 two machines in CI (planned): Machines E2E job, the two-engine mesh test |
 | v6 | 2026-10-22 | Soupler Labs | §5: what Machines E2E covers, as built |
+| v7 | 2026-10-22 | Soupler Labs | Load Test runs at 10 + 2 virtual users (`L5-003` v3); Console E2E compiles the server before Playwright starts it |

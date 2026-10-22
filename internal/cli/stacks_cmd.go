@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -44,6 +45,11 @@ func (a *app) moveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The move's own event comes after this one; an earlier move's doesn't count.
+			var seen int64
+			if ev, err := c.Events(cmd.Context(), r.ID, 1); err == nil && len(ev) > 0 {
+				seen = ev[0].ID
+			}
 			gen := r.Generation
 			r, err = c.UpdateResource(cmd.Context(), r.ID, map[string]any{"machine": to}, &gen)
 			if err != nil {
@@ -56,20 +62,42 @@ func (a *app) moveCmd() *cobra.Command {
 			if r, err = a.wait(cmd.Context(), c, r); err != nil {
 				return err
 			}
-			if ev, err := c.Events(cmd.Context(), r.ID, 20); err == nil {
-				for _, e := range ev {
-					if e.Type == "moved" || e.Type == "move_failed" {
-						fmt.Fprintln(a.io.Out, e.Message)
-						break
-					}
-				}
-			}
-			return nil
+			return a.waitMoved(cmd.Context(), c, r, seen)
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "the machine to move it to")
 	cmd.Flags().BoolVar(&wait, "wait", false, "wait until it runs there, printing the bytes copied")
 	return cmd
+}
+
+// waitMoved waits for the move's outcome: the resource is ready on its new machine before the old
+// copy is removed and the move recorded, so ready alone doesn't mean moved.
+func (a *app) waitMoved(ctx context.Context, c *client.Client, r api.Resource, seen int64) error {
+	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	defer cancel()
+	for {
+		ev, err := c.Events(ctx, r.ID, 20)
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		for _, e := range ev {
+			if e.ID <= seen {
+				break
+			}
+			switch e.Type {
+			case "moved":
+				fmt.Fprintln(a.io.Out, e.Message)
+				return nil
+			case "move_failed":
+				return fmt.Errorf("%s %s didn't move: %s", r.Kind, r.Name, e.Message)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return &waitTimeout{what: "the move of " + string(r.Kind) + " " + r.Name}
+		case <-time.After(pollEvery):
+		}
+	}
 }
 
 func (a *app) drainCmd() *cobra.Command {

@@ -6,7 +6,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/enclavestack/platform/internal/engine/fake"
 	"github.com/enclavestack/platform/pkg/api"
 )
 
@@ -71,8 +73,10 @@ func TestMoveAndDrainFromTheCLI(t *testing.T) {
 	if r := h.run("move", "orders", "--to", "rack-1"); r.code == 0 || !strings.Contains(r.err, "KIND/NAME") {
 		t.Errorf("move without a kind: %d %q", r.code, r.err)
 	}
+	// Removing the old copy is slow, as on a busy machine: --wait still waits for the move, not just ready.
+	h.env.Fake.SetFault("orders", fake.Fault{DeleteDelay: 2 * time.Second})
 	r := h.ok("move", "database/orders", "--to", "rack-1", "--wait")
-	if !strings.Contains(r.out, "Moved") {
+	if !strings.Contains(r.out, "Moved to rack-1") {
 		t.Errorf("move: %s", r.out)
 	}
 	if rack1.Driver.EnsureCalls("orders") == 0 {

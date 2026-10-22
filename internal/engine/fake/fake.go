@@ -31,6 +31,8 @@ type Fault struct {
 	Message string
 	// DeleteFailures makes the next N Delete calls fail with a retryable error.
 	DeleteFailures int
+	// DeleteDelay makes each Delete take this long (a slow container removal).
+	DeleteDelay time.Duration
 	// RestartPermanent makes Restart fail permanently.
 	RestartPermanent bool
 	// Unhealthy makes a new app revision fail its health check (ADR-016): the serving revision stays.
@@ -490,7 +492,20 @@ func (d *Driver) Delete(ctx context.Context, r *domain.Resource, _ engine.Object
 		d.mu.Unlock()
 		return errors.New("volume busy (injected delete fault)")
 	}
+	var delay time.Duration
+	if f := d.faults[r.Name]; f != nil {
+		delay = f.DeleteDelay
+	}
 	d.mu.Unlock()
+	if delay > 0 {
+		t := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
 	if err := d.sleep(ctx); err != nil {
 		return err
 	}

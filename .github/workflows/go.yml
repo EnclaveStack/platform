@@ -75,6 +75,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @enclavestack/console exec playwright install --with-deps chrome
+      # Compile the server here: on a cold runner `go run` alone outlasts Playwright's web server timeout.
+      - run: go build -o /dev/null ./cmd/enclave
       - run: pnpm --filter @enclavestack/console e2e
 
   machines-e2e:
@@ -121,4 +123,5 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: grafana/setup-k6-action@v1
-      - run: DURATION=30s tests/load/run.sh --quiet
+      # A fifth of the full load: on a shared runner p95 at 50 + 10 users is luck (L5-003 §2).
+      - run: DURATION=30s READ_VUS=10 WRITE_VUS=2 tests/load/run.sh --quiet

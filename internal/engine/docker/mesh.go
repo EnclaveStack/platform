@@ -432,6 +432,13 @@ func (d *Driver) removeMesh(ctx context.Context) error {
 
 // NetworkEndpoints implements engine.Driver.
 func (d *Driver) NetworkEndpoints(ctx context.Context) ([]engine.NetworkInfo, error) {
+	if !d.opts.Agent {
+		// The other machines take the main machine's default range, so it exists before anything runs
+		// here: a job's first run on main must already reach names on the others.
+		if err := d.ensureNetwork(ctx); err != nil {
+			return nil, err
+		}
+	}
 	lctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	list, err := d.cli.NetworkList(lctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("label", LabelManaged+"=true"))})
 	cancel()

@@ -23,6 +23,7 @@ type edge struct {
 	pending map[string]bool
 	everTLS bool
 	reloads int
+	delay   time.Duration
 	address string
 	expiry  map[string]time.Time
 }
@@ -65,6 +66,13 @@ func (d *Driver) SetEdgeFailure(msg string) {
 	d.edge.failure = msg
 }
 
+// SetEdgeDelay makes each ConfigureEdge take d before it applies (a slow edge reload).
+func (d *Driver) SetEdgeDelay(delay time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.edge.delay = delay
+}
+
 // SetEdgeAddress sets where the fake edge says it listens (default 127.0.0.1).
 func (d *Driver) SetEdgeAddress(addr string) {
 	d.mu.Lock()
@@ -97,6 +105,18 @@ func (d *Driver) StopEdge() {
 func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error {
 	if err := d.Ping(ctx); err != nil {
 		return err
+	}
+	d.mu.Lock()
+	delay := d.edge.delay
+	d.mu.Unlock()
+	if delay > 0 {
+		t := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
