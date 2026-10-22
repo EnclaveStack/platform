@@ -31,6 +31,10 @@ import (
 
 const dindImage = "docker:28.5.1-dind"
 
+// dindBridge is B's own bridge. Left to choose, it avoids A's bridge (172.17/16) by taking 172.18/16,
+// the range a fresh A gives its default network, which B must then create too.
+const dindBridge = "192.168.209.1/24"
+
 // secondEngine starts a Docker-in-Docker engine, publishing its API on loopback and tunnelPort/udp.
 func secondEngine(t *testing.T, a *Driver, tunnelPort int) *Driver {
 	t.Helper()
@@ -42,7 +46,7 @@ func secondEngine(t *testing.T, a *Driver, tunnelPort int) *Driver {
 	api2 := nat.Port("2375/tcp")
 	udp := nat.Port(strconv.Itoa(tunnelPort) + "/udp")
 	_, err := a.cli.ContainerCreate(ctx, &container.Config{Image: dindImage, Env: []string{"DOCKER_TLS_CERTDIR="}, ExposedPorts: nat.PortSet{api2: {}, udp: {}},
-		Cmd: []string{"dockerd", "--host=tcp://0.0.0.0:2375", "--tls=false"}},
+		Cmd: []string{"dockerd", "--host=tcp://0.0.0.0:2375", "--tls=false", "--bip=" + dindBridge}},
 		&container.HostConfig{Privileged: true, PortBindings: nat.PortMap{api2: {{HostIP: "127.0.0.1"}}, udp: {{HostIP: "0.0.0.0", HostPort: strconv.Itoa(tunnelPort)}}}},
 		nil, nil, name)
 	if err != nil {
@@ -327,5 +331,20 @@ func TestANetworkOutsideTheMeshIsLeftToTheEngine(t *testing.T) {
 	}
 	if _, err := d.poolAddress(ctx, spansName, ""); err == nil || !strings.Contains(err.Error(), "waiting for the main machine") {
 		t.Errorf("a mesh network without a pool: %v", err)
+	}
+}
+
+// A machine that already uses the main machine's range can't make the default network; it says so in plain
+// words and keeps trying (ADR-045, NET-01).
+func TestDefaultRangeClashIsReported(t *testing.T) {
+	a := fastDriver(t)
+	b := secondEngine(t, a, 53200+rand.IntN(500))
+	clash := netip.MustParsePrefix(dindBridge).Masked().String() // B's own bridge
+	b.meshMu.Lock()
+	b.mesh = &meshState{cfg: engine.MeshConfig{Enabled: true, DefaultRange: clash}}
+	b.meshMu.Unlock()
+	err := b.ensureNetwork(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "this machine already uses the range "+clash) || engine.IsPermanent(err) {
+		t.Errorf("default range clash: %v", err)
 	}
 }

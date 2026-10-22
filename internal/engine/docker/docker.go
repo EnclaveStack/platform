@@ -415,6 +415,14 @@ func (d *Driver) ensureNetwork(ctx context.Context) error {
 			return errors.New("waiting for this machine's network settings from the main machine")
 		}
 		opts.IPAM = subnetIPAM(cfg.DefaultRange)
+		if _, err := d.cli.NetworkCreate(ctx, engine.NetworkName, opts); err != nil && strings.Contains(err.Error(), "overlaps") {
+			// ADR-045: every machine needs the main machine's range; one already in use here is reported (NET-01).
+			return fmt.Errorf("this machine already uses the range %s, which the default network needs on every machine. "+
+				"Remove the network that uses it here (docker network ls); EnclaveStack keeps trying", cfg.DefaultRange)
+		} else if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return d.classify(fmt.Errorf("create network: %w", err))
+		}
+		return nil
 	} else {
 		// The mesh takes fixed addresses on it, and Docker before 29 allows that only on a network created
 		// with its subnet: take the range Docker picks, then create the network with it.

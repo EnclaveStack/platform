@@ -203,7 +203,8 @@ func TestTwoMachines(t *testing.T) {
 	// The second machine: a Docker of its own, reached through published ports.
 	keepOnFailure(t, func() { _ = exec.Command("docker", "rm", "-f", "-v", m2).Run() })
 	docker(t, "run", "-d", "--privileged", "--name", m2, "-e", "DOCKER_TLS_CERTDIR=", "-v", bin+":/usr/local/bin/enclave:ro",
-		"-p", fmt.Sprintf("%d:%d", agentPort, agentPort), "-p", fmt.Sprintf("%d:%d/udp", tunnel2, tunnel2), dindImage)
+		"-p", fmt.Sprintf("%d:%d", agentPort, agentPort), "-p", fmt.Sprintf("%d:%d/udp", tunnel2, tunnel2), dindImage,
+		"--bip=192.168.209.1/24") // its own bridge would take 172.18/16, the main machine's default range on a fresh Docker
 	until(t, time.Minute, "the second Docker", func() bool { return exec.Command("docker", "exec", m2, "docker", "info").Run() == nil })
 	t.Cleanup(func() {
 		if t.Failed() {
