@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -94,12 +95,16 @@ func TestMoveAndDrainFromTheCLI(t *testing.T) {
 	if r := h.run("machine", "drain", testenv.MainName()); r.code == 0 {
 		t.Error("drained main")
 	}
+	// Removing the old copy on rack-1 is slow: --wait must wait for the move to finish, not just for sessions
+	// to leave rack-1's list (before, it said "Drained." while the move was still going).
+	rack1.Driver.SetFault("sessions", fake.Fault{DeleteDelay: 2 * time.Second})
 	r = h.ok("machine", "drain", "rack-1", "--wait")
-	if !strings.Contains(r.out, "database/orders is pinned there") || !strings.Contains(r.out, "Drained.") {
+	if !strings.Contains(r.out, "database/orders is pinned there") || !strings.Contains(r.out, "Moved to rack-2") || !strings.Contains(r.out, "Drained.") {
 		t.Errorf("drain: %s", r.out)
 	}
-	if rack2.Driver.EnsureCalls("sessions") == 0 {
-		t.Error("sessions never ran on rack-2")
+	sessions, err := admin.FindResource(context.Background(), api.KindCache, "sessions")
+	if err != nil || !rack2.Driver.Running(sessions.ID) || sessions.Status.Phase != api.PhaseReady || sessions.Outputs["machine"] != "rack-2" {
+		t.Errorf("sessions when drain --wait returned: running on rack-2 %v, %s on %v (%v)", rack2.Driver.Running(sessions.ID), sessions.Status.Phase, sessions.Outputs["machine"], err)
 	}
 	if r := h.ok("machine", "ls"); !strings.Contains(r.out, "not schedulable") {
 		t.Errorf("after drain: %s", r.out)

@@ -109,6 +109,22 @@ func (a *app) drainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// What is on the machine now, with each one's latest event: a drain's moves are finished when each
+			// resource records its own "moved" (or "move_failed") after it, as with enclave move --wait.
+			before := map[string]api.Resource{}
+			seen := map[string]int64{}
+			if wait {
+				on, err := c.ListAll(cmd.Context(), client.ListOptions{Machine: args[0], AllProjects: true})
+				if err != nil {
+					return err
+				}
+				for _, r := range on {
+					before[qualifiedName(r)] = r
+					if ev, err := c.Events(cmd.Context(), r.ID, 1); err == nil && len(ev) > 0 {
+						seen[qualifiedName(r)] = ev[0].ID
+					}
+				}
+			}
 			res, err := c.DrainMachine(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -122,6 +138,14 @@ func (a *app) drainCmd() *cobra.Command {
 			}
 			if !wait {
 				return nil
+			}
+			for _, ref := range res.Moving {
+				// Leaving the machine's list only means the new machine is chosen; it isn't running there yet.
+				if r, ok := before[ref]; ok {
+					if err := a.waitMoved(cmd.Context(), c, r, seen[ref]); err != nil {
+						return err
+					}
+				}
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), a.timeout)
 			defer cancel()

@@ -169,8 +169,10 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 		t.Errorf("scheduled run %+v", l.Items[0])
 	}
 	r, _ := env.Store.GetResource(ctx, job.ID)
-	if r.NextRunAt == nil || !r.NextRunAt.After(time.Now()) {
-		t.Errorf("next run not advanced: %v", r.NextRunAt)
+	// Advanced past the run that was due. (Not "in the future": on a slow runner the next minute may already
+	// have come by the time this looks.)
+	if r.NextRunAt == nil || !r.NextRunAt.After(due) {
+		t.Errorf("next run not advanced past %v: %v", due, r.NextRunAt)
 	}
 
 	// Ten minutes of downtime: one skipped record counting the missed runs, then a single catch-up run.
