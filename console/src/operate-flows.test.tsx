@@ -21,7 +21,8 @@ describe('operate in the console', () => {
     await signIn(user);
     await api.createProject('shop', 'the shop');
     await api.createResource('secret', 'in-default', { value: 'v' });
-    await user.selectOptions(await screen.findByLabelText('Project'), await screen.findByRole('option', { name: 'shop' }));
+    await user.click(await screen.findByRole('button', { name: /^Project:/ }));
+    await user.click(await screen.findByRole('option', { name: 'shop' }));
     expect(router.state.location.search).toBe('?project=shop');
     const panel = await openNew(user, 'secret');
     expect(within(panel).getByText('shop')).toBeInTheDocument();
@@ -33,7 +34,8 @@ describe('operate in the console', () => {
     await user.click(screen.getByRole('link', { name: /All secrets/ }));
     const list = await screen.findByRole('region', { name: 'Secrets list' });
     await waitFor(() => expect(within(list).queryByText('in-default')).not.toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText('Project'), 'All projects');
+    await user.click(screen.getByRole('button', { name: /^Project:/ }));
+    await user.click(await screen.findByRole('option', { name: 'All projects' }));
     expect(await within(list).findByText('in-default')).toBeInTheDocument();
     expect(within(list).getAllByText('shop').length).toBeGreaterThan(0);
   });

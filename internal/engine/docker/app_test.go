@@ -181,7 +181,14 @@ func TestRollingDeploySwitchesToAHealthyRevisionAndKeepsServing(t *testing.T) {
 	if err := d.cli.ContainerStop(context.Background(), name, container.StopOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if h, _ := d.Health(context.Background(), r, engine.ObjectStore{}); h != engine.Stopped {
+	// Docker finishes a stop a moment after the call returns on some daemons: wait for it to show.
+	h := engine.Healthy
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if h, _ = d.Health(context.Background(), r, engine.ObjectStore{}); h == engine.Stopped {
+			break
+		}
+	}
+	if h != engine.Stopped {
 		detail := ""
 		if c, err := d.cli.ContainerInspect(context.Background(), name); err == nil && c.State != nil {
 			detail = fmt.Sprintf("; %s restarted %d times, finished %s, exit code %d", name, c.RestartCount, c.State.FinishedAt, c.State.ExitCode)

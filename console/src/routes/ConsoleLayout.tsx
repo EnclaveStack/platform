@@ -1,10 +1,11 @@
 import {
-  Avatar, Banner, Brand, Breadcrumbs, crumbLinkClass, Finder, FinderButton, Icons, IconButton, Inline, MachineCard, MeterCard, NavGroup, NavItemContent, navItemClass,
-  NavList, ProgressBar, Select, Shell, Sidebar, SidebarFoot, Stack, Status, Text, ToastProvider, Topbar, UserRow, VisuallyHidden,
+  Avatar, Banner, Brand, Breadcrumbs, crumbLinkClass, Finder, FinderButton, Icons, IconButton, Inline, machineLinkClass, MenuSelect, MeterCard, NavGroup, NavItemContent, navItemClass,
+  NavList, ProgressBar, Shell, Sidebar, SidebarFoot, Stack, Status, Text, ToastProvider, Topbar, UserRow,
 } from '@enclavestack/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
+import { RULES } from '../api/generated';
 import { useSession } from '../auth/session';
 import { SectionIcon } from '../components/SectionIcon';
 import { formatBytes, percentOf } from '../lib/format';
@@ -86,6 +87,8 @@ function ConsoleShell() {
     setProject(p);
     if (current) navigate(`/${current.slug}${p ? `?project=${encodeURIComponent(p)}` : ''}`);
   };
+  // A chosen project that isn't listed (not visible to this person) still shows, so the menu never lies.
+  const projectNames = [...(projects.data ?? []).map((p) => p.name), ...(project && !projects.data?.some((p) => p.name === project) ? [project] : [])];
   const m = machine.data;
   const current = SECTIONS.find((s) => location.pathname.startsWith(`/${s.slug}`));
   const SETTINGS: Record<string, string> = { '/catalogue': 'Catalogue', '/settings/tokens': 'API tokens', '/settings/people': 'People', '/settings/projects': 'Projects', '/settings/audit': 'Audit log', '/settings/account': 'Your account' };
@@ -104,25 +107,26 @@ function ConsoleShell() {
   // Where you are, every step but the last a link (CON-63).
   const crumbs: ReactNode[] = [];
   const machineName = m?.name ?? 'This machine';
+  const machineTo = `/machines/${encodeURIComponent(RULES.mainMachine)}`; // this machine's own page
   const [, first = '', second] = location.pathname.split('/');
   const section = sectionBySlug(first);
   if (section) {
     const listTo = `/${section.slug}${projectSearch}`;
-    crumbs.push(<Link key="m" to="/machines" className={crumbLinkClass}>{machineName}</Link>);
+    crumbs.push(<Link key="m" to={machineTo} className={crumbLinkClass}>{machineName}</Link>);
     crumbs.push(second ? <Link key="p" to={listTo} className={crumbLinkClass}>{project || 'All projects'}</Link> : <span key="p">{project || 'All projects'}</span>);
     crumbs.push(second ? <Link key="s" to={listTo} className={crumbLinkClass}>{section.label}</Link> : <span key="s">{section.label}</span>);
     if (second) crumbs.push(<span key="r">{pageTitle ?? '…'}</span>);
   } else if (first === 'guide' && sectionBySlug(second)) {
     const s = sectionBySlug(second);
-    crumbs.push(<Link key="m" to="/machines" className={crumbLinkClass}>{machineName}</Link>);
+    crumbs.push(<Link key="m" to={machineTo} className={crumbLinkClass}>{machineName}</Link>);
     crumbs.push(<Link key="s" to={`/${s?.slug ?? ''}${projectSearch}`} className={crumbLinkClass}>{s?.label}</Link>);
     crumbs.push(<span key="g">Guide</span>);
   } else if (first === 'machines') {
-    crumbs.push(<Link key="m" to="/machines" className={crumbLinkClass}>{machineName}</Link>);
+    crumbs.push(<Link key="m" to={machineTo} className={crumbLinkClass}>{machineName}</Link>);
     crumbs.push(second ? <Link key="s" to="/machines" className={crumbLinkClass}>Machines</Link> : <span key="s">Machines</span>);
-    if (second) crumbs.push(<span key="r">{decodeURIComponent(second)}</span>);
+    if (second) crumbs.push(<span key="r">{pageTitle ?? decodeURIComponent(second)}</span>);
   } else {
-    crumbs.push(<Link key="m" to="/machines" className={crumbLinkClass}>{machineName}</Link>);
+    crumbs.push(<Link key="m" to={machineTo} className={crumbLinkClass}>{machineName}</Link>);
     if (SETTINGS[location.pathname]) crumbs.push(<span key="s">{SETTINGS[location.pathname]}</span>);
   }
 
@@ -132,21 +136,15 @@ function ConsoleShell() {
         <Brand />
         <IconButton size="sm" variant="ghost" label={rail ? 'Expand the sidebar' : 'Fold the sidebar to icons'} icon={rail ? <Icons.PanelLeftOpen /> : <Icons.PanelLeftClose />} onClick={toggleRail} />
       </Inline>
-      <Stack gap={1}>
-        <VisuallyHidden><label htmlFor="project-switcher">Project</label></VisuallyHidden>
-        <Select id="project-switcher" value={project} onChange={(e) => choose(e.target.value)}>
-          <option value="">All projects</option>
-          {(projects.data ?? []).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-          {project && !projects.data?.some((p) => p.name === project) && <option value={project}>{project}</option>}
-        </Select>
-      </Stack>
-      <MachineCard>
+      <MenuSelect label="Project" value={project} onChange={choose} icon={<Icons.FolderKanban />}
+        options={[{ value: '', label: 'All projects' }, ...projectNames.map((n) => ({ value: n, label: n }))]} />
+      <Link to={machineTo} className={machineLinkClass} aria-label={`${m?.name ?? 'This machine'}, open its page`} onClick={close}>
         <Stack gap={0} grow>
           <Text weight="bold" truncate title={m?.hostname}>{m?.name ?? '…'}</Text>
           {m && <Status tone={m.engine.available ? 'ok' : 'bad'}>{m.engine.available ? 'Online' : 'Engine down'}</Status>}
           {m?.vms && !m.vms.available && <Text size="xs" tone="subtle" title={m.vms.message}>VMs unavailable</Text>}
         </Stack>
-      </MachineCard>
+      </Link>
       <NavList label="Start">
         {navLink({ pathname: '/', search: projectSearch }, <Icons.LayoutDashboard />, 'Overview')}
       </NavList>

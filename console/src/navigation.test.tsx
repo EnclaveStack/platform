@@ -64,12 +64,20 @@ describe('full pages and breadcrumbs (CON-63, CON-64)', () => {
     await user.click(within(crumbs).getByRole('link', { name: 'Caches' }));
     expect(await screen.findByRole('region', { name: 'Caches list' })).toBeInTheDocument();
 
-    // Back from a resource, and the machine step opens Machines.
+    // Back from a resource, and the machine step opens that machine's own page.
     await user.click(await within(screen.getByRole('region', { name: 'Caches list' })).findByRole('link', { name: 'sessions' }));
     await user.click(await screen.findByRole('link', { name: /All caches/ }));
     expect(router.state.location.pathname).toBe('/caches');
     await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'This Mac' }));
-    expect(router.state.location.pathname).toBe('/machines');
+    expect(router.state.location.pathname).toBe('/machines/main');
+    expect(await screen.findByRole('heading', { name: 'This Mac', level: 1 })).toBeInTheDocument();
+  });
+
+  it('the sidebar machine card opens the machine\'s page', async () => {
+    const { user, router } = renderConsole('/caches');
+    await signIn(user);
+    await user.click(await screen.findByRole('link', { name: /open its page/ }));
+    expect(router.state.location.pathname).toBe('/machines/main');
   });
 
   it('opens a machine on its own page, with the breadcrumb back to Machines', async () => {
@@ -77,7 +85,9 @@ describe('full pages and breadcrumbs (CON-63, CON-64)', () => {
     await signIn(user);
     const list = await screen.findByRole('region', { name: 'Machines list' });
     await user.click(await within(list).findByRole('link', { name: /^main/ }));
-    expect(await screen.findByRole('heading', { name: 'main', level: 1 })).toBeInTheDocument();
+    // Named by the machine's own name; "main" is only what commands call it.
+    expect(await screen.findByRole('heading', { name: 'This Mac', level: 1 })).toBeInTheDocument();
+    expect(screen.getByText(/called main in commands/)).toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Machines' }));
     expect(router.state.location.pathname).toBe('/machines');
   });

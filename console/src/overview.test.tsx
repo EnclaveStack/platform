@@ -46,7 +46,8 @@ describe('the overview page (CON-65)', () => {
     expect(within(running).getByRole('link', { name: 'Databases 1' })).toHaveAttribute('href', '/databases');
 
     // The project picker narrows everything: shop has one app.
-    await user.selectOptions(screen.getByLabelText('Project'), 'shop');
+    await user.click(screen.getByRole('button', { name: /^Project:/ }));
+    await user.click(await screen.findByRole('option', { name: 'shop' }));
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Recently changed' })).getAllByRole('link')).toHaveLength(1));
     expect(within(screen.getByRole('region', { name: 'Recently changed' })).getByRole('link', { name: 'storefront' })).toBeInTheDocument();
   });

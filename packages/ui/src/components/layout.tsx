@@ -94,6 +94,9 @@ export function NavList({ label, children }: { label: string; children: ReactNod
   return <nav aria-label={label}><div className="es-nav">{children}</div></nav>;
 }
 
+/** The class of a machine card that is a link (the console wraps its router link in it). */
+export const machineLinkClass = 'es-machine es-machine-link';
+
 export function MachineCard({ children }: { children: ReactNode }) {
   return <div className="es-machine">{children}</div>;
 }

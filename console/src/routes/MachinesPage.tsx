@@ -14,6 +14,7 @@ import { PhaseDot } from '../components/StatusBadge';
 import { formatBytes, percentOf } from '../lib/format';
 import { isMachineAdmin } from '../lib/roles';
 import { sectionByKind } from '../lib/sections';
+import { usePageTitle } from '../lib/shell';
 import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { validateLabels, validateName, type FieldErrors } from '../lib/validation';
@@ -182,6 +183,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [joined, setJoined] = useState<AddedMachine | null>(null);
 
+  usePageTitle(m.data ? (m.data.main ? m.data.title : m.data.name) : undefined);
   if (m.error) return <Alert>{m.error.message}</Alert>;
   const x = m.data;
   if (!x) return <Stack aria-busy="true"><Skeleton shape="title" /><Skeleton shape="block" /></Stack>;
@@ -245,9 +247,9 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
       <PageHeader
         label="Summary"
         back={back}
-        title={x.name}
+        title={x.main ? x.title : x.name}
         status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
-        lede={`${x.main ? `The main machine · ${x.title}` : 'A machine'} · since ${new Date(x.since).toLocaleString()} · last heard ${x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'}`}
+        lede={`${x.main ? `The main machine, called ${x.name} in commands` : 'A machine'} · since ${new Date(x.since).toLocaleString()} · last heard ${x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'}`}
         meta={(!x.schedulable || x.versionMismatch) && (
           <>
             {!x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}

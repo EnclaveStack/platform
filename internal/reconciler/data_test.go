@@ -32,7 +32,8 @@ func create(t *testing.T, c *client.Client, kind api.Kind, name string, spec any
 	if err != nil {
 		t.Fatalf("create %s %s: %v", kind, name, err)
 	}
-	return waitReadyWithin(t, c, res.ID, 10*time.Second)
+	// A ceiling, not a delay: a loaded CI runner can take several times longer than a laptop.
+	return waitReadyWithin(t, c, res.ID, 30*time.Second)
 }
 
 func TestDatabaseEnginesReportTheirOwnConnectionFacts(t *testing.T) {
