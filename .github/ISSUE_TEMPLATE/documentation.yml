@@ -1,0 +1,22 @@
+name: Documentation
+description: Something in the docs, the README or a guide is wrong, missing or unclear
+title: "Docs: "
+labels: [documentation, needs-triage]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The link, or the file path in this repository.
+      placeholder: https://enclavestack.soupler.com/docs/getting-started/ or docs/L4-infrastructure/L4-001-local-dev-setup-v1.md
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong or missing
+      description: Quote the text if it's wrong, and say what you tried to do with it.
+    validations: { required: true }
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What it should say

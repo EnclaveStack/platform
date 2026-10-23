@@ -178,14 +178,14 @@ export function useDataForm(kind: Kind, existing?: Resource) {
                   const update = (patch: Partial<SubRow>) => setSubs(subs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
                   return (
                     <FormRow key={i}>
-                      <Field id={`f-sub-type-${i}`} label="Deliver to" error={err(f)}>
+                      <Field id={`f-sub-type-${i}`} hint="Each message goes to a queue of yours, or is posted to a web address." label="Deliver to" error={err(f)}>
                         <Select id={`f-sub-type-${i}`} value={row.type} onChange={(e) => update({ type: e.target.value as SubRow['type'] })}>
                           <option value="queue">A queue</option>
                           <option value="url">A webhook</option>
                         </Select>
                       </Field>
                       {row.type === 'queue' ? (
-                        <Field id={`f-sub-queue-${i}`} label="Queue" error={err(`${f}.queue`)}>
+                        <Field id={`f-sub-queue-${i}`} hint="The queue that gets a copy of every message." label="Queue" error={err(`${f}.queue`)}>
                           <Select id={`f-sub-queue-${i}`} value={row.queue} onChange={(e) => update({ queue: e.target.value })}>
                             <option value="">Choose a queue…</option>
                             {names('queue').map((n) => (
@@ -198,7 +198,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
                           <Field id={`f-sub-url-${i}`} label="URL" hint="https://, or http:// to localhost." error={err(`${f}.url`)}>
                             <Input id={`f-sub-url-${i}`} mono value={row.url} onChange={(e) => update({ url: e.target.value })} onBlur={onBlur} placeholder="https://hooks.example.com/orders" spellCheck={false} />
                           </Field>
-                          <Field id={`f-sub-secret-${i}`} label="Signing secret" error={err(`${f}.secret`)}>
+                          <Field id={`f-sub-secret-${i}`} hint="Signs each delivery so the receiver can check it came from you." label="Signing secret" error={err(`${f}.secret`)}>
                             <Select id={`f-sub-secret-${i}`} value={row.secret} onChange={(e) => update({ secret: e.target.value })}>
                               <option value="">Don't sign</option>
                               {secretNames.map((n) => (
@@ -242,7 +242,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
       case 'transcoder': {
         const buckets = names('bucket');
         const bucketSelect = (id: string, value: string, set: (v: string) => void, field: string) => (
-          <Field id={id} label="Bucket" error={err(field)}>
+          <Field id={id} hint="A bucket of this project." label="Bucket" error={err(field)}>
             <Select id={id} value={value} onChange={(e) => set(e.target.value)} aria-invalid={Boolean(err(field))}>
               <option value="">Choose a bucket…</option>
               {buckets.map((n) => (
@@ -264,7 +264,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
             <Fieldset legend="Output">
               <FormRow>
                 {bucketSelect('f-out-bucket', outBucket, setOutBucket, 'spec.output.bucket')}
-                <Field id="f-out-prefix" label="Folder" error={err('spec.output.prefix')}>
+                <Field id="f-out-prefix" hint="Empty puts the results in transcoded/." label="Folder" error={err('spec.output.prefix')}>
                   <Input id="f-out-prefix" mono value={outPrefix} onChange={(e) => setOutPrefix(e.target.value)} onBlur={onBlur} spellCheck={false} />
                 </Field>
               </FormRow>
@@ -308,7 +308,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
               <Choice name="cdn-origin" value="bucket" checked={originKind === 'bucket'} onChange={() => { setOriginKind('bucket'); setOriginName(''); }}
                 title="A bucket" description="Serve a bucket's files by key. They become readable by anyone who can reach the CDN." />
               <FormRow>
-                <Field id="f-cdn-origin" label={originKind === 'app' ? 'App' : 'Bucket'} error={err('spec.origin')}>
+                <Field id="f-cdn-origin" hint="What the CDN sits in front of." label={originKind === 'app' ? 'App' : 'Bucket'} error={err('spec.origin')}>
                   <Select id="f-cdn-origin" value={originName} onChange={(e) => setOriginName(e.target.value)} aria-invalid={Boolean(err('spec.origin'))}>
                     <option value="">Choose {originKind === 'app' ? 'an app' : 'a bucket'}…</option>
                     {names(originKind).map((n) => (
@@ -339,7 +339,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
                 </Select>
               </Field>
               {!zone && (
-                <Field id="f-cdn-tls" label="HTTPS" error={err('spec.tls')}>
+                <Field id="f-cdn-tls" hint="Public certificates need this machine reachable on ports 80 and 443; .localhost uses EnclaveStack’s own." label="HTTPS" error={err('spec.tls')}>
                   <Select id="f-cdn-tls" value={tls} onChange={(e) => setTls(e.target.value as TlsMode | '')}>
                     <option value="">Automatic (internal for .localhost)</option>
                     <option value="auto">Public certificate</option>
@@ -363,11 +363,11 @@ export function useDataForm(kind: Kind, existing?: Resource) {
             {mode === 'relay' && (
               <Fieldset legend="Relay">
                 <FormRow>
-                  <Field id="f-relay-host" label="SMTP host" error={err('spec.relay.host')}>
+                  <Field id="f-relay-host" hint="Your email provider’s SMTP server, like smtp.example.com." label="SMTP host" error={err('spec.relay.host')}>
                     <Input id="f-relay-host" mono value={relayHost} onChange={(e) => setRelayHost(e.target.value)} onBlur={onBlur} placeholder="smtp.postmarkapp.com" spellCheck={false} />
                   </Field>
                   {numberField('f-relay-port', 'Port', relayPort, setRelayPort, 'spec.relay.port')}
-                  <Field id="f-relay-tls" label="Encryption" error={err('spec.relay.tls')}>
+                  <Field id="f-relay-tls" hint="How the connection to the relay is protected. Use what your provider says; STARTTLS on port 587 is the usual." label="Encryption" error={err('spec.relay.tls')}>
                     <Select id="f-relay-tls" value={relayTls} onChange={(e) => setRelayTls(e.target.value as RelayTls)}>
                       <option value="starttls">STARTTLS</option>
                       <option value="tls">TLS</option>

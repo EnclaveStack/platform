@@ -1,11 +1,22 @@
 name: Governance support
-description: Question or problem with the doc layers, SIVE gate, registries or workflows
+description: A problem with the doc layers, the governance gate (statutory-integrity.sh), the registries or a CI check on your pull request
+title: "Governance: "
 labels: [governance]
 body:
   - type: textarea
     id: ask
-    attributes: { label: What do you need }
+    attributes:
+      label: What do you need
+      description: What you were trying to do, and where you got stuck.
     validations: { required: true }
+  - type: input
+    id: pr
+    attributes:
+      label: Pull request
+      description: The pull request it's about, if any.
+      placeholder: "#123"
   - type: textarea
     id: output
-    attributes: { label: SIVE / CI output, render: shell }
+    attributes:
+      label: Gate or CI output
+      render: shell

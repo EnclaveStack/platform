@@ -9,9 +9,9 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -25,13 +25,13 @@ Registry of every artifact in layer **L3 — Architecture** (system design, ADRs
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L3-001-system-architecture-v1 | System Architecture | Draft | v17 | Soupler Labs | 2026-10-22 |
-| L3-002-console-api-contract-v1 | Control-Plane API Contract | Draft | v21 | Soupler Labs | 2026-10-22 |
-| L3-003-architecture-decision-records-v1 | Architecture Decision Records | Draft | v22 | Soupler Labs | 2026-10-22 |
-| L3-004-decision-analysis-records-v1 | Decision Analysis and Resolution (DAR) Records | Draft | v8 | Soupler Labs | 2026-10-22 |
-| L3-005-data-model-v1 | Data Model | Draft | v14 | Soupler Labs | 2026-10-22 |
-| L3-006-security-architecture-v1 | Security Architecture and Threat Model | Draft | v11 | Soupler Labs | 2026-10-22 |
-| L3-007-reliability-observability-v1 | Reliability and Observability | Draft | v13 | Soupler Labs | 2026-10-22 |
+| L3-001-system-architecture-v1 | System Architecture | Draft | v17 | Soupler | 2026-10-22 |
+| L3-002-console-api-contract-v1 | Control-Plane API Contract | Draft | v21 | Soupler | 2026-10-22 |
+| L3-003-architecture-decision-records-v1 | Architecture Decision Records | Draft | v22 | Soupler | 2026-10-22 |
+| L3-004-decision-analysis-records-v1 | Decision Analysis and Resolution (DAR) Records | Draft | v8 | Soupler | 2026-10-22 |
+| L3-005-data-model-v1 | Data Model | Draft | v14 | Soupler | 2026-10-22 |
+| L3-006-security-architecture-v1 | Security Architecture and Threat Model | Draft | v11 | Soupler | 2026-10-22 |
+| L3-007-reliability-observability-v1 | Reliability and Observability | Draft | v13 | Soupler | 2026-10-22 |
 
 ## Version history
 

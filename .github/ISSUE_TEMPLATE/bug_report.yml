@@ -1,22 +1,80 @@
 name: Bug report
-description: Something is broken or behaves differently from its spec
-labels: [bug]
+description: Something is broken, or behaves differently from the docs
+title: "Bug: "
+labels: [bug, needs-triage]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please [search existing issues](https://github.com/EnclaveStack/platform/issues?q=is%3Aissue) first, closed ones included.
+        **A security problem?** Don't file it here. Follow [SECURITY.md](https://github.com/EnclaveStack/platform/blob/HEAD/SECURITY.md).
   - type: textarea
     id: what
-    attributes: { label: What happened, description: "Expected vs actual" }
+    attributes:
+      label: What happened
+      description: What you saw, in plain words.
+      placeholder: The database `orders` stays in Provisioning after I restart the server.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: It goes back to Ready within a few seconds, as it did before the restart.
     validations: { required: true }
   - type: textarea
     id: repro
-    attributes: { label: Steps to reproduce }
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands or clicks, from a fresh start if you can. `make demo` is a good starting point.
+      placeholder: |
+        1. make demo
+        2. ./build/enclave db create orders --wait
+        3. Stop the server with Ctrl-C and start it again
+        4. ./build/enclave db get orders
     validations: { required: true }
   - type: dropdown
-    id: owner-layer
+    id: surface
     attributes:
-      label: Which layer owns the problem?
-      description: "The layer that owns the problem gets the first edit (L0-006). Pick the best guess."
-      options: [L1 Strategy, L2 Product, L2.5 UX & Design, L3 Architecture, L4 Infrastructure, L5 Operations, Not sure]
+      label: Where did it happen?
+      multiple: true
+      options: [Web console, CLI (enclave), OpenTofu provider, HTTP API, Server or agent, Install or build, Documentation]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `enclave version`, or the commit you built from.
+      placeholder: v0.8.0 or 4d30582
+    validations: { required: true }
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [macOS (Apple silicon), macOS (Intel), Linux (x86_64), Linux (arm64), Other]
+    validations: { required: true }
+  - type: dropdown
+    id: driver
+    attributes:
+      label: Engine
+      options: [Docker (--driver docker), Simulated (--driver fake / make demo), Not sure]
     validations: { required: true }
   - type: textarea
-    id: evidence
-    attributes: { label: Logs / screenshots }
+    id: logs
+    attributes:
+      label: Logs
+      description: Server log lines around the error (start the server with `--log-format json`). **Remove secrets, tokens and passwords first.**
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else
+      description: Screenshots for console problems, your Docker version, how many machines, anything unusual about your setup.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues, and this hasn't been reported.
+          required: true
+        - label: I removed secrets, tokens and passwords from everything above.
+          required: true

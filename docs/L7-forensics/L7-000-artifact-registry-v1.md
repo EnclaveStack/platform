@@ -9,9 +9,9 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -27,7 +27,7 @@ The chain-of-custody table lives in `L7-001-master-registry-v1`; every remediati
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L7-001-master-registry-v1 | Forensics & Traceability Master Registry | Draft | v1 | Soupler Labs | 2026-10-20 |
+| L7-001-master-registry-v1 | Forensics & Traceability Master Registry | Draft | v1 | Soupler | 2026-10-20 |
 
 ## Version history
 

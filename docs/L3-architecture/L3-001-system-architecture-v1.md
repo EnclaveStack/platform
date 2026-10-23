@@ -9,9 +9,9 @@
 | Version | v17 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -130,16 +130,16 @@ ADR-001 and ADR-002 are recorded here; ADR-003 onward are in `L3-003`, with thei
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
 | v1 | 2026-10-20 | EnclaveStack | Initial skeleton from soupler-governance-template v1.2.1 (row restored from the scaffold commit `b7a06f7`) |
-| v2 – v5 | 2026-10-20 | Soupler Labs | The v0.2 architecture: shape of the system, components and boundaries, data ownership, runtime flows, ADR-001 – ADR-002; v4 was current at the v0.2 release (CHANGELOG). Row reconstructed: the individual summaries were lost |
-| v6 | 2026-10-20 | Soupler Labs | v0.3 components (planned): edge proxy, scheduler, probe helper, builder (ADR-015 – ADR-019) |
-| v7 | 2026-10-21 | Soupler Labs | Scheduler lives in the reconciler package (jobs shipped) |
-| v8 | 2026-10-21 | Soupler Labs | Backups shipped: internal/backup and the restore path in the reconciler; probe helper shipped |
-| v9 | 2026-10-21 | Soupler Labs | Builder shipped |
-| v10 | 2026-10-21 | Soupler Labs | v0.4 components (planned): networks, firewall, load balancers, DNS providers, ACME DNS-01 (ADR-020 – ADR-024). Restored the "Version history" heading and table header, lost in an earlier edit together with sections 3 onward (data ownership, runtime flows, ADR-001 – ADR-002) and the v1 – v5 rows; they are not reconstructed here |
-| v11 | 2026-10-21 | Soupler Labs | v0.4 components built |
-| v12 | 2026-10-21 | Soupler Labs | Reconstructed the lost sections 3 – 5 (data ownership, runtime flows, ADR-001, ADR-002) from DAR-001, the code and references across the repository, and the lost v1 – v5 history; each reconstruction is marked. The edge row names the real renderer (`internal/engine/docker/edge.go`) |
-| v13 | 2026-10-21 | Soupler Labs | v0.5 components (planned): hypervisor, VM link containers, volumes and snapshots |
-| v14 | 2026-10-21 | Soupler Labs | v0.5 components built |
-| v15 | 2026-10-21 | Soupler Labs | v0.6 components (planned): message broker, delivery loop, mail client, engine services for the new engines and kinds (ADR-029 – ADR-034) |
-| v16 | 2026-10-22 | Soupler Labs | v0.7 components (planned): monitor (sampler, alerts, notifier, log shipper), secret stores and the shared SigV4 signer, authorization (ADR-035 – ADR-041) |
-| v17 | 2026-10-22 | Soupler Labs | v0.8 components (planned): agent, engine router, machines, mesh, catalogue; runtime flow 8 (ADR-042 – ADR-048) |
+| v2 – v5 | 2026-10-20 | Soupler | The v0.2 architecture: shape of the system, components and boundaries, data ownership, runtime flows, ADR-001 – ADR-002; v4 was current at the v0.2 release (CHANGELOG). Row reconstructed: the individual summaries were lost |
+| v6 | 2026-10-20 | Soupler | v0.3 components (planned): edge proxy, scheduler, probe helper, builder (ADR-015 – ADR-019) |
+| v7 | 2026-10-21 | Soupler | Scheduler lives in the reconciler package (jobs shipped) |
+| v8 | 2026-10-21 | Soupler | Backups shipped: internal/backup and the restore path in the reconciler; probe helper shipped |
+| v9 | 2026-10-21 | Soupler | Builder shipped |
+| v10 | 2026-10-21 | Soupler | v0.4 components (planned): networks, firewall, load balancers, DNS providers, ACME DNS-01 (ADR-020 – ADR-024). Restored the "Version history" heading and table header, lost in an earlier edit together with sections 3 onward (data ownership, runtime flows, ADR-001 – ADR-002) and the v1 – v5 rows; they are not reconstructed here |
+| v11 | 2026-10-21 | Soupler | v0.4 components built |
+| v12 | 2026-10-21 | Soupler | Reconstructed the lost sections 3 – 5 (data ownership, runtime flows, ADR-001, ADR-002) from DAR-001, the code and references across the repository, and the lost v1 – v5 history; each reconstruction is marked. The edge row names the real renderer (`internal/engine/docker/edge.go`) |
+| v13 | 2026-10-21 | Soupler | v0.5 components (planned): hypervisor, VM link containers, volumes and snapshots |
+| v14 | 2026-10-21 | Soupler | v0.5 components built |
+| v15 | 2026-10-21 | Soupler | v0.6 components (planned): message broker, delivery loop, mail client, engine services for the new engines and kinds (ADR-029 – ADR-034) |
+| v16 | 2026-10-22 | Soupler | v0.7 components (planned): monitor (sampler, alerts, notifier, log shipper), secret stores and the shared SigV4 signer, authorization (ADR-035 – ADR-041) |
+| v17 | 2026-10-22 | Soupler | v0.8 components (planned): agent, engine router, machines, mesh, catalogue; runtime flow 8 (ADR-042 – ADR-048) |

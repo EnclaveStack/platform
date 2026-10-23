@@ -6,12 +6,12 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v22 |
+| Version | v24 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -415,6 +415,38 @@ The second machine in these walks is either a real Linux computer on the same ne
 - **Error paths**: a template with an unknown kind → `422` naming the line; a stack whose member name exists → `422`, nothing created; a parameter of the wrong type → `422`.
 - **Automated checks**: `go test ./internal/catalogue/...` (every built-in renders and validates); `go test ./internal/service ./internal/httpapi -run Stack`; `make provider-acceptance` (`TestAccStack`); `pnpm test` (catalogue and stack flows); `make e2e-machines` (WordPress for real).
 
+## 2g · Console v4 walk-throughs (built 2026-10-23)
+
+Run against `make demo` (fake engine, sample data) in Chrome, light and dark, at desktop width and at 390 px.
+
+### Feature: Navigation, page header and full pages — L2-001 CON-61, CON-63, CON-64; L2.5-002 §16
+- **Steps and expected results**:
+  1. The sidebar shows Overview, then Compute, Data, Networking, Messaging and media, Security, Install, Operate, Settings with the sections of `L2.5-002` §16 and their counts. Closing Data and reloading keeps it closed; opening a Data page opens it.
+  2. Fold the sidebar to the rail: icons only, a tooltip names each; reload keeps the rail.
+  3. Open Apps: a full-width table with name, state, key fact, project (All projects) and last change. Click `api`: its page opens at `/apps/<id>` with the breadcrumb `demo › All projects › Apps › api`; clicking **Apps** in the breadcrumb or **Back** returns to the list; clicking the machine opens Machines.
+  4. New app → the side panel; on Create the new app's page opens.
+  5. At 390 px the sidebar is a sheet from the menu button; the list is cards.
+- **Error paths**: an unknown id (`/apps/app_nope`) shows "That resource doesn't exist" with a link back to Apps; a list that fails to load shows the message and Retry.
+- **Automated checks**: `pnpm --filter @enclavestack/console test` (navigation groups, links in the breadcrumb, full-page routes); `pnpm --filter @enclavestack/console e2e`.
+
+### Feature: Overview — CON-65
+- **Steps and expected results**:
+  1. `/` opens the Overview: a greeting, "Everything is running.", four stat tiles (Running 13, Need attention 0, Machines online 1 of 1, Memory reserved), the machine's charts, Recently changed, What's running.
+  2. Make a resource fail (`--fake-faults orders:permanent` on a fresh `make demo`): the line reads "1 resource needs attention.", the tile turns red, **Needs attention** lists `orders` with its reason; **Retry** queues a reconcile.
+  3. Switch the project to `shop`: every number follows it.
+- **Automated checks**: `console/src/overview.test.tsx` (the summary line, the tiles, Needs attention with Retry, quick actions and none for viewers).
+
+### Feature: Section summaries and guides — CON-66, CON-67
+- **Steps and expected results**:
+  1. Every section's header has its one-line blurb, **Guide**, and stat tiles; an empty section explains itself and links its guide.
+  2. Each guide has the five parts in order with their colours and headings, a CLI command that runs as written against `make demo`, and no comparison with another company's product.
+  3. Find (⌘K) → "data" lists Databases, its guide and resources named like it; Enter opens the first.
+- **Automated checks**: `console/src/guides.test.tsx` (every section has a complete guide, no comparisons with other companies' products, Find, section summaries, the guide page); every guide command was run against `make demo` on 2026-10-23 and works as written (zones and secret stores need a real account at their provider).
+
+### Feature: Calmer screen, hints and motion — CON-68, CON-69
+- **Steps and expected results**: list and detail pages show status as a dot and a word; no circled nav icons; with "Reduce motion" on in the OS nothing animates; every form field has a hint.
+- **Automated checks**: the design-system test (no styling in `console/src`); `console/src/form-hints.test.ts` (every field of a resource form has a hint); `packages/ui/src/pages.test.tsx` (count-up with and without motion, Find, guide parts).
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -424,24 +456,26 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
 | v1 | 2026-10-20 | EnclaveStack | Initial skeleton from soupler-governance-template v1.2.1 |
-| v2 | 2026-10-20 | Soupler Labs | Web console v0.1 section (mock backend) |
-| v3 | 2026-10-20 | Soupler Labs | v0.2 walk-throughs: first run, console CRUD for five kinds, tokens, CLI, OpenTofu, recovery and drift |
-| v4 | 2026-10-20 | Soupler Labs | OpenTofu walk-through uses TF_CLI_CONFIG_FILE; console demo setup code |
-| v5 | 2026-10-20 | Soupler Labs | §2a v0.3 walk-throughs (planned): zero-downtime deploys, domains and HTTPS, jobs, backups and restore, builds |
-| v6 | 2026-10-21 | Soupler Labs | Zero-downtime deploys walk-through runnable (phase 1 shipped) |
-| v7 | 2026-10-21 | Soupler Labs | Domains walk-through runnable (phase 2 shipped); edge ports and loopback guard |
-| v8 | 2026-10-21 | Soupler Labs | Jobs walk-through as shipped (--run-timeout, run --wait) |
-| v9 | 2026-10-21 | Soupler Labs | Backups walk-through as shipped and walked live |
-| v10 | 2026-10-21 | Soupler Labs | Build-from-Git walk-through as shipped and walked live |
-| v11 | 2026-10-21 | Soupler Labs | §2b v0.4 walk-throughs (planned): networks and private DNS, firewalls, replicas and load balancers, DNS zones and records, DNS-01 certificates |
-| v12 | 2026-10-21 | Soupler Labs | §2b v0.4 walk-throughs shipped; networks, firewalls, replicas and load balancers walked live on Docker Desktop |
-| v13 | 2026-10-21 | Soupler Labs | Load balancer load test as built (make load-lb) |
-| v14 | 2026-10-21 | Soupler Labs | §2c v0.5 walk-throughs (planned): filesystem volumes and snapshots, VMs, VMs in networks, disk volumes and snapshots |
-| v15 | 2026-10-21 | Soupler Labs | §2c shipped and walked live on an Apple M4; measured results; architecture error path as built |
-| v16 | 2026-10-21 | Soupler Labs | §2d v0.6 walk-throughs (planned): database engines, queues and topics, search, email, CDN, transcoders |
-| v17 | 2026-10-22 | Soupler Labs | §2d shipped: exercised by the built-binary e2e, the real-Docker suite and Playwright; what was found and fixed; what is not yet walked by hand; automated checks name the real tests |
-| v18 | 2026-10-22 | Soupler Labs | §2e v0.7 walk-throughs (planned): projects and roles, metrics and dashboards, alerts and channels, log export, secret stores |
-| v19 | 2026-10-22 | Soupler Labs | §2e: walk-throughs live; automated checks name the tests that exist |
-| v20 | 2026-10-22 | Soupler Labs | §2e: checks for emailed invites, rotation gaps, real Vault/OpenBao, refresh while the engine is down |
-| v21 | 2026-10-22 | Soupler Labs | §2f v0.8 walk-throughs (planned): machines and the agent, placement and networks across machines, offline machines and moving, catalogue and stacks |
-| v22 | 2026-10-22 | Soupler Labs | §2f: `make server-in-docker` for Docker Desktop; the WordPress walk names `blog-content` and changes memory, not a folder size |
+| v2 | 2026-10-20 | Soupler | Web console v0.1 section (mock backend) |
+| v3 | 2026-10-20 | Soupler | v0.2 walk-throughs: first run, console CRUD for five kinds, tokens, CLI, OpenTofu, recovery and drift |
+| v4 | 2026-10-20 | Soupler | OpenTofu walk-through uses TF_CLI_CONFIG_FILE; console demo setup code |
+| v5 | 2026-10-20 | Soupler | §2a v0.3 walk-throughs (planned): zero-downtime deploys, domains and HTTPS, jobs, backups and restore, builds |
+| v6 | 2026-10-21 | Soupler | Zero-downtime deploys walk-through runnable (phase 1 shipped) |
+| v7 | 2026-10-21 | Soupler | Domains walk-through runnable (phase 2 shipped); edge ports and loopback guard |
+| v8 | 2026-10-21 | Soupler | Jobs walk-through as shipped (--run-timeout, run --wait) |
+| v9 | 2026-10-21 | Soupler | Backups walk-through as shipped and walked live |
+| v10 | 2026-10-21 | Soupler | Build-from-Git walk-through as shipped and walked live |
+| v11 | 2026-10-21 | Soupler | §2b v0.4 walk-throughs (planned): networks and private DNS, firewalls, replicas and load balancers, DNS zones and records, DNS-01 certificates |
+| v12 | 2026-10-21 | Soupler | §2b v0.4 walk-throughs shipped; networks, firewalls, replicas and load balancers walked live on Docker Desktop |
+| v13 | 2026-10-21 | Soupler | Load balancer load test as built (make load-lb) |
+| v14 | 2026-10-21 | Soupler | §2c v0.5 walk-throughs (planned): filesystem volumes and snapshots, VMs, VMs in networks, disk volumes and snapshots |
+| v15 | 2026-10-21 | Soupler | §2c shipped and walked live on an Apple M4; measured results; architecture error path as built |
+| v16 | 2026-10-21 | Soupler | §2d v0.6 walk-throughs (planned): database engines, queues and topics, search, email, CDN, transcoders |
+| v17 | 2026-10-22 | Soupler | §2d shipped: exercised by the built-binary e2e, the real-Docker suite and Playwright; what was found and fixed; what is not yet walked by hand; automated checks name the real tests |
+| v18 | 2026-10-22 | Soupler | §2e v0.7 walk-throughs (planned): projects and roles, metrics and dashboards, alerts and channels, log export, secret stores |
+| v19 | 2026-10-22 | Soupler | §2e: walk-throughs live; automated checks name the tests that exist |
+| v20 | 2026-10-22 | Soupler | §2e: checks for emailed invites, rotation gaps, real Vault/OpenBao, refresh while the engine is down |
+| v21 | 2026-10-22 | Soupler | §2f v0.8 walk-throughs (planned): machines and the agent, placement and networks across machines, offline machines and moving, catalogue and stacks |
+| v22 | 2026-10-22 | Soupler | §2f: `make server-in-docker` for Docker Desktop; the WordPress walk names `blog-content` and changes memory, not a folder size |
+| v23 | 2026-10-22 | Soupler | §2g console v4 walk-throughs (planned): navigation and full pages, overview, section summaries and guides, calmer screen and motion |
+| v24 | 2026-10-23 | Soupler | §2g built: the automated checks named |

@@ -9,9 +9,9 @@
 | Version | v16 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -98,19 +98,19 @@ enclave secret get stripe-key --reveal  enclave machine
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | The v0.2 CLI: shape, login and tokens, every kind, waits, JSON output, exit codes, retries, `enclave server` (CLI-01 – CLI-12). Row reconstructed from the CHANGELOG (v0.2 lists L2-002) |
-| v2 | 2026-10-20 | Soupler Labs | v0.3 requirements CLI-13 – CLI-17: domain, health/strategy flags, job, backup, Git source (L2-005) |
-| v3 | 2026-10-21 | Soupler Labs | CLI-15 as shipped: --run-timeout, run --wait |
-| v4 | 2026-10-21 | Soupler Labs | CLI-16 as shipped |
-| v5 | 2026-10-21 | Soupler Labs | CLI-17 as shipped |
-| v6 | 2026-10-21 | Soupler Labs | CLI-13 and CLI-14 marked shipped (phases 1–2) |
-| v7 | 2026-10-21 | Soupler Labs | v0.4 requirements CLI-18 – CLI-23: network, placement flags, firewall, replicas and lb, zone and record, DNS-01 domains (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 row(s), which are not reconstructed (see CHANGELOG) |
-| v8 | 2026-10-21 | Soupler Labs | CLI-18 – CLI-23 shipped; `db update` moves a database |
-| v9 | 2026-10-21 | Soupler Labs | Reconstructed the lost v1 history row |
-| v10 | 2026-10-21 | Soupler Labs | v0.5 requirements CLI-24 – CLI-28: vm, vm power/ssh/console, volume and mounts, snapshot (L2-007) |
-| v11 | 2026-10-21 | Soupler Labs | CLI-24 – CLI-28 shipped; --ssh-key takes a key or a .pub path; vm ssh files host keys per VM |
-| v12 | 2026-10-21 | Soupler Labs | v0.6 requirements CLI-29 – CLI-36: database engines, queue, topic, search, transcoder, cdn, email (L2-008) |
-| v13 | 2026-10-22 | Soupler Labs | CLI-29 – CLI-36 shipped; `get`, `list` and `delete` name the v0.6 kinds too |
-| v14 | 2026-10-22 | Soupler Labs | v0.7 requirements CLI-37 – CLI-45: --project and project commands, users, scoped tokens, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
-| v15 | 2026-10-22 | Soupler Labs | CLI-39 as built: `login` and a token without `--role` get the strongest role |
-| v16 | 2026-10-22 | Soupler Labs | v0.8 requirements CLI-46 – CLI-52: machines, the agent, --machine, move, catalogue, stacks (L2-010) |
+| v1 | 2026-10-20 | Soupler | The v0.2 CLI: shape, login and tokens, every kind, waits, JSON output, exit codes, retries, `enclave server` (CLI-01 – CLI-12). Row reconstructed from the CHANGELOG (v0.2 lists L2-002) |
+| v2 | 2026-10-20 | Soupler | v0.3 requirements CLI-13 – CLI-17: domain, health/strategy flags, job, backup, Git source (L2-005) |
+| v3 | 2026-10-21 | Soupler | CLI-15 as shipped: --run-timeout, run --wait |
+| v4 | 2026-10-21 | Soupler | CLI-16 as shipped |
+| v5 | 2026-10-21 | Soupler | CLI-17 as shipped |
+| v6 | 2026-10-21 | Soupler | CLI-13 and CLI-14 marked shipped (phases 1–2) |
+| v7 | 2026-10-21 | Soupler | v0.4 requirements CLI-18 – CLI-23: network, placement flags, firewall, replicas and lb, zone and record, DNS-01 domains (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 row(s), which are not reconstructed (see CHANGELOG) |
+| v8 | 2026-10-21 | Soupler | CLI-18 – CLI-23 shipped; `db update` moves a database |
+| v9 | 2026-10-21 | Soupler | Reconstructed the lost v1 history row |
+| v10 | 2026-10-21 | Soupler | v0.5 requirements CLI-24 – CLI-28: vm, vm power/ssh/console, volume and mounts, snapshot (L2-007) |
+| v11 | 2026-10-21 | Soupler | CLI-24 – CLI-28 shipped; --ssh-key takes a key or a .pub path; vm ssh files host keys per VM |
+| v12 | 2026-10-21 | Soupler | v0.6 requirements CLI-29 – CLI-36: database engines, queue, topic, search, transcoder, cdn, email (L2-008) |
+| v13 | 2026-10-22 | Soupler | CLI-29 – CLI-36 shipped; `get`, `list` and `delete` name the v0.6 kinds too |
+| v14 | 2026-10-22 | Soupler | v0.7 requirements CLI-37 – CLI-45: --project and project commands, users, scoped tokens, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
+| v15 | 2026-10-22 | Soupler | CLI-39 as built: `login` and a token without `--role` get the strongest role |
+| v16 | 2026-10-22 | Soupler | v0.8 requirements CLI-46 – CLI-52: machines, the agent, --machine, move, catalogue, stacks (L2-010) |

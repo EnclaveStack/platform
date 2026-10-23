@@ -23,7 +23,7 @@ export function SetupPage() {
   const [busy, setBusy] = useState(false);
 
   if (state.status === 'loading') return <Splash />;
-  if (state.status === 'signed-in') return <Navigate to="/apps" replace />;
+  if (state.status === 'signed-in') return <Navigate to="/" replace />;
   if (!state.setupRequired) return <Navigate to="/login" replace />;
 
   function validate(): FieldErrors {

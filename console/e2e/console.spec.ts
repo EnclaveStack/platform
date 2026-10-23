@@ -13,9 +13,12 @@ test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
 });
 
+// The sidebar: section links appear in the breadcrumb too (CON-63), so navigation clicks go through the sidebar.
+const sidebar = () => page.getByRole('complementary', { name: 'Console navigation' });
+
 async function create(kind: string, fill: (panel: ReturnType<Page['getByRole']>) => Promise<void>) {
   const section = { app: 'apps', database: 'databases', cache: 'caches', bucket: 'buckets', secret: 'secrets' }[kind]!;
-  await page.getByRole('link', { name: new RegExp(`^${section[0]!.toUpperCase()}${section.slice(1)}`) }).click();
+  await sidebar().getByRole('link', { name: new RegExp(`^${section[0]!.toUpperCase()}${section.slice(1)}`) }).click();
   await page.getByRole('button', { name: `New ${kind}` }).first().click();
   const panel = page.getByRole('dialog', { name: `New ${kind}` });
   await fill(panel);
@@ -32,6 +35,10 @@ test('first-run setup with the printed code', async () => {
   await page.getByLabel('Admin email', { exact: true }).fill(ADMIN.email);
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
   await page.getByRole('button', { name: 'Create admin and open console' }).click();
+  // Setup lands on the overview (CON-65): nothing yet, so nothing needs attention.
+  await expect(page.getByRole('group', { name: 'Overview' })).toBeVisible();
+  await expect(page.getByText('Everything is running.')).toBeVisible();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await expect(page.getByRole('region', { name: 'Apps list' })).toBeVisible();
   await expect(page.getByText('No apps yet.')).toBeVisible();
 });
@@ -70,7 +77,7 @@ test('create every kind from the console', async () => {
 });
 
 test('validation and conflicts show next to the field', async () => {
-  await page.getByRole('link', { name: /^Caches/ }).click();
+  await sidebar().getByRole('link', { name: /^Caches/ }).click();
   await page.getByRole('button', { name: 'New cache' }).first().click();
   const panel = page.getByRole('dialog', { name: 'New cache' });
   await panel.getByLabel('Name', { exact: true }).fill('sessions');
@@ -85,7 +92,7 @@ test('validation and conflicts show next to the field', async () => {
 });
 
 test('edit an app in place and redeploy it', async () => {
-  await page.getByRole('link', { name: /^Apps/ }).click();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await page.getByRole('link', { name: /web/ }).click();
   await page.getByRole('button', { name: 'Edit' }).click();
   const panel = page.getByRole('dialog', { name: 'Edit app web' });
@@ -101,7 +108,7 @@ test('edit an app in place and redeploy it', async () => {
 });
 
 test('reveal a secret, and refuse deleting it while the app uses it', async () => {
-  await page.getByRole('link', { name: /^Secrets/ }).click();
+  await sidebar().getByRole('link', { name: /^Secrets/ }).click();
   await page.getByRole('link', { name: /stripe-key/ }).click();
   await page.getByRole('button', { name: 'Reveal value' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Reveal' }).click();
@@ -115,7 +122,7 @@ test('reveal a secret, and refuse deleting it while the app uses it', async () =
 });
 
 test('serve the app on a domain, then remove the domain (CON-19, CON-20)', async () => {
-  await page.getByRole('link', { name: /^Apps/ }).click();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await page.getByRole('link', { name: /web/ }).click();
   await page.getByRole('button', { name: 'Add domain' }).click();
   const panel = page.getByRole('dialog', { name: 'New domain' });
@@ -134,7 +141,7 @@ test('serve the app on a domain, then remove the domain (CON-19, CON-20)', async
 });
 
 test('run a job from the console and read its output (CON-22)', async () => {
-  await page.getByRole('link', { name: /^Jobs/ }).click();
+  await sidebar().getByRole('link', { name: /^Jobs/ }).click();
   await page.getByRole('button', { name: 'New job' }).first().click();
   const panel = page.getByRole('dialog', { name: 'New job' });
   await panel.getByLabel('Name', { exact: true }).fill('tick');
@@ -158,7 +165,7 @@ test('run a job from the console and read its output (CON-22)', async () => {
 });
 
 test('back up a cache, restore it into a new one, and delete the backup (CON-23)', async () => {
-  await page.getByRole('link', { name: /^Caches/ }).click();
+  await sidebar().getByRole('link', { name: /^Caches/ }).click();
   await page.getByRole('link', { name: /sessions/ }).click();
   await page.getByRole('tab', { name: 'Backups' }).click();
   await page.getByRole('button', { name: 'Set up backups' }).click();
@@ -184,7 +191,7 @@ test('back up a cache, restore it into a new one, and delete the backup (CON-23)
   const copy = (await (await page.request.get('/api/v1/resources?kind=cache')).json()).items.find((r: { name: string }) => r.name === 'sessions-copy');
   expect(copy.outputs.restoredFrom).toMatch(/^sessions-nightly run run_/);
 
-  await page.getByRole('link', { name: /^Backups/ }).click();
+  await sidebar().getByRole('link', { name: /^Backups/ }).click();
   await page.getByRole('link', { name: /sessions-nightly/ }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
   const dialog = page.getByRole('alertdialog');
@@ -195,7 +202,7 @@ test('back up a cache, restore it into a new one, and delete the backup (CON-23)
 });
 
 test('build an app from Git and read its build log (CON-24)', async () => {
-  await page.getByRole('link', { name: /^Apps/ }).click();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await page.getByRole('button', { name: 'New app' }).first().click();
   const panel = page.getByRole('dialog', { name: 'New app' });
   await panel.getByLabel('Name', { exact: true }).fill('site');
@@ -221,7 +228,7 @@ test('build an app from Git and read its build log (CON-24)', async () => {
 
 test('networks, firewalls, load balancers, zones and records (CON-26 – CON-30)', async () => {
   const open = async (label: RegExp, kind: string) => {
-    await page.getByRole('link', { name: label }).click();
+    await sidebar().getByRole('link', { name: label }).click();
     await page.getByRole('button', { name: `New ${kind}` }).first().click();
     return page.getByRole('dialog', { name: `New ${kind}` });
   };
@@ -277,7 +284,7 @@ test('networks, firewalls, load balancers, zones and records (CON-26 – CON-30)
   await p.getByLabel('Values').fill('web.example.net');
   await p.getByRole('button', { name: 'Create record' }).click();
   await ready();
-  await page.getByRole('link', { name: /^DNS/ }).click();
+  await sidebar().getByRole('link', { name: /^DNS/ }).click();
   await page.getByRole('link', { name: /example/ }).click();
   await page.getByRole('tab', { name: 'Records' }).click();
   await expect(page.getByRole('table', { name: 'Records in example.com' }).getByText('www.example.com')).toBeVisible();
@@ -286,8 +293,8 @@ test('networks, firewalls, load balancers, zones and records (CON-26 – CON-30)
 
   // Remove what names the app, so the next step can delete it.
   for (const [label, name, kind] of [[/^Load balancers/, 'web-lb', 'load balancer'], [/^Firewalls/, 'web-in', 'firewall']] as const) {
-    await page.getByRole('link', { name: label }).click();
-    await page.getByRole('link', { name: new RegExp(name) }).click();
+    await sidebar().getByRole('link', { name: label }).click();
+    await page.getByRole('region', { name: / list$/ }).getByRole('link', { name: new RegExp(name) }).click();
     await page.getByRole('button', { name: 'Delete' }).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.getByLabel(/Type/).fill(name);
@@ -301,7 +308,7 @@ test('VMs, volumes and snapshots (CON-32 – CON-36)', async () => {
   const summary = () => page.getByRole('group', { name: 'Summary' });
   const ready = () => expect(summary().getByText('Ready')).toBeVisible({ timeout: 20_000 });
   const open = async (label: RegExp, kind: string) => {
-    await page.getByRole('link', { name: label }).click();
+    await sidebar().getByRole('link', { name: label }).click();
     await page.getByRole('button', { name: `New ${kind}` }).first().click();
     return page.getByRole('dialog', { name: `New ${kind}` });
   };
@@ -355,8 +362,8 @@ test('VMs, volumes and snapshots (CON-32 – CON-36)', async () => {
 
   // Clean up, VMs first: their disk can't go while attached.
   for (const [label, name, kind] of [[/^VMs/, 'clone', 'VM'], [/^VMs/, 'worker', 'VM'], [/^Snapshots/, 'worker-1', 'snapshot'], [/^Volumes/, 'data', 'volume']] as const) {
-    await page.getByRole('link', { name: label }).click();
-    await page.getByRole('link', { name: new RegExp(`^${name}`) }).click();
+    await sidebar().getByRole('link', { name: label }).click();
+    await page.getByRole('region', { name: / list$/ }).getByRole('link', { name: new RegExp(`^${name}`) }).click();
     await page.getByRole('button', { name: 'Delete' }).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.getByLabel(/Type/).fill(name);
@@ -369,7 +376,7 @@ test('queues, topics, a MySQL database and email (CON-37 – CON-39, CON-43)', a
   const summary = () => page.getByRole('group', { name: 'Summary' });
   const ready = () => expect(summary().getByText('Ready')).toBeVisible({ timeout: 20_000 });
   const open = async (label: RegExp, kind: string) => {
-    await page.getByRole('link', { name: label }).click();
+    await sidebar().getByRole('link', { name: label }).click();
     await page.getByRole('button', { name: `New ${kind}` }).first().click();
     return page.getByRole('dialog', { name: `New ${kind}` });
   };
@@ -399,8 +406,8 @@ test('queues, topics, a MySQL database and email (CON-37 – CON-39, CON-43)', a
   await page.getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByText('queue/emails')).toBeVisible();
 
-  await page.getByRole('link', { name: /^Queues/ }).click();
-  await page.getByRole('link', { name: /^emails/ }).click();
+  await sidebar().getByRole('link', { name: /^Queues/ }).click();
+  await page.getByRole('region', { name: / list$/ }).getByRole('link', { name: /^emails/ }).click();
   await page.getByRole('tab', { name: 'Messages' }).click();
   await expect(page.getByText('1 waiting')).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Receive up to 10' }).click();
@@ -425,8 +432,8 @@ test('queues, topics, a MySQL database and email (CON-37 – CON-39, CON-43)', a
   await page.keyboard.press('Escape');
 
   for (const [label, name, kind] of [[/^Topics/, 'orders', 'topic'], [/^Queues/, 'emails', 'queue'], [/^Email/, 'shop-mail', 'email service'], [/^Databases/, 'legacy', 'database']] as const) {
-    await page.getByRole('link', { name: label }).click();
-    await page.getByRole('link', { name: new RegExp(`^${name}`) }).click();
+    await sidebar().getByRole('link', { name: label }).click();
+    await page.getByRole('region', { name: / list$/ }).getByRole('link', { name: new RegExp(`^${name}`) }).click();
     await page.getByRole('button', { name: 'Delete' }).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.getByLabel(/Type/).fill(name);
@@ -436,7 +443,7 @@ test('queues, topics, a MySQL database and email (CON-37 – CON-39, CON-43)', a
 });
 
 test('projects keep names apart; the switcher scopes lists and creates (CON-45)', async () => {
-  await page.getByRole('link', { name: 'Projects' }).click();
+  await sidebar().getByRole('link', { name: 'Projects' }).click();
   await page.getByRole('button', { name: 'New project' }).click();
   const panel = page.getByRole('dialog', { name: 'New project' });
   await panel.getByLabel('Name', { exact: true }).fill('shop');
@@ -444,7 +451,7 @@ test('projects keep names apart; the switcher scopes lists and creates (CON-45)'
   await panel.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('cell', { name: 'shop', exact: true })).toBeVisible();
   await page.getByLabel('Project', { exact: true }).selectOption('shop');
-  await page.getByRole('link', { name: /^Secrets/ }).click();
+  await sidebar().getByRole('link', { name: /^Secrets/ }).click();
   await expect(page).toHaveURL(/\?project=shop/);
   await page.getByRole('button', { name: 'New secret' }).first().click();
   const sp = page.getByRole('dialog', { name: 'New secret' });
@@ -460,16 +467,17 @@ test('projects keep names apart; the switcher scopes lists and creates (CON-45)'
 });
 
 test('monitoring: metrics of an app, the machine dashboard, a channel and an alert (CON-49 – CON-51)', async () => {
-  await page.getByRole('link', { name: /^Apps/ }).click();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await page.getByRole('link', { name: /web/ }).click();
   await page.getByRole('tab', { name: 'Metrics' }).click();
   await expect(page.getByRole('tab', { name: '1h' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('CPU', { exact: true }).first()).toBeVisible();
-  await page.getByRole('link', { name: /^Monitoring/ }).click();
+  await sidebar().getByRole('link', { name: /^Monitoring/ }).click();
+  await page.getByRole('region', { name: 'Monitoring list' }).getByRole('link', { name: 'This machine' }).click();
   await expect(page.getByRole('heading', { name: 'This machine' })).toBeVisible();
   await expect(page.getByText('Disk free', { exact: true }).first()).toBeVisible();
 
-  await page.getByRole('link', { name: /^Channels/ }).click();
+  await sidebar().getByRole('link', { name: /^Channels/ }).click();
   await page.getByRole('button', { name: 'New channel' }).first().click();
   const cp = page.getByRole('dialog', { name: 'New channel' });
   await cp.getByLabel('Name', { exact: true }).fill('ops');
@@ -479,7 +487,7 @@ test('monitoring: metrics of an app, the machine dashboard, a channel and an ale
   await page.getByRole('button', { name: 'Send a test' }).click();
   await expect(page.getByRole('status').filter({ hasText: /127\.0\.0\.1:9/ })).toBeVisible({ timeout: 20_000 });
 
-  await page.getByRole('link', { name: /^Alerts/ }).click();
+  await sidebar().getByRole('link', { name: /^Alerts/ }).click();
   await page.getByRole('button', { name: 'New alert' }).first().click();
   const ap = page.getByRole('dialog', { name: 'New alert' });
   await ap.getByLabel('Name', { exact: true }).fill('disk-full');
@@ -496,7 +504,7 @@ test('monitoring: metrics of an app, the machine dashboard, a channel and an ale
 });
 
 test('invite a viewer who joins from the link and can only look (CON-46, CON-48)', async ({ browser }) => {
-  await page.getByRole('link', { name: 'People' }).click();
+  await sidebar().getByRole('link', { name: 'People' }).click();
   await page.getByRole('button', { name: 'Invite someone' }).click();
   const panel = page.getByRole('dialog', { name: 'Invite someone' });
   await panel.getByLabel('Email').fill('viewer@example.com');
@@ -513,6 +521,9 @@ test('invite a viewer who joins from the link and can only look (CON-46, CON-48)
   await other.getByLabel('Password', { exact: true }).fill('viewer-password-1');
   await other.getByLabel('The same password again').fill('viewer-password-1');
   await other.getByRole('button', { name: 'Join' }).click();
+  await expect(other.getByRole('group', { name: 'Overview' })).toBeVisible();
+  await expect(other.getByRole('link', { name: 'New app' })).toHaveCount(0);
+  await other.getByRole('complementary', { name: 'Console navigation' }).getByRole('link', { name: /^Apps/ }).click();
   await expect(other.getByRole('region', { name: 'Apps list' })).toBeVisible();
   await expect(other.getByText('View only').first()).toBeVisible();
   await expect(other.getByRole('button', { name: 'New app' })).toHaveCount(0);
@@ -521,12 +532,12 @@ test('invite a viewer who joins from the link and can only look (CON-46, CON-48)
 
   await page.reload();
   await expect(page.getByRole('row', { name: /viewer@example\.com/ }).getByText('Active')).toBeVisible({ timeout: 10_000 });
-  await page.getByRole('link', { name: 'Audit log' }).click();
+  await sidebar().getByRole('link', { name: 'Audit log' }).click();
   await expect(page.getByText('user_invited').first()).toBeVisible();
 });
 
 test('delete the app with the typed name', async () => {
-  await page.getByRole('link', { name: /^Apps/ }).click();
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
   await page.getByRole('link', { name: /web/ }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
   const dialog = page.getByRole('alertdialog');
@@ -537,7 +548,7 @@ test('delete the app with the typed name', async () => {
 });
 
 test('API tokens work for code and stop working when revoked', async ({ playwright }) => {
-  await page.getByRole('link', { name: 'API tokens' }).click();
+  await sidebar().getByRole('link', { name: 'API tokens' }).click();
   await page.getByLabel('Name', { exact: true }).fill('ci');
   await page.getByRole('button', { name: 'Create token' }).click();
   const token = (await page.getByRole('status', { name: 'New token' }).getByLabel('Token', { exact: true }).textContent())!.trim();

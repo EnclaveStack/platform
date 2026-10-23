@@ -1,4 +1,5 @@
-import type { HTMLAttributes, ReactNode, TableHTMLAttributes } from 'react';
+import { Children, Fragment, useId, type HTMLAttributes, type ReactNode, type TableHTMLAttributes } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { cx } from './primitives';
 
 type Div = Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>;
@@ -23,10 +24,13 @@ export function Brand() {
   );
 }
 
-/** Sidebar + main column. On narrow screens the sidebar becomes a sheet opened from the top bar. */
-export function Shell({ sidebar, children, menuOpen, onCloseMenu }: { sidebar: ReactNode; children: ReactNode; menuOpen: boolean; onCloseMenu: () => void }) {
+/**
+ * A floating sidebar beside the main column (L2.5-002 §16). `rail` folds the sidebar to its icons. On narrow
+ * screens the sidebar becomes a sheet opened from the top bar.
+ */
+export function Shell({ sidebar, children, menuOpen, onCloseMenu, rail = false }: { sidebar: ReactNode; children: ReactNode; menuOpen: boolean; onCloseMenu: () => void; rail?: boolean }) {
   return (
-    <div className="es-shell">
+    <div className="es-shell" data-rail={rail}>
       {menuOpen && <button type="button" className="es-shell-scrim" aria-label="Close menu" onClick={onCloseMenu} />}
       {sidebar}
       <div className="es-main">{children}</div>
@@ -54,7 +58,28 @@ export function SidebarFoot({ children }: { children: ReactNode }) {
 /** Class for the router link wrapping NavItemContent; the active state is aria-current="page". */
 export const navItemClass = 'es-nav-item';
 
-/** Icon circle, label and count inside a navigation link. */
+/**
+ * A heading that opens and closes its group of links (CON-61). The group holding the current page stays
+ * open: pass `open` and `onToggle` from the app, which remembers the choice.
+ */
+export function NavGroup({ heading, open, onToggle, children }: { heading: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const id = useId();
+  return (
+    <div className="es-nav-group" data-open={open}>
+      <button type="button" className="es-nav-group-head" aria-expanded={open} aria-controls={id} onClick={onToggle}>
+        <span>{heading}</span>
+        <ChevronDown aria-hidden="true" />
+      </button>
+      <div className="es-nav-group-body" id={id}>
+        <div className="es-nav-group-inner">
+          <nav aria-label={heading}><div className="es-nav">{children}</div></nav>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Icon, label and count inside a navigation link. In the rail only the icon shows; the label stays for assistive technology. */
 export function NavItemContent({ icon, label, count, countLabel }: { icon: ReactNode; label: string; count?: ReactNode; countLabel?: string }) {
   return (
     <>
@@ -87,6 +112,56 @@ export function Topbar({ children }: { children: ReactNode }) {
 
 export function Crumbs({ children }: { children: ReactNode }) {
   return <div className="es-crumbs">{children}</div>;
+}
+
+/** Class for the router links inside Breadcrumbs. */
+export const crumbLinkClass = 'es-crumb-link';
+
+/**
+ * Where you are, every step but the last a link (CON-63). Pass the steps as children: router links with
+ * crumbLinkClass, and the current page as plain text.
+ */
+export function Breadcrumbs({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children);
+  return (
+    <nav aria-label="Breadcrumb" className="es-breadcrumb">
+      <ol>
+        {items.map((item, i) => (
+          <Fragment key={i}>
+            <li aria-current={i === items.length - 1 ? 'page' : undefined}>{item}</li>
+            {i < items.length - 1 && <li aria-hidden="true" className="es-breadcrumb-sep">/</li>}
+          </Fragment>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/**
+ * A page's header (CON-63): back link, title with its state, a line saying what this is, chips that carry
+ * meaning, and the page's actions; `aside` holds key facts. Labelled so tests and assistive technology find
+ * the summary.
+ */
+export function PageHeader({ label, back, title, status, lede, meta, actions, aside }: {
+  label: string; back?: ReactNode; title: ReactNode; status?: ReactNode; lede?: ReactNode; meta?: ReactNode; actions?: ReactNode; aside?: ReactNode;
+}) {
+  return (
+    <header className="es-page-header" role="group" aria-label={label}>
+      <div className="es-page-header-main">
+        <div className="es-page-header-text">
+          {back && <div className="es-page-header-back">{back}</div>}
+          <div className="es-page-header-title">
+            <h1 className="es-page-title">{title}</h1>
+            {status}
+          </div>
+          {lede && <p className="es-page-lede">{lede}</p>}
+          {meta && <div className="es-page-header-meta">{meta}</div>}
+        </div>
+        {actions && <div className="es-page-header-actions">{actions}</div>}
+      </div>
+      {aside}
+    </header>
+  );
 }
 
 export function Banner({ children }: { children: ReactNode }) {

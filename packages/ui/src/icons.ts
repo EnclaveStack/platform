@@ -41,6 +41,8 @@ export {
   Monitor,
   Moon,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Play,
   Plus,

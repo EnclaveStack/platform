@@ -9,9 +9,9 @@
 | Version | v5 |
 | Created | 2026-10-22 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -219,8 +219,8 @@ Projects and roles apply to every kind, old and new.
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-22 | Soupler Labs | v0.7 scope: projects as namespaces, users and roles, scoped tokens, metrics, dashboards, alerts, notification channels, log export, external secret stores (PRJ, IAM, TOK, MET, DSH, ALR, NCH, LOG, EXT requirements). Namespaces, built-in metrics, the five secret stores and four log destinations decided with the owner |
-| v2 | 2026-10-22 | Soupler Labs | Delivery status: built; TOK-03 as built (`write` → admin); known gaps recorded (invites not emailed, log rotation, refresh while the engine is down, restart counting, real providers unwalked) |
-| v3 | 2026-10-22 | Soupler Labs | Closed IAM-04 (emailed invites), LOG-06 (shared timestamps, rotation gaps), EXT-05 (refresh while the engine is down); Vault and OpenBao verified for real; open items listed |
-| v4 | 2026-10-22 | Soupler Labs | Slack, Discord and Telegram verified against the real services; message wording to fix recorded |
-| v5 | 2026-10-22 | Soupler Labs | NCH-02 wording fixed and verified on Slack; `--console-url` for links |
+| v1 | 2026-10-22 | Soupler | v0.7 scope: projects as namespaces, users and roles, scoped tokens, metrics, dashboards, alerts, notification channels, log export, external secret stores (PRJ, IAM, TOK, MET, DSH, ALR, NCH, LOG, EXT requirements). Namespaces, built-in metrics, the five secret stores and four log destinations decided with the owner |
+| v2 | 2026-10-22 | Soupler | Delivery status: built; TOK-03 as built (`write` → admin); known gaps recorded (invites not emailed, log rotation, refresh while the engine is down, restart counting, real providers unwalked) |
+| v3 | 2026-10-22 | Soupler | Closed IAM-04 (emailed invites), LOG-06 (shared timestamps, rotation gaps), EXT-05 (refresh while the engine is down); Vault and OpenBao verified for real; open items listed |
+| v4 | 2026-10-22 | Soupler | Slack, Discord and Telegram verified against the real services; message wording to fix recorded |
+| v5 | 2026-10-22 | Soupler | NCH-02 wording fixed and verified on Slack; `--console-url` for links |

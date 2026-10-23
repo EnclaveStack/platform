@@ -217,7 +217,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
       );
     };
     const metricSelect = (id: string, value: string, set: (v: string) => void, field: string) => (
-      <Field id={id} label="Metric" error={err(field)}>
+      <Field id={id} hint="What the alert watches." label="Metric" error={err(field)}>
         <Select id={id} value={value} onChange={(e) => set(e.target.value)}>
           <optgroup label="This machine">
             {MACHINE_METRICS.filter((m) => !METRICS.some((x) => x.name === m.name)).map((m) => <option key={m.name} value={m.name}>{m.title} ({m.name})</option>)}
@@ -257,7 +257,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
                       </Inline>
                     </Inline>
                     <FormRow>
-                      <Field id={`f-widget-title-${i}`} label="Title" error={err(`${f}.title`)}>
+                      <Field id={`f-widget-title-${i}`} hint="The graph’s name on the dashboard." label="Title" error={err(`${f}.title`)}>
                         <Input id={`f-widget-title-${i}`} value={w.title} onChange={(e) => update({ title: e.target.value })} onBlur={onBlur} placeholder="API CPU" maxLength={RULES.widgetTitleMax} />
                       </Field>
                       {metricSelect(`f-widget-metric-${i}`, w.metric, (m) => update({ metric: m, resources: w.resources.filter((ref) => (ref === MACHINE_REF ? machineHas(m) : kindsWith(m).includes(ref.split('/')[0] as Kind))) }), `${f}.metric`)}
@@ -303,7 +303,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
                     setCondMetric(m);
                     setCondResources(condResources.filter((ref) => (ref === MACHINE_REF ? machineHas(m) : kindsWith(m).includes(ref.split('/')[0] as Kind))));
                   }, 'spec.condition.metric')}
-                  <Field id="f-cond-op" label="Is" error={err('spec.condition.operator')}>
+                  <Field id="f-cond-op" hint="Fire when the metric is above or below the line." label="Is" error={err('spec.condition.operator')}>
                     <Select id="f-cond-op" value={operator} onChange={(e) => setOperator(e.target.value as 'above' | 'below')}>
                       <option value="above">above</option>
                       <option value="below">below</option>
@@ -354,7 +354,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
               </Stack>
             </Fieldset>
             <FormRow>
-              <Field id="f-repeat" label="Remind every" error={err('spec.repeatMinutes')}>
+              <Field id="f-repeat" hint="Send the alert again this often while it lasts. Leave it at never to send it once." label="Remind every" error={err('spec.repeatMinutes')}>
                 <Select id="f-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value)}>
                   {[...new Set(['0', '15', '30', '60', '240', '1440', repeat])].map((m) => (
                     <option key={m} value={m}>{m === '0' ? 'Never' : Number(m) % 60 === 0 ? `${Number(m) / 60} hour${m === '60' ? '' : 's'}` : `${m} minutes`}</option>
@@ -429,7 +429,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
             {outside && <Alert tone="warn">Logs leave this machine. Anything your apps print, including mistakes like printed passwords, is sent.</Alert>}
             {destType === 'bucket' && (
               <FormRow>
-                <Field id="f-dest-bucket" label="Bucket" error={err('spec.destination.bucket.bucket')}>
+                <Field id="f-dest-bucket" hint="A bucket of this project; the logs arrive there as files." label="Bucket" error={err('spec.destination.bucket.bucket')}>
                   <Select id="f-dest-bucket" value={destBucket} onChange={(e) => setDestBucket(e.target.value)}>
                     <option value="">Choose a bucket…</option>
                     {names('bucket').map((n) => <option key={n} value={n}>{n}</option>)}

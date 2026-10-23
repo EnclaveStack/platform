@@ -9,9 +9,9 @@
 | Version | v11 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -115,14 +115,14 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Coolify study (ideas only, no code reuse) and the phased AWS/GCP service roadmap v0.3 – v0.8 |
-| v2 | 2026-10-20 | Soupler Labs | §5 points to the v0.3 specification (L2-005, ADR-015 – ADR-019) |
-| v3 | 2026-10-21 | Soupler Labs | v0.3 built; backup kind named as built |
-| v4 | 2026-10-21 | Soupler Labs | v0.4 specified (L2-006); DNS-01 and wildcard certificates added to v0.4 |
-| v5 | 2026-10-21 | Soupler Labs | v0.5 specified (L2-007): QEMU on both platforms; volumes for VMs and apps |
-| v6 | 2026-10-21 | Soupler Labs | v0.5 built (unreleased) |
-| v7 | 2026-10-21 | Soupler Labs | v0.6 specified (L2-008): the whole row, with NATS JetStream, OpenSearch and catch + relay email chosen with the owner |
-| v8 | 2026-10-22 | Soupler Labs | v0.6 built (unreleased) |
-| v9 | 2026-10-22 | Soupler Labs | v0.7 specified (L2-009): projects as namespaces, built-in metrics, five secret stores and four log destinations chosen with the owner |
-| v10 | 2026-10-22 | Soupler Labs | v0.8 specified: `L2-010` and its engineering chain |
-| v11 | 2026-10-22 | Soupler Labs | v0.8 built |
+| v1 | 2026-10-20 | Soupler | Coolify study (ideas only, no code reuse) and the phased AWS/GCP service roadmap v0.3 – v0.8 |
+| v2 | 2026-10-20 | Soupler | §5 points to the v0.3 specification (L2-005, ADR-015 – ADR-019) |
+| v3 | 2026-10-21 | Soupler | v0.3 built; backup kind named as built |
+| v4 | 2026-10-21 | Soupler | v0.4 specified (L2-006); DNS-01 and wildcard certificates added to v0.4 |
+| v5 | 2026-10-21 | Soupler | v0.5 specified (L2-007): QEMU on both platforms; volumes for VMs and apps |
+| v6 | 2026-10-21 | Soupler | v0.5 built (unreleased) |
+| v7 | 2026-10-21 | Soupler | v0.6 specified (L2-008): the whole row, with NATS JetStream, OpenSearch and catch + relay email chosen with the owner |
+| v8 | 2026-10-22 | Soupler | v0.6 built (unreleased) |
+| v9 | 2026-10-22 | Soupler | v0.7 specified (L2-009): projects as namespaces, built-in metrics, five secret stores and four log destinations chosen with the owner |
+| v10 | 2026-10-22 | Soupler | v0.8 specified: `L2-010` and its engineering chain |
+| v11 | 2026-10-22 | Soupler | v0.8 built |

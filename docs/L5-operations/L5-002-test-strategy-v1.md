@@ -9,9 +9,9 @@
 | Version | v19 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -163,22 +163,22 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Levels, tools, parity matrix, auth/security list, fault injection, gates |
-| v2 | 2026-10-20 | Soupler Labs | Implemented suites, counts and measured coverage; flake policy |
-| v3 | 2026-10-20 | Soupler Labs | Design system suite (`packages/ui`) and the console styling guard (ADR-014) |
-| v4 | 2026-10-20 | Soupler Labs | §6 v0.3 suites (planned): edge, ACME via Pebble, rolling deploy, zero-drop load test, scheduler, jobs, backups and restore, builds, parity |
-| v5 | 2026-10-21 | Soupler Labs | Phase 1 suites shipped (rolling deploy across driver, reconciler, CLI, provider, console); console count 72 |
-| v6 | 2026-10-21 | Soupler Labs | Phase 2 suites shipped: domains, rebuild migration, real edge, ACME via Pebble; console 86, Playwright 9 |
-| v7 | 2026-10-21 | Soupler Labs | Phase 3 suites shipped; console 121, Playwright 10 |
-| v8 | 2026-10-21 | Soupler Labs | Phase 4 suites shipped; console 141, design system 22, Playwright 11 |
-| v9 | 2026-10-21 | Soupler Labs | Phase 5 suites shipped; console 156, design system 22, Playwright 12 |
-| v10 | 2026-10-21 | Soupler Labs | §7 v0.4 suites (planned): validation, networks, firewalls, replicas and load balancers, DNS providers against local fakes, records, DNS-01 via Pebble, e2e, parity |
-| v11 | 2026-10-21 | Soupler Labs | §7 suites shipped; counts: console 182, Playwright 13, real-Docker driver suite and built-binary e2e green |
-| v12 | 2026-10-21 | Soupler Labs | Zero-drop through a load balancer built and measured (tests/load/lb.sh, make load-lb) |
-| v13 | 2026-10-21 | Soupler Labs | §8 v0.5 suites (planned): validation, seeds and QMP, fake-engine integration, link helper, real Docker, real QEMU, e2e, parity |
-| v14 | 2026-10-21 | Soupler Labs | §8 suites shipped and green, with timings |
-| v15 | 2026-10-21 | Soupler Labs | §9 v0.6 suites (planned) |
-| v16 | 2026-10-22 | Soupler Labs | §9 suites shipped and green, with results; requirement-coverage suite; firewall test race fixed |
-| v17 | 2026-10-22 | Soupler Labs | §5: CI runs every level, real-engine e2e and load included, on every PR only (no push or nightly runs) |
-| v18 | 2026-10-22 | Soupler Labs | §10 v0.8 suites (planned): validation and pure logic, agent protocol, many machines on the fake engine, surfaces, two real engines, two-machine e2e, tunnel performance |
-| v19 | 2026-10-22 | Soupler Labs | §10: the two-machine e2e as built |
+| v1 | 2026-10-20 | Soupler | Levels, tools, parity matrix, auth/security list, fault injection, gates |
+| v2 | 2026-10-20 | Soupler | Implemented suites, counts and measured coverage; flake policy |
+| v3 | 2026-10-20 | Soupler | Design system suite (`packages/ui`) and the console styling guard (ADR-014) |
+| v4 | 2026-10-20 | Soupler | §6 v0.3 suites (planned): edge, ACME via Pebble, rolling deploy, zero-drop load test, scheduler, jobs, backups and restore, builds, parity |
+| v5 | 2026-10-21 | Soupler | Phase 1 suites shipped (rolling deploy across driver, reconciler, CLI, provider, console); console count 72 |
+| v6 | 2026-10-21 | Soupler | Phase 2 suites shipped: domains, rebuild migration, real edge, ACME via Pebble; console 86, Playwright 9 |
+| v7 | 2026-10-21 | Soupler | Phase 3 suites shipped; console 121, Playwright 10 |
+| v8 | 2026-10-21 | Soupler | Phase 4 suites shipped; console 141, design system 22, Playwright 11 |
+| v9 | 2026-10-21 | Soupler | Phase 5 suites shipped; console 156, design system 22, Playwright 12 |
+| v10 | 2026-10-21 | Soupler | §7 v0.4 suites (planned): validation, networks, firewalls, replicas and load balancers, DNS providers against local fakes, records, DNS-01 via Pebble, e2e, parity |
+| v11 | 2026-10-21 | Soupler | §7 suites shipped; counts: console 182, Playwright 13, real-Docker driver suite and built-binary e2e green |
+| v12 | 2026-10-21 | Soupler | Zero-drop through a load balancer built and measured (tests/load/lb.sh, make load-lb) |
+| v13 | 2026-10-21 | Soupler | §8 v0.5 suites (planned): validation, seeds and QMP, fake-engine integration, link helper, real Docker, real QEMU, e2e, parity |
+| v14 | 2026-10-21 | Soupler | §8 suites shipped and green, with timings |
+| v15 | 2026-10-21 | Soupler | §9 v0.6 suites (planned) |
+| v16 | 2026-10-22 | Soupler | §9 suites shipped and green, with results; requirement-coverage suite; firewall test race fixed |
+| v17 | 2026-10-22 | Soupler | §5: CI runs every level, real-engine e2e and load included, on every PR only (no push or nightly runs) |
+| v18 | 2026-10-22 | Soupler | §10 v0.8 suites (planned): validation and pure logic, agent protocol, many machines on the fake engine, surfaces, two real engines, two-machine e2e, tunnel performance |
+| v19 | 2026-10-22 | Soupler | §10: the two-machine e2e as built |

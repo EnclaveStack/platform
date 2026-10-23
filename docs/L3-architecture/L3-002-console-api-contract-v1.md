@@ -9,9 +9,9 @@
 | Version | v21 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -1099,24 +1099,24 @@ Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'n
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Initial contract for console v0.1 (CON-01 – CON-12) |
-| v2 | 2026-10-20 | Soupler Labs | Full control-plane contract for all clients: auth (cookie + tokens, scopes, CSRF), L0-003 error envelope and codes, idempotency, ETag/If-Match, rate limits, pagination, CRUD for five kinds, actions, events, logs, secret reveal, tokens, machine, validation rules, phase machine |
-| v3 | 2026-10-20 | Soupler Labs | api/openapi.yaml written and kept equal to the router and the error codes by tests |
-| v4 | 2026-10-20 | Soupler Labs | §6 v0.3 contract (planned): domain, job, backup kinds; health checks, strategy, Git source; runs, run and restore actions; machine settings and CA; new error codes and validation rules |
-| v5 | 2026-10-21 | Soupler Labs | Phase 1 shipped: healthCheck, strategy and revision outputs moved into §3/§4; §6 marks what is served |
-| v6 | 2026-10-21 | Soupler Labs | Phase 2 shipped: domains, machine settings, CA |
-| v7 | 2026-10-21 | Soupler Labs | Phase 3 shipped: jobs, runs, run action |
-| v8 | 2026-10-21 | Soupler Labs | Phase 4 shipped: backups, restore action, run artifacts; retention scoped to a backup's own runs; RUN_NOT_RESTORABLE as implemented; bodies rejected on actions that take none |
-| v9 | 2026-10-21 | Soupler Labs | Phase 5 shipped: Git sources, build outputs, build log; all of §6 served |
-| v10 | 2026-10-21 | Soupler Labs | §7 v0.4 contract (planned): network, firewall, loadbalancer, zone and record kinds; placement and replicas; domain zone; outputs, validation, OVERLAPS, dependencies |
-| v11 | 2026-10-21 | Soupler Labs | §7 served (all five phases); attached output removed |
-| v12 | 2026-10-21 | Soupler Labs | §8 v0.5 contract (planned): vm, volume and snapshot kinds; volume mounts; VM power actions and console; machine VM availability; VOLUME_ATTACHED, GROW_ONLY; validation; dependencies |
-| v13 | 2026-10-21 | Soupler Labs | §8 served; as-built outputs linkPort, filledFrom, sizeGiB on disk snapshots |
-| v14 | 2026-10-21 | Soupler Labs | §8.5: firewalls name VMs as targets and peers |
-| v15 | 2026-10-21 | Soupler Labs | §9 v0.6 contract (planned): database engines; queue, topic, search, transcoder, cdn and email kinds; purge and transcoder run actions; message, delivery and email data endpoints; validation; dependencies |
-| v16 | 2026-10-22 | Soupler Labs | §9 served. §9.6: firewalls accept search and email services as targets and peers; `RULES.firewallKinds` and `RULES.placeableKinds` generated from `pkg/api` |
-| v17 | 2026-10-22 | Soupler Labs | §10 v0.7 contract (planned): projects on every resource, projects, users, invites, roles and scoped tokens, audit, metrics, dashboard, alert, channel, logexport and secretstore kinds, external secrets, test and refresh actions, incidents and notifications, new error codes, validation, dependencies |
-| v18 | 2026-10-22 | Soupler Labs | §10 served. §10.3: a token without a role gets its owner's strongest role (`write` from v0.6 clients too) |
-| v19 | 2026-10-22 | Soupler Labs | §10.3: invites and resets by email: `MachineSettings.inviteEmail` (absent keeps, null clears), `Machine.inviteEmail`, `Invitation.emailed` / `emailError` |
-| v20 | 2026-10-22 | Soupler Labs | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
-| v21 | 2026-10-22 | Soupler Labs | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |
+| v1 | 2026-10-20 | Soupler | Initial contract for console v0.1 (CON-01 – CON-12) |
+| v2 | 2026-10-20 | Soupler | Full control-plane contract for all clients: auth (cookie + tokens, scopes, CSRF), L0-003 error envelope and codes, idempotency, ETag/If-Match, rate limits, pagination, CRUD for five kinds, actions, events, logs, secret reveal, tokens, machine, validation rules, phase machine |
+| v3 | 2026-10-20 | Soupler | api/openapi.yaml written and kept equal to the router and the error codes by tests |
+| v4 | 2026-10-20 | Soupler | §6 v0.3 contract (planned): domain, job, backup kinds; health checks, strategy, Git source; runs, run and restore actions; machine settings and CA; new error codes and validation rules |
+| v5 | 2026-10-21 | Soupler | Phase 1 shipped: healthCheck, strategy and revision outputs moved into §3/§4; §6 marks what is served |
+| v6 | 2026-10-21 | Soupler | Phase 2 shipped: domains, machine settings, CA |
+| v7 | 2026-10-21 | Soupler | Phase 3 shipped: jobs, runs, run action |
+| v8 | 2026-10-21 | Soupler | Phase 4 shipped: backups, restore action, run artifacts; retention scoped to a backup's own runs; RUN_NOT_RESTORABLE as implemented; bodies rejected on actions that take none |
+| v9 | 2026-10-21 | Soupler | Phase 5 shipped: Git sources, build outputs, build log; all of §6 served |
+| v10 | 2026-10-21 | Soupler | §7 v0.4 contract (planned): network, firewall, loadbalancer, zone and record kinds; placement and replicas; domain zone; outputs, validation, OVERLAPS, dependencies |
+| v11 | 2026-10-21 | Soupler | §7 served (all five phases); attached output removed |
+| v12 | 2026-10-21 | Soupler | §8 v0.5 contract (planned): vm, volume and snapshot kinds; volume mounts; VM power actions and console; machine VM availability; VOLUME_ATTACHED, GROW_ONLY; validation; dependencies |
+| v13 | 2026-10-21 | Soupler | §8 served; as-built outputs linkPort, filledFrom, sizeGiB on disk snapshots |
+| v14 | 2026-10-21 | Soupler | §8.5: firewalls name VMs as targets and peers |
+| v15 | 2026-10-21 | Soupler | §9 v0.6 contract (planned): database engines; queue, topic, search, transcoder, cdn and email kinds; purge and transcoder run actions; message, delivery and email data endpoints; validation; dependencies |
+| v16 | 2026-10-22 | Soupler | §9 served. §9.6: firewalls accept search and email services as targets and peers; `RULES.firewallKinds` and `RULES.placeableKinds` generated from `pkg/api` |
+| v17 | 2026-10-22 | Soupler | §10 v0.7 contract (planned): projects on every resource, projects, users, invites, roles and scoped tokens, audit, metrics, dashboard, alert, channel, logexport and secretstore kinds, external secrets, test and refresh actions, incidents and notifications, new error codes, validation, dependencies |
+| v18 | 2026-10-22 | Soupler | §10 served. §10.3: a token without a role gets its owner's strongest role (`write` from v0.6 clients too) |
+| v19 | 2026-10-22 | Soupler | §10.3: invites and resets by email: `MachineSettings.inviteEmail` (absent keeps, null clears), `Machine.inviteEmail`, `Invitation.emailed` / `emailError` |
+| v20 | 2026-10-22 | Soupler | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
+| v21 | 2026-10-22 | Soupler | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |

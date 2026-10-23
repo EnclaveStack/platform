@@ -1,0 +1,3 @@
+# Every path is owned by the maintainer. With `require_code_owner_review` in the rulesets
+# (.github/governance/rulesets/), no pull request merges into develop or main without the maintainer's approval.
+* @soupler-labs

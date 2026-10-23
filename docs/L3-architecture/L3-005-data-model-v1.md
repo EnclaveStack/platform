@@ -9,9 +9,9 @@
 | Version | v14 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -157,17 +157,17 @@ These ship as migration `0013_machines` with the phases they serve (`L2-010`, AD
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Schema, identifiers, transactions, retention |
-| v2 | 2026-10-20 | Soupler Labs | §5 v0.3 changes (planned): new kinds, serving_generation, next_run_at, consecutive_failures, runs table, refs, settings, retention |
-| v3 | 2026-10-21 | Soupler Labs | serving_revision shipped in migration 0002 |
-| v4 | 2026-10-21 | Soupler Labs | Domain kind and settings shipped; rebuild migrations |
-| v5 | 2026-10-21 | Soupler Labs | Jobs schema shipped (0004); fixed-width timestamps (0005) and the rule in §1 |
-| v6 | 2026-10-21 | Soupler Labs | Backup kind shipped (0006); artifact_json cleared by retention |
-| v7 | 2026-10-21 | Soupler Labs | Builds table shipped (0007) |
-| v8 | 2026-10-21 | Soupler Labs | §6 v0.4 changes (planned): new kinds (0008), references, certificates table (0009), ACME account setting, Docker object names |
-| v9 | 2026-10-21 | Soupler Labs | §6 shipped: 0008_network_kinds and 0009_certificates |
-| v10 | 2026-10-21 | Soupler Labs | §7 v0.5 changes (planned): compute kinds (0010), references, files under the data dir, Docker objects |
-| v11 | 2026-10-21 | Soupler Labs | §7 shipped (0010_compute_kinds); references and files as stored |
-| v12 | 2026-10-21 | Soupler Labs | §8 v0.6 changes (planned): new kinds and the purge action, transcoder runs and seen objects, subscription counters, managed secrets, references, engine objects |
-| v13 | 2026-10-22 | Soupler Labs | §9 v0.7 changes (planned): projects and the project column, users and roles, members, invites, tokens with roles, audit, metric series, points and rollups, alert state, incidents, notifications, log export cursors and stats, refs |
-| v14 | 2026-10-22 | Soupler Labs | §10 v0.8 changes (planned): machines, machine CA, machine and stack columns on resources, address pools, machine events, catalogue templates, stack secrets, engine labels, agent state |
+| v1 | 2026-10-20 | Soupler | Schema, identifiers, transactions, retention |
+| v2 | 2026-10-20 | Soupler | §5 v0.3 changes (planned): new kinds, serving_generation, next_run_at, consecutive_failures, runs table, refs, settings, retention |
+| v3 | 2026-10-21 | Soupler | serving_revision shipped in migration 0002 |
+| v4 | 2026-10-21 | Soupler | Domain kind and settings shipped; rebuild migrations |
+| v5 | 2026-10-21 | Soupler | Jobs schema shipped (0004); fixed-width timestamps (0005) and the rule in §1 |
+| v6 | 2026-10-21 | Soupler | Backup kind shipped (0006); artifact_json cleared by retention |
+| v7 | 2026-10-21 | Soupler | Builds table shipped (0007) |
+| v8 | 2026-10-21 | Soupler | §6 v0.4 changes (planned): new kinds (0008), references, certificates table (0009), ACME account setting, Docker object names |
+| v9 | 2026-10-21 | Soupler | §6 shipped: 0008_network_kinds and 0009_certificates |
+| v10 | 2026-10-21 | Soupler | §7 v0.5 changes (planned): compute kinds (0010), references, files under the data dir, Docker objects |
+| v11 | 2026-10-21 | Soupler | §7 shipped (0010_compute_kinds); references and files as stored |
+| v12 | 2026-10-21 | Soupler | §8 v0.6 changes (planned): new kinds and the purge action, transcoder runs and seen objects, subscription counters, managed secrets, references, engine objects |
+| v13 | 2026-10-22 | Soupler | §9 v0.7 changes (planned): projects and the project column, users and roles, members, invites, tokens with roles, audit, metric series, points and rollups, alert state, incidents, notifications, log export cursors and stats, refs |
+| v14 | 2026-10-22 | Soupler | §10 v0.8 changes (planned): machines, machine CA, machine and stack columns on resources, address pools, machine events, catalogue templates, stack secrets, engine labels, agent state |

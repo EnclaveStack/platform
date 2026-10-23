@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
+import { createBrowserRouter, RouterProvider } from 'react-router';
 import { ConsoleLayout } from './routes/ConsoleLayout';
 import { LoginPage } from './routes/LoginPage';
 import { RequireAuth } from './routes/RequireAuth';
@@ -12,6 +12,8 @@ import { PeoplePage } from './routes/PeoplePage';
 import { ProjectsPage } from './routes/ProjectsPage';
 import { CataloguePage } from './routes/CataloguePage';
 import { MachinesPage } from './routes/MachinesPage';
+import { OverviewPage } from './routes/OverviewPage';
+import { GuidePage } from './routes/GuidePage';
 
 export const routes = [
   { path: '/login', element: <LoginPage /> },
@@ -23,7 +25,7 @@ export const routes = [
       {
         element: <ConsoleLayout />,
         children: [
-          { path: '/', element: <Navigate to="/apps" replace /> },
+          { path: '/', element: <OverviewPage /> },
           { path: '/settings/tokens', element: <TokensPage /> },
           { path: '/settings/account', element: <AccountPage /> },
           { path: '/settings/people', element: <PeoplePage /> },
@@ -32,6 +34,7 @@ export const routes = [
           { path: '/machines', element: <MachinesPage /> },
           { path: '/machines/:name', element: <MachinesPage /> },
           { path: '/catalogue', element: <CataloguePage /> },
+          { path: '/guide/:section', element: <GuidePage /> },
           { path: '/:section', element: <SectionPage /> },
           { path: '/:section/:id', element: <SectionPage /> },
         ],

@@ -1,33 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN, type MockOptions } from './api/mock';
 import type { AlertSpec, ChannelSpec, StackSpec } from './api/types';
-import { SessionProvider } from './auth/session';
+import { renderConsole, signIn } from './test-console';
 
 // v0.8 flows (L2-001 CON-54 – CON-60) through real routes and components on the mock adapter.
 
-function renderConsole(path: string, opts: MockOptions = {}) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null, ...opts });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 const until = async (check: () => Promise<boolean>) => waitFor(async () => expect(await check()).toBe(true), { timeout: 4000 });
 
@@ -49,11 +27,14 @@ describe('many machines in the console', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Add and show the join command' }));
     const card = await screen.findByRole('status', { name: 'Join command' });
     expect(within(card).getByText(/enclave agent join .* --code /)).toBeInTheDocument();
-    expect(within(list).getByText('Waiting to join')).toBeInTheDocument();
+    expect((await api.getMachineByName('rack-1')).state).toBe('waiting');
     await until(async () => (await api.getMachineByName('rack-1')).state === 'online');
     await user.click(within(card).getByRole('button', { name: 'Done' }));
     expect(await screen.findByRole('heading', { name: 'rack-1' })).toBeInTheDocument();
-    await waitFor(() => expect(within(list).getAllByText('Online')).toHaveLength(2), { timeout: 7000 });
+    // Back to the list, which shows both machines online (CON-54, CON-64).
+    await user.click(screen.getByRole('link', { name: /All machines/ }));
+    const machines = await screen.findByRole('region', { name: 'Machines list' });
+    await waitFor(() => expect(within(machines).getAllByText('Online')).toHaveLength(2), { timeout: 7000 });
   }, 15000);
 
   it('places a new database on a chosen machine and moves it (CON-56, CON-57)', async () => {

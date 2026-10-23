@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-22 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -189,5 +189,5 @@ Machines are not a kind: like projects, they are machine-wide objects with their
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-22 | Soupler Labs | v0.8 scope: machines and the agent, placement, networks across machines, offline machines, moving, catalogue and stacks (MCH, PLC, XNET, FAIL, MOVE, CAT requirements). Networks spanning machines, restarting apps on machine loss, and built-in plus own templates as grouped stacks decided with the owner |
-| v2 | 2026-10-22 | Soupler Labs | Delivery status: built on every surface; as-built differences; what is not yet walked |
+| v1 | 2026-10-22 | Soupler | v0.8 scope: machines and the agent, placement, networks across machines, offline machines, moving, catalogue and stacks (MCH, PLC, XNET, FAIL, MOVE, CAT requirements). Networks spanning machines, restarting apps on machine loss, and built-in plus own templates as grouped stacks decided with the owner |
+| v2 | 2026-10-22 | Soupler | Delivery status: built on every surface; as-built differences; what is not yet walked |

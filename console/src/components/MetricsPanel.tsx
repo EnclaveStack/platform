@@ -83,9 +83,9 @@ function Charts({ data, titles, label }: { data: MetricData; titles: (metric: st
 }
 
 /** The machine's own dashboard (MET-05): disk, memory and CPU of EnclaveStack, failed resources. */
-export function MachineDashboard() {
+export function MachineDashboard({ initialRange = '1h' }: { initialRange?: RangeId }) {
   const api = useApi();
-  const [range, setRange] = useState<RangeId>('1h');
+  const [range, setRange] = useState<RangeId>(initialRange);
   // v0.8 (CON-58): one machine's series at a time; disk metrics are the main machine's only.
   const [machine, setMachine] = useState<string>(RULES.mainMachine);
   const machines = useLoad('dashboard-machines', () => api.listMachines());

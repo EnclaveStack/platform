@@ -118,7 +118,7 @@ export function QueueMessages({ queue }: { queue: Resource }) {
       )}
       <Card>
         <Form onSubmit={send}>
-          <Field id="f-msg-body" label="Message">
+          <Field id="f-msg-body" hint="The message body: text or JSON." label="Message">
             <Textarea id="f-msg-body" mono rows={3} value={body} onChange={(e) => setBody(e.target.value)} spellCheck={false} />
           </Field>
           <KeyValueEditor idPrefix="f-msg-attr" label="Attributes" rows={attrs} onChange={setAttrs} errors={{}} errorField={(k) => `attributes.${k}`}
@@ -194,7 +194,7 @@ export function TopicDeliveries({ topic }: { topic: Resource }) {
       {error && <Alert>{error}</Alert>}
       <Card>
         <Form onSubmit={publish}>
-          <Field id="f-pub-body" label="Message">
+          <Field id="f-pub-body" hint="The message every subscription gets: text or JSON." label="Message">
             <Textarea id="f-pub-body" mono rows={3} value={body} onChange={(e) => setBody(e.target.value)} spellCheck={false} />
           </Field>
           <Inline>
@@ -311,11 +311,11 @@ function EmailComposer({ email, onClose }: { email: Resource; onClose: () => voi
     <Drawer title="Send a test message" onClose={onClose}>
       <Form onSubmit={send}>
         <FormRow>
-          <Field id="f-mail-from" label="From" error={errors.from}><Input id="f-mail-from" mono value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+          <Field id="f-mail-from" hint="The sender’s address." label="From" error={errors.from}><Input id="f-mail-from" mono value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field id="f-mail-to" label="To" hint="Separate several with commas." error={errors.to}><Input id="f-mail-to" mono value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         </FormRow>
-        <Field id="f-mail-subject" label="Subject" error={errors.subject}><Input id="f-mail-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></Field>
-        <Field id="f-mail-text" label="Text" error={errors.text}><Textarea id="f-mail-text" rows={4} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+        <Field id="f-mail-subject" hint="The email’s subject line." label="Subject" error={errors.subject}><Input id="f-mail-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></Field>
+        <Field id="f-mail-text" hint="The email’s body as plain text." label="Text" error={errors.text}><Textarea id="f-mail-text" rows={4} value={text} onChange={(e) => setText(e.target.value)} /></Field>
         <Inline><Button type="submit" variant="dark" disabled={busy}>Send</Button></Inline>
       </Form>
     </Drawer>

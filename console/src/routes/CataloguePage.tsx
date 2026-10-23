@@ -117,10 +117,10 @@ function AddTemplateForm({ onDone }: { onDone: (e: CatalogueEntry) => void }) {
     <Form onSubmit={submit} noValidate>
       <Text tone="muted">A template in YAML or JSON: its parameters and the resources it creates (L3-002 §11.6). A higher version of one of yours adds that version.</Text>
       {errors.length > 0 && <Alert><Stack gap={1}>{errors.map((x) => <Text key={x} size="sm">{x}</Text>)}</Stack></Alert>}
-      <Field id="t-file" label="File">
+      <Field id="t-file" hint="A YAML or JSON template file from your computer." label="File">
         <Input id="t-file" type="file" accept=".yaml,.yml,.json,text/yaml,application/json" onChange={(e) => void readFile(e)} />
       </Field>
-      <Field id="t-body" label="Template">
+      <Field id="t-body" hint="Or paste the template here." label="Template">
         <Textarea id="t-body" mono rows={16} value={body} onChange={(e) => setBody(e.target.value)} spellCheck={false} placeholder={'name: shop-worker\ntitle: Shop worker\nversion: 1.0.0\nresources:\n  - kind: app\n    name: ""\n    spec: { image: nginx }'} />
       </Field>
       <Button type="submit" variant="dark" size="lg" block disabled={busy}>{busy ? 'Adding…' : 'Add to the catalogue'}</Button>

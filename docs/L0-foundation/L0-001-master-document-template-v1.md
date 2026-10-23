@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -35,7 +35,7 @@ The canonical skeleton for every governed document in every layer (L0–L7). SIV
 | Last Updated | YYYY-MM-DD |
 | Owner | Full Name — Role |
 | Reviewers | Full Name — Role |
-| Copyright | © YYYY Soupler Labs |
+| Copyright | © YYYY Soupler |
 | License | Apache-2.0 |
 ---
 ```
@@ -72,4 +72,4 @@ The canonical skeleton for every governed document in every layer (L0–L7). SIV
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
 | v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |
-| v2 | 2026-10-22 | Soupler Labs | Skeleton header: `© YYYY Soupler Labs`, `Apache-2.0` (`L0-008` v2); a licence sweep doesn't bump Last Updated |
+| v2 | 2026-10-22 | Soupler | Skeleton header: `© YYYY Soupler`, `Apache-2.0` (`L0-008` v2); a licence sweep doesn't bump Last Updated |

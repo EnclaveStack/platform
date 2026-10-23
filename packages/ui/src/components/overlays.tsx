@@ -1,5 +1,5 @@
-import { X } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Search, X } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Button, IconButton } from './controls';
 import { Field, Input } from './forms';
 
@@ -128,4 +128,75 @@ export function useToast(): Show {
   const show = useContext(ToastContext);
   if (!show) throw new Error('useToast() needs a <ToastProvider> above it');
   return show;
+}
+
+export interface FinderItem {
+  id: string;
+  label: string;
+  /** What it is, on the right: "Page", "Guide", "app · ready". */
+  meta?: string;
+  icon?: ReactNode;
+}
+
+/**
+ * Find (CON-62): a search field over pages and resources. Arrow keys move, Enter opens, Escape closes
+ * (the WAI-ARIA combobox pattern). The app filters `items` from `query`.
+ */
+export function Finder({ query, onQuery, items, onChoose, onClose }: {
+  query: string; onQuery: (q: string) => void; items: FinderItem[]; onChoose: (item: FinderItem) => void; onClose: () => void;
+}) {
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  useEscape(onClose);
+  const current = Math.min(active, Math.max(items.length - 1, 0));
+  function onKey(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (items.length) setActive((current + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length);
+    } else if (e.key === 'Enter') {
+      const item = items[current];
+      if (item) {
+        e.preventDefault();
+        onChoose(item);
+      }
+    }
+  }
+  return (
+    <div className="es-overlay">
+      <button type="button" className="es-scrim" aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div className="es-finder" role="dialog" aria-modal="true" aria-label="Find">
+        <div className="es-finder-field">
+          <Input autoFocus type="search" role="combobox" aria-label="Find a page or a resource" aria-expanded={items.length > 0} aria-controls={listId}
+            aria-activedescendant={items[current] ? `${listId}-${current}` : undefined} placeholder="Find a page or a resource…" value={query}
+            onChange={(e) => { setActive(0); onQuery(e.target.value); }} onKeyDown={onKey} autoComplete="off" spellCheck={false} />
+        </div>
+        {items.length ? (
+          <ul className="es-finder-results" role="listbox" id={listId} aria-label="Results">
+            {items.map((item, i) => (
+              <li key={item.id} id={`${listId}-${i}`} role="option" aria-selected={i === current} className="es-finder-option"
+                aria-label={item.meta ? `${item.label}, ${item.meta}` : item.label}
+                onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); onChoose(item); }}>
+                {item.icon}
+                <span>{item.label}</span>
+                {item.meta && <span className="es-finder-option-meta">{item.meta}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="es-finder-empty" id={listId}>{query ? `Nothing matches “${query}”.` : 'Type to find a page or a resource.'}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The top bar's Find button: shows the shortcut. */
+export function FinderButton({ onOpen, shortcut }: { onOpen: () => void; shortcut: string }) {
+  return (
+    <button type="button" className="es-finder-hint" onClick={onOpen} aria-keyshortcuts={shortcut === '⌘K' ? 'Meta+K' : 'Control+K'}>
+      <Search aria-hidden="true" />
+      <span>Find…</span>
+      <kbd>{shortcut}</kbd>
+    </button>
+  );
 }

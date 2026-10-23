@@ -9,9 +9,9 @@
 | Version | v15 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -160,17 +160,17 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
 | v1 | 2026-10-20 | EnclaveStack | Initial skeleton from soupler-governance-template v1.2.1 |
-| v2 | 2026-10-20 | Soupler Labs | Console prerequisites, bootstrap, dev server, mock vs http modes, smoke, limitations |
-| v3 | 2026-10-20 | Soupler Labs | Go, Docker, OpenTofu, Chrome, k6 prerequisites; build, server, CLI and provider dev workflow; troubleshooting |
-| v4 | 2026-10-20 | Soupler Labs | Go 1.26 minimum; build/ output; provider dev override via TF_CLI_CONFIG_FILE; server flags for automation; more troubleshooting |
-| v5 | 2026-10-20 | Soupler Labs | v0.3 prerequisites (planned): ports 80/443, *.localhost and the local CA, public HTTPS, Pebble, build engine |
-| v6 | 2026-10-21 | Soupler Labs | Edge flags (--edge-address, --edge-http-port, --edge-https-port) |
-| v7 | 2026-10-21 | Soupler Labs | Data-dir tmp for restores; backup prerequisites; test suites clean up the probe helper |
-| v8 | 2026-10-21 | Soupler Labs | Build prerequisites |
-| v9 | 2026-10-21 | Soupler Labs | v0.4 prerequisites (planned): network ranges, nftables in containers, HAProxy image, DNS provider credentials, DNS-01 tests |
-| v10 | 2026-10-21 | Soupler Labs | v0.5 prerequisites (planned): QEMU per platform, disk space, service-manager kill mode, VM link image, real-QEMU tests |
-| v11 | 2026-10-21 | Soupler Labs | v0.5 prerequisites checked on an Apple M4; SSH and stuck-process notes |
-| v12 | 2026-10-22 | Soupler Labs | `--console-url`: where alert and invite links point |
-| v13 | 2026-10-22 | Soupler Labs | v0.8 prerequisites (planned): a second machine in Docker-in-Docker, a real second computer and its ports, agent files, the mesh image, looking at the tunnel |
-| v14 | 2026-10-22 | Soupler Labs | v0.8 as built: `make linux-binary`, `server-in-docker`, `machine2` and `machine2-down` through the bridge gateway |
-| v15 | 2026-10-22 | Soupler Labs | §2 `make demo`: a running server with an admin and sample data in one command; `pnpm dev` uses the in-memory sample data by default (`VITE_ENCLAVE_API=http` for the server) |
+| v2 | 2026-10-20 | Soupler | Console prerequisites, bootstrap, dev server, mock vs http modes, smoke, limitations |
+| v3 | 2026-10-20 | Soupler | Go, Docker, OpenTofu, Chrome, k6 prerequisites; build, server, CLI and provider dev workflow; troubleshooting |
+| v4 | 2026-10-20 | Soupler | Go 1.26 minimum; build/ output; provider dev override via TF_CLI_CONFIG_FILE; server flags for automation; more troubleshooting |
+| v5 | 2026-10-20 | Soupler | v0.3 prerequisites (planned): ports 80/443, *.localhost and the local CA, public HTTPS, Pebble, build engine |
+| v6 | 2026-10-21 | Soupler | Edge flags (--edge-address, --edge-http-port, --edge-https-port) |
+| v7 | 2026-10-21 | Soupler | Data-dir tmp for restores; backup prerequisites; test suites clean up the probe helper |
+| v8 | 2026-10-21 | Soupler | Build prerequisites |
+| v9 | 2026-10-21 | Soupler | v0.4 prerequisites (planned): network ranges, nftables in containers, HAProxy image, DNS provider credentials, DNS-01 tests |
+| v10 | 2026-10-21 | Soupler | v0.5 prerequisites (planned): QEMU per platform, disk space, service-manager kill mode, VM link image, real-QEMU tests |
+| v11 | 2026-10-21 | Soupler | v0.5 prerequisites checked on an Apple M4; SSH and stuck-process notes |
+| v12 | 2026-10-22 | Soupler | `--console-url`: where alert and invite links point |
+| v13 | 2026-10-22 | Soupler | v0.8 prerequisites (planned): a second machine in Docker-in-Docker, a real second computer and its ports, agent files, the mesh image, looking at the tunnel |
+| v14 | 2026-10-22 | Soupler | v0.8 as built: `make linux-binary`, `server-in-docker`, `machine2` and `machine2-down` through the bridge gateway |
+| v15 | 2026-10-22 | Soupler | §2 `make demo`: a running server with an admin and sample data in one command; `pnpm dev` uses the in-memory sample data by default (`VITE_ENCLAVE_API=http` for the server) |

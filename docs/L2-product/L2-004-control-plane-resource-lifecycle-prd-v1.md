@@ -9,9 +9,9 @@
 | Version | v3 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-21 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -69,6 +69,6 @@ The kinds `network`, `firewall`, `loadbalancer`, `zone` and `record`, placement 
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Service kinds, lifecycle, idempotency, concurrency, retry, recovery, drift, dependency and secret rules (CP-01 – CP-19) |
-| v2 | 2026-10-20 | Soupler Labs | §4: v0.3 kinds and capabilities are specified in L2-005 |
-| v3 | 2026-10-21 | Soupler Labs | §5: v0.4 kinds and capabilities are specified in L2-006 |
+| v1 | 2026-10-20 | Soupler | Service kinds, lifecycle, idempotency, concurrency, retry, recovery, drift, dependency and secret rules (CP-01 – CP-19) |
+| v2 | 2026-10-20 | Soupler | §4: v0.3 kinds and capabilities are specified in L2-005 |
+| v3 | 2026-10-21 | Soupler | §5: v0.4 kinds and capabilities are specified in L2-006 |

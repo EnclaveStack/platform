@@ -1,33 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN, type MockOptions } from './api/mock';
 import type { AlertSpec, ChannelSpec } from './api/types';
-import { SessionProvider } from './auth/session';
+import { renderConsole, signIn } from './test-console';
 
 // v0.7 operator flows (L2-001 CON-45 – CON-53) through real routes and components on the mock adapter.
 
-function renderConsole(path: string, opts: MockOptions = {}) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null, ...opts });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 async function openNew(user: ReturnType<typeof userEvent.setup>, noun: string) {
   await user.click((await screen.findAllByRole('button', { name: `New ${noun}` }))[0]!);
@@ -51,7 +30,8 @@ describe('operate in the console', () => {
     await user.click(within(panel).getByRole('button', { name: 'Create secret' }));
     expect(await screen.findByRole('heading', { name: 'in-shop' })).toBeInTheDocument();
     expect((await api.listResources('secret', 'shop')).map((r) => r.name)).toEqual(['in-shop']);
-    const list = screen.getByRole('region', { name: 'Secrets list' });
+    await user.click(screen.getByRole('link', { name: /All secrets/ }));
+    const list = await screen.findByRole('region', { name: 'Secrets list' });
     await waitFor(() => expect(within(list).queryByText('in-default')).not.toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText('Project'), 'All projects');
     expect(await within(list).findByText('in-default')).toBeInTheDocument();
@@ -92,6 +72,7 @@ describe('operate in the console', () => {
     expect(screen.getByRole('tab', { name: '7d' })).toHaveAttribute('aria-selected', 'true');
     expect(app.kind).toBe('app');
     await user.click(screen.getByRole('link', { name: /Monitoring/ }));
+    await user.click(await screen.findByRole('link', { name: 'This machine' }));
     expect(await screen.findByRole('heading', { name: 'This machine' })).toBeInTheDocument();
     expect(await screen.findByRole('figure', { name: 'Disk free' })).toBeInTheDocument();
   });

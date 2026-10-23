@@ -1,9 +1,8 @@
 import {
-  Alert, Avatar, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, DetailBody, DetailHead, DetailHero, DetailTitle, DetailToolbar, Drawer, EmptyState, Fact, Field,
-  Form, Grid, Heading, Icons, Inline, Input, List, ListCardContent, listCardClass, ListHead, Panel, ProgressBar, Row, Rows, Skeleton, Stack, Status, Table, Text, useToast,
-  Workspace,
+  Alert, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, Drawer, Fact, Field, Form, Grid, Heading, Icons, Inline, Input, Page, PageHeader,
+  ProgressBar, Row, Rows, Skeleton, Stack, Status, Table, Text, useToast,
 } from '@enclavestack/ui';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApi } from '../api/context';
 import { RULES } from '../api/generated';
@@ -38,50 +37,72 @@ export function MachinesPage() {
   const [added, setAdded] = useState<AddedMachine | null>(null);
   // Waiting machines turn online without a reload (CON-54).
   usePolling(true, POLL_MS, list.reload);
-  const selected = name ?? list.data?.[0]?.name;
+
+  const back = <Link to="/machines" className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All machines</Link>;
+  const addDrawer = adding && (
+    <Drawer title="Add machine" onClose={() => setAdding(false)}>
+      <AddMachineForm onDone={(a) => { setAdding(false); setAdded(a); list.reload(); }} />
+    </Drawer>
+  );
+
+  // The join command, once, on a page of its own (MCH-03).
+  if (added) {
+    return (
+      <Page>
+        <JoinCard added={added} onDone={() => { setAdded(null); navigate(`/machines/${encodeURIComponent(added.machine.name)}`); }} />
+      </Page>
+    );
+  }
+
+  // A machine opens on a page of its own (CON-64).
+  if (name) {
+    return (
+      <Page>
+        <MachineDetail key={name} name={name} admin={admin} back={back} onChanged={list.reload} onRemoved={() => { list.reload(); navigate('/machines', { replace: true }); }} />
+      </Page>
+    );
+  }
 
   return (
-    <Workspace hasSelection={Boolean(name)}>
-      <Panel layout="list" aria-label="Machines list">
-        <ListHead>
-          <Inline justify="between">
-            <Inline gap={2}>
-              <Heading level={2}>Machines</Heading>
-              {list.data && <Badge tone="soft">{list.data.length}</Badge>}
-            </Inline>
-            {admin && <Button variant="dark" icon={<Icons.Plus />} onClick={() => { setAdded(null); setAdding(true); }}>Add machine</Button>}
-          </Inline>
-        </ListHead>
-        <List>
-          {list.loading && !list.data && [0, 1].map((i) => <Skeleton key={i} shape="card" />)}
-          {list.error && <Alert>{list.error.message}</Alert>}
-          {list.data?.map((m) => (
-            <Link key={m.id} to={`/machines/${encodeURIComponent(m.name)}`} className={listCardClass} aria-current={m.name === selected ? 'true' : undefined}>
-              <ListCardContent avatar={<Avatar name={m.name}><Icons.Server /></Avatar>} name={m.main ? `${m.name} · ${m.title}` : m.name}
-                meta={
-                  <>
-                    <Status tone={tone(m)}>{MACHINE_STATE[m.state] ?? m.state}</Status>
+    <Page>
+      <PageHeader label="Machines" title="Machines" status={list.data && <Badge tone="soft">{list.data.length}</Badge>}
+        lede="The computers EnclaveStack runs on. New resources go to the one with the most free memory, unless you choose."
+        actions={admin && <Button variant="dark" icon={<Icons.Plus />} onClick={() => { setAdded(null); setAdding(true); }}>Add machine</Button>} />
+      <Stack as="section" gap={3} aria-label="Machines list">
+      {list.loading && !list.data && [0, 1].map((i) => <Skeleton key={i} shape="card" />)}
+      {list.error && <Alert>{list.error.message}</Alert>}
+      {list.data && (
+        <Table aria-label="Machines">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">State</th>
+              <th scope="col">Memory</th>
+              <th scope="col">Resources</th>
+              <th scope="col">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.data.map((m) => (
+              <tr key={m.id}>
+                <td><Link to={`/machines/${encodeURIComponent(m.name)}`}><Text weight="semibold">{m.main ? `${m.name} · ${m.title}` : m.name}</Text></Link></td>
+                <td><Status tone={tone(m)}>{MACHINE_STATE[m.state] ?? m.state}</Status></td>
+                <td><Text size="sm" mono>{m.memoryTotalBytes > 0 ? formatBytes(m.memoryTotalBytes) : '—'}</Text></td>
+                <td><Text size="sm">{m.resources} {m.resources === 1 ? 'resource' : 'resources'}</Text></td>
+                <td>
+                  <Inline gap={2} wrap>
                     {!m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
                     {m.versionMismatch && <Chip tone="warn">Different version</Chip>}
-                    {m.memoryTotalBytes > 0 && <span>{formatBytes(m.memoryTotalBytes)}</span>}
-                    <span>{m.resources} {m.resources === 1 ? 'resource' : 'resources'}</span>
-                  </>
-                } />
-            </Link>
-          ))}
-        </List>
-      </Panel>
-      <Panel layout="detail" aria-label="Details">
-        {added ? <JoinCard added={added} onDone={() => { setAdded(null); navigate(`/machines/${encodeURIComponent(added.machine.name)}`); }} />
-          : selected ? <MachineDetail key={selected} name={selected} admin={admin} onChanged={list.reload} onRemoved={() => { list.reload(); navigate('/machines', { replace: true }); }} />
-            : !list.loading && <EmptyState full icon={<Icons.Server />} title="Nothing selected">Select a machine to see it.</EmptyState>}
-      </Panel>
-      {adding && (
-        <Drawer title="Add machine" onClose={() => setAdding(false)}>
-          <AddMachineForm onDone={(a) => { setAdding(false); setAdded(a); list.reload(); }} />
-        </Drawer>
+                  </Inline>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </Workspace>
+      </Stack>
+      {addDrawer}
+    </Page>
   );
 }
 
@@ -130,8 +151,7 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
 /** The join command, shown once (MCH-03). */
 function JoinCard({ added, onDone }: { added: AddedMachine; onDone: () => void }) {
   return (
-    <DetailBody>
-      <Card tone="accent" role="status" aria-label="Join command">
+    <Card tone="accent" role="status" aria-label="Join command">
         <Stack gap={3}>
           <Heading level={2}>Join {added.machine.name}</Heading>
           <Text as="p">On the other computer, with Docker running, run this. It works once, until {new Date(added.expiresAt).toLocaleTimeString()}.</Text>
@@ -143,11 +163,10 @@ function JoinCard({ added, onDone }: { added: AddedMachine; onDone: () => void }
           <div><Button variant="dark" onClick={onDone}>Done</Button></div>
         </Stack>
       </Card>
-    </DetailBody>
   );
 }
 
-function MachineDetail({ name, admin, onChanged, onRemoved }: { name: string; admin: boolean; onChanged: () => void; onRemoved: () => void }) {
+function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: string; admin: boolean; back: ReactNode; onChanged: () => void; onRemoved: () => void }) {
   const api = useApi();
   const toast = useToast();
   const m = useLoad(`machine:${name}`, () => api.getMachineByName(name));
@@ -163,9 +182,9 @@ function MachineDetail({ name, admin, onChanged, onRemoved }: { name: string; ad
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [joined, setJoined] = useState<AddedMachine | null>(null);
 
-  if (m.error) return <DetailBody><Alert>{m.error.message}</Alert></DetailBody>;
+  if (m.error) return <Alert>{m.error.message}</Alert>;
   const x = m.data;
-  if (!x) return <DetailBody><Skeleton shape="title" /><Skeleton shape="block" /></DetailBody>;
+  if (!x) return <Stack aria-busy="true"><Skeleton shape="title" /><Skeleton shape="block" /></Stack>;
 
   const refresh = () => {
     m.reload();
@@ -223,36 +242,31 @@ function MachineDetail({ name, admin, onChanged, onRemoved }: { name: string; ad
 
   return (
     <>
-      <DetailHead label="Summary">
-        <DetailToolbar>
-          <Inline gap={2} wrap>
-            <Link to="/machines" className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All machines</Link>
-            <Chip tone="accent">{x.main ? 'main machine' : 'machine'}</Chip>
-          </Inline>
-          {admin && (
-            <Inline gap={2} wrap>
-              {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
-              <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
-                {x.schedulable ? 'Not schedulable' : 'Schedulable'}
-              </Button>
-              {x.state === 'online' && !x.main && <Button size="sm" icon={<Icons.ArrowRightLeft />} disabled={busy} onClick={() => setDraining(true)}>Drain</Button>}
-              {!x.main && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => { setRemoveError(null); setRemoving('ask'); }}>Remove</Button>}
-            </Inline>
-          )}
-        </DetailToolbar>
-        <DetailHero aside={<Stack gap={0}><Fact label="Since" value={new Date(x.since).toLocaleString()} /><Fact label="Last heard" value={x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'} /></Stack>}>
-          <Avatar name={x.name} size="xl"><Icons.Server /></Avatar>
-          <DetailTitle>{x.name}</DetailTitle>
-          <Inline gap={3} wrap>
-            <Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>
-            {x.main && <Text size="sm" tone="subtle">{x.title}</Text>}
+      <PageHeader
+        label="Summary"
+        back={back}
+        title={x.name}
+        status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
+        lede={`${x.main ? `The main machine · ${x.title}` : 'A machine'} · since ${new Date(x.since).toLocaleString()} · last heard ${x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'}`}
+        meta={(!x.schedulable || x.versionMismatch) && (
+          <>
             {!x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
             {x.versionMismatch && <Chip tone="warn">Different version</Chip>}
-          </Inline>
-        </DetailHero>
-        {x.message && <Alert tone={x.state === 'offline' ? 'bad' : 'info'}>{x.message}</Alert>}
-      </DetailHead>
-      <DetailBody>
+          </>
+        )}
+        actions={admin && (
+              <Inline gap={2} wrap>
+                {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
+                <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
+                  {x.schedulable ? 'Not schedulable' : 'Schedulable'}
+                </Button>
+                {x.state === 'online' && !x.main && <Button size="sm" icon={<Icons.ArrowRightLeft />} disabled={busy} onClick={() => setDraining(true)}>Drain</Button>}
+                {!x.main && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => { setRemoveError(null); setRemoving('ask'); }}>Remove</Button>}
+              </Inline>
+        )}
+      />
+      {x.message && <Alert tone={x.state === 'offline' ? 'bad' : 'info'}>{x.message}</Alert>}
+      <Stack gap={5}>
         {joined && <JoinCard added={joined} onDone={() => setJoined(null)} />}
         {drained && (
           <Alert tone="info" role="status">
@@ -336,7 +350,7 @@ function MachineDetail({ name, admin, onChanged, onRemoved }: { name: string; ad
             </Rows>
           )}
         </Card>
-      </DetailBody>
+      </Stack>
       {draining && (
         <ConfirmDialog title={`Drain ${name}?`} confirmLabel="Drain" busy={busy} onCancel={() => setDraining(false)} onConfirm={() => void drain()}
           body={<p>{name} takes nothing new, and everything not pinned to it moves to other machines. Data moves stop while their data copies.</p>} />
