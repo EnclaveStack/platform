@@ -1,33 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN } from './api/mock';
 import type { CDNSpec, DatabaseSpec, QueueSpec, TopicSpec, TranscoderSpec } from './api/types';
-import { SessionProvider } from './auth/session';
+import { renderConsole, signIn } from './test-console';
 
 // v0.6 operator flows (L2-001 CON-37 – CON-44) through real routes and components on the mock adapter.
 
-function renderConsole(path: string) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 async function openNew(user: ReturnType<typeof userEvent.setup>, noun: string) {
   await user.click((await screen.findAllByRole('button', { name: `New ${noun}` }))[0]!);

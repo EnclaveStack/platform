@@ -1,33 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN, type MockOptions } from './api/mock';
 import type { AlertSpec, ChannelSpec, StackSpec } from './api/types';
-import { SessionProvider } from './auth/session';
+import { MAIN } from './api/mock-machines';
+import { renderConsole, signIn } from './test-console';
 
 // v0.8 flows (L2-001 CON-54 – CON-60) through real routes and components on the mock adapter.
 
-function renderConsole(path: string, opts: MockOptions = {}) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null, ...opts });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 const until = async (check: () => Promise<boolean>) => waitFor(async () => expect(await check()).toBe(true), { timeout: 4000 });
 
@@ -38,23 +17,60 @@ describe('many machines in the console', () => {
     const { user, api } = renderConsole('/machines', { joinAfterMs: 200 });
     await signIn(user);
     const list = await screen.findByRole('region', { name: 'Machines list' });
-    expect(await within(list).findByText(/^main/)).toBeInTheDocument();
+    expect(await within(list).findByText(new RegExp(`^${MAIN.name}`))).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add machine' }));
     const drawer = await screen.findByRole('dialog', { name: 'Add machine' });
-    await user.type(within(drawer).getByLabelText('Name'), 'main');
+    await user.type(within(drawer).getByLabelText('Name'), 'Bad Name');
     await user.click(within(drawer).getByRole('button', { name: 'Add and show the join command' }));
-    expect(await within(drawer).findByText("main is the main machine's name. Choose another.")).toBeInTheDocument();
+    expect(await within(drawer).findByText(/Use 3–40 characters|lowercase/i)).toBeInTheDocument();
     await user.clear(within(drawer).getByLabelText('Name'));
     await user.type(within(drawer).getByLabelText('Name'), 'rack-1');
     await user.click(within(drawer).getByRole('button', { name: 'Add and show the join command' }));
     const card = await screen.findByRole('status', { name: 'Join command' });
     expect(within(card).getByText(/enclave agent join .* --code /)).toBeInTheDocument();
-    expect(within(list).getByText('Waiting to join')).toBeInTheDocument();
+    expect((await api.getMachineByName('rack-1')).state).toBe('waiting');
     await until(async () => (await api.getMachineByName('rack-1')).state === 'online');
     await user.click(within(card).getByRole('button', { name: 'Done' }));
     expect(await screen.findByRole('heading', { name: 'rack-1' })).toBeInTheDocument();
-    await waitFor(() => expect(within(list).getAllByText('Online')).toHaveLength(2), { timeout: 7000 });
+    // Back to the list, which shows both machines online (CON-54, CON-64).
+    await user.click(screen.getByRole('link', { name: /All machines/ }));
+    const machines = await screen.findByRole('region', { name: 'Machines list' });
+    await waitFor(() => expect(within(machines).getAllByText('Online')).toHaveLength(2), { timeout: 7000 });
   }, 15000);
+
+  it('shows the machine ID in grey and lets an admin rename the main machine without changing its ID (MCH-10)', async () => {
+    const { user, api } = renderConsole(`/machines/${MAIN.name}`);
+    await signIn(user);
+    const header = await screen.findByRole('group', { name: 'Summary' });
+    // The ID is a card with a copy button, not crammed into the header.
+    expect(screen.getByText(MAIN.id, { selector: '.es-fact-value' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy the ID' })).toBeInTheDocument();
+    expect(within(header).queryByText(MAIN.id)).not.toBeInTheDocument();
+    await user.click(within(header).getByRole('button', { name: 'Rename' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Rename machine' });
+    const field = within(drawer).getByLabelText('Display name');
+    expect(field).toHaveValue('This Mac');
+    await user.clear(field);
+    await user.click(within(drawer).getByRole('button', { name: 'Save' }));
+    expect(await within(drawer).findByText('Use 1–64 characters.')).toBeInTheDocument();
+    await user.type(field, 'Home lab');
+    await user.click(within(drawer).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('heading', { name: 'Home lab', level: 1 })).toBeInTheDocument();
+    const main = await api.getMachineByName(MAIN.name);
+    expect([main.title, main.id, main.name]).toEqual(['Home lab', MAIN.id, MAIN.name]);
+    // The sidebar and the breadcrumb follow the new name.
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Home lab')).toBeInTheDocument(), { timeout: 4000 });
+  });
+
+  it('offers no rename on a machine that has no display name of its own', async () => {
+    const { user, api } = renderConsole('/machines');
+    await signIn(user);
+    await api.addMachine('rack-1', {});
+    await user.click(await screen.findByRole('link', { name: 'rack-1' }));
+    const header = await screen.findByRole('group', { name: 'Summary' });
+    expect(within(header).queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument();
+    await expect(api.updateMachineByName('rack-1', { title: 'Rack' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
 
   it('places a new database on a chosen machine and moves it (CON-56, CON-57)', async () => {
     const { user, api } = renderConsole('/databases', { machines: [{ name: 'rack-1', labels: { disk: 'ssd' } }] });
@@ -73,9 +89,9 @@ describe('many machines in the console', () => {
     await user.click(await screen.findByRole('button', { name: 'Move' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Move orders to another machine' });
     expect(within(dialog).getByText(/its data is copied/)).toBeInTheDocument();
-    await user.selectOptions(within(dialog).getByLabelText('From rack-1 to'), within(dialog).getByRole('option', { name: /^main/ }));
+    await user.selectOptions(within(dialog).getByLabelText('From rack-1 to'), within(dialog).getByRole('option', { name: new RegExp(`^${MAIN.name}`) }));
     await user.click(within(dialog).getByRole('button', { name: 'Move' }));
-    await until(async () => (await api.listResources('database')).some((r) => r.name === 'orders' && r.outputs.machine === 'main' && r.status.phase === 'ready'));
+    await until(async () => (await api.listResources('database')).some((r) => r.name === 'orders' && r.outputs.machine === MAIN.name && r.status.phase === 'ready'));
     const orders = (await api.listResources('database')).find((r) => r.name === 'orders');
     expect((await api.getEvents(orders?.id ?? '')).map((e) => e.type)).toEqual(expect.arrayContaining(['move_started', 'moved']));
   }, 15000);
@@ -90,7 +106,7 @@ describe('many machines in the console', () => {
     await user.click(await screen.findByRole('button', { name: 'Move' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Move sessions to another machine' });
     expect(await within(dialog).findByText(/rack-1 is offline, so the data of sessions can't be read/)).toBeInTheDocument();
-    await user.selectOptions(within(dialog).getByLabelText('From rack-1 to'), within(dialog).getByRole('option', { name: /^main/ }));
+    await user.selectOptions(within(dialog).getByLabelText('From rack-1 to'), within(dialog).getByRole('option', { name: new RegExp(`^${MAIN.name}`) }));
     await user.click(within(dialog).getByRole('button', { name: 'Move' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Restore a backup to a new cache instead.');
   }, 15000);
@@ -119,7 +135,7 @@ describe('many machines in the console', () => {
     const panel = await screen.findByRole('dialog', { name: 'New alert' });
     await user.type(within(panel).getByLabelText('Name'), 'rack-down');
     await user.click(within(panel).getByRole('radio', { name: /A machine goes offline/ }));
-    expect(within(panel).queryByRole('checkbox', { name: 'main' })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('checkbox', { name: MAIN.name })).not.toBeInTheDocument();
     await user.click(await within(panel).findByRole('checkbox', { name: 'rack-1' }));
     await user.click(await within(panel).findByRole('checkbox', { name: 'ops' }));
     await user.click(within(panel).getByRole('button', { name: 'Create alert' }));

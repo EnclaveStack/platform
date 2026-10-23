@@ -792,7 +792,7 @@ components:
                   field: { type: string }
                   code: { type: string, enum: [REQUIRED, INVALID_FORMAT, TOO_SHORT, TOO_LONG, OUT_OF_RANGE, NOT_ALLOWED, NOT_FOUND, IMMUTABLE, INVALID_SCHEDULE, EXACTLY_ONE, OVERLAPS, GROW_ONLY] }
                   message: { type: string }
-    SetupStatus: { type: object, required: [required], properties: { required: { type: boolean } } }
+    SetupStatus: { type: object, required: [required, suggestedMachineName], properties: { required: { type: boolean }, suggestedMachineName: { type: string, description: The computer's own name, for the setup form to start with } } }
     SetupRequest:
       type: object
       required: [setupCode, machineName, email, password]
@@ -968,7 +968,7 @@ components:
     UpdateMachine:
       type: object
       additionalProperties: false
-      properties: { labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }, schedulable: { type: boolean } }
+      properties: { labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }, schedulable: { type: boolean }, title: { type: string, minLength: 1, maxLength: 64, description: The display name; only the main machine has one of its own } }
     JoinRequest:
       type: object
       required: [code, csr, advertise, agentPort, tunnelPort]
@@ -988,8 +988,10 @@ components:
       properties: { machineId: { type: string }, name: { type: string }, certificate: { type: string }, ca: { type: string }, server: { type: string } }
     Machine:
       type: object
-      required: [name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
+      required: [id, handle, name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
       properties:
+        id: { type: string, description: The main machine's ID (mch_…), made at first start }
+        handle: { type: string, description: The name commands use for the main machine, made from the computer's own name }
         name: { type: string }
         hostname: { type: string }
         version: { type: string }

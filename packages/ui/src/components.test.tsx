@@ -2,7 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import {
-  Avatar, avatarTone, Button, buttonClass, Choice, CodeBlock, ConfirmDialog, Drawer, Field, IconButton, initialsOf, Input, ProgressBar,
+  Avatar, avatarTone, Button, buttonClass, Choice, CodeBlock, ConfirmDialog, Drawer, Field, IconButton, initialsOf, Input, MenuSelect, ProgressBar,
   SegmentedTabs, StageTrack, Status, ToastProvider, useToast,
 } from './index';
 
@@ -179,5 +179,46 @@ describe('Toasts', () => {
   it('useToast outside a provider fails loudly', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() => render(<Trigger />)).toThrow(/ToastProvider/);
+  });
+});
+
+describe('MenuSelect', () => {
+  const options = [{ value: '', label: 'All projects' }, { value: 'default', label: 'default' }, { value: 'shop', label: 'shop' }];
+  function Menu() {
+    const [v, setV] = useState('');
+    return <><MenuSelect label="Project" value={v} options={options} onChange={setV} /><p>chosen:{v || 'none'}</p></>;
+  }
+
+  it('shows the current choice, opens a list with it ticked and picks by click', async () => {
+    const user = userEvent.setup();
+    render(<Menu />);
+    const button = screen.getByRole('button', { name: 'Project: All projects' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    await user.click(button);
+    expect(screen.getByRole('option', { name: 'All projects' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('option', { name: 'shop' }));
+    expect(screen.getByText('chosen:shop')).toBeInTheDocument();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project: shop' })).toHaveFocus();
+  });
+
+  it('works from the keyboard: arrows move, Enter picks, Escape closes without picking', async () => {
+    const user = userEvent.setup();
+    render(<Menu />);
+    await user.click(screen.getByRole('button', { name: /^Project:/ }));
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    expect(screen.getByText('chosen:shop')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Project:/ }));
+    await user.keyboard('{Home}{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByText('chosen:shop')).toBeInTheDocument();
+  });
+
+  it('closes on a click outside', async () => {
+    const user = userEvent.setup();
+    render(<Menu />);
+    await user.click(screen.getByRole('button', { name: /^Project:/ }));
+    await user.click(screen.getByText('chosen:none'));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });

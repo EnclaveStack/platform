@@ -133,8 +133,16 @@ func TestBackupsStreamToABucketRetainAndRestore(t *testing.T) {
 			safety = &runs.Items[i]
 		}
 	}
-	if safety == nil || safety.Status != api.RunSucceeded || b.object(t, safety.Artifact.Key) != "FAKEDUMP\nrows=990" {
+	switch {
+	case safety == nil || safety.Status != api.RunSucceeded || safety.Artifact == nil:
 		t.Errorf("safety backup %+v", safety)
+	default:
+		if got := b.object(t, safety.Artifact.Key); got != "FAKEDUMP\nrows=990" {
+			t.Errorf("safety backup %s (%d bytes recorded) holds %q, want the data from before the restore; source data now %q", safety.Artifact.Key, safety.Artifact.SizeBytes, got, b.env.Fake.Data(b.db.ID))
+			for _, k := range b.env.Backups.Objects(b.target()) {
+				t.Logf("object %s = %q", k, b.object(t, k))
+			}
+		}
 	}
 	if ev := eventTypes(t, c, b.db.ID); ev["restore_requested"] != 1 || ev["restored"] != 1 {
 		t.Errorf("events %v", ev)

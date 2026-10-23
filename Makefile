@@ -2,10 +2,23 @@
 GO        ?= go
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.8.0-dev)
 LDFLAGS   := -s -w -X github.com/enclavestack/platform/internal/version.Version=$(VERSION)
+BINDIR    ?=
 TOFU      ?= $(shell command -v tofu 2>/dev/null)
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 
-.PHONY: demo build console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
+.PHONY: install tofu start demo build console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
+
+install: build ## put `enclave` on your PATH so any terminal can run it (BINDIR=/some/folder to choose where)
+	@dir="$(BINDIR)"; \
+	if [ -z "$$dir" ]; then for d in /opt/homebrew/bin /usr/local/bin; do if [ -d "$$d" ] && [ -w "$$d" ]; then dir="$$d"; break; fi; done; fi; \
+	if [ -z "$$dir" ]; then echo "No writable folder on your PATH found. Pick one: make install BINDIR=\$$HOME/bin (and add it to PATH), or: sudo install -m 0755 build/enclave /usr/local/bin/enclave" >&2; exit 1; fi; \
+	install -m 0755 build/enclave "$$dir/enclave" && echo "Installed $$dir/enclave. Open a new terminal, or run: hash -r. Then: enclave --help"
+
+tofu: ## run OpenTofu against your EnclaveStack in one step; CMD=plan|apply|destroy, DIR=examples/opentofu, ARGS=-auto-approve
+	examples/opentofu/run.sh
+
+start: build ## build, then run the real server (Docker engine, data in ~/.enclave); ARGS='--listen 127.0.0.1:7171' adds flags
+	./build/enclave server $(ARGS)
 
 demo: build ## one command to a running server with sample data (fake engine; DRIVER=docker, PORT, DATA)
 	examples/demo/run.sh
@@ -40,7 +53,7 @@ console-e2e: ## Playwright against the real server (needs Chrome)
 	pnpm --filter @enclavestack/console e2e
 
 engine-docker: ## Docker driver against real Docker
-	$(GO) test -tags docker -count=1 ./internal/engine/docker/...
+	$(GO) test -tags docker -count=1 -timeout 30m ./internal/engine/docker/...
 
 engine-qemu: ## QEMU hypervisor against real QEMU (skips without QEMU or acceleration)
 	$(GO) test -tags qemu -count=1 -timeout 20m ./internal/engine/qemu/...

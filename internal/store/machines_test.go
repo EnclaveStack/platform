@@ -12,7 +12,7 @@ import (
 )
 
 // 0013 places every v0.7 resource on the main machine, keeping its references and events (ADR-044, PLC-08).
-func TestMachinesMigrationPlacesEverythingOnMain(t *testing.T) {
+func TestMachinesMigrationPlacesEverythingOnTheMainMachine(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v07.db")
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
@@ -39,6 +39,8 @@ func TestMachinesMigrationPlacesEverythingOnMain(t *testing.T) {
 	now := ts(time.Now())
 	for _, q := range []string{
 		`INSERT INTO resources (id, project, kind, name, spec_json, generation, phase, last_transition_at, created_at, updated_at) VALUES ('db_1', 'default', 'database', 'orders', '{}', 1, 'ready', '` + now + `', '` + now + `', '` + now + `')`,
+		// A pinned app and a placed one carry the machine's name, "main", before 0014.
+		`INSERT INTO resources (id, project, kind, name, spec_json, generation, phase, last_transition_at, created_at, updated_at) VALUES ('app_1', 'default', 'app', 'pinned', '{"image":"nginx","machine":"main"}', 1, 'ready', '` + now + `', '` + now + `', '` + now + `')`,
 		`INSERT INTO resources (id, project, kind, name, spec_json, generation, phase, owner_id, last_transition_at, created_at, updated_at) VALUES ('sec_1', 'default', 'secret', 'orders-password', '{}', 1, 'ready', 'db_1', '` + now + `', '` + now + `', '` + now + `')`,
 		`INSERT INTO resource_refs VALUES ('db_1', 'sec_1', 'spec.x')`,
 		`INSERT INTO resource_events (resource_id, type, message, created_at) VALUES ('db_1', 'created', 'Created.', '` + now + `')`,
@@ -54,13 +56,31 @@ func TestMachinesMigrationPlacesEverythingOnMain(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	defer s.Close()
+	// After 0013 and 0014 the old row "main" is flagged; the server then gives it a real ID and a name.
+	if old, err := s.GetMachine(ctx, "main"); err != nil || !old.Main {
+		t.Fatalf("the migrated row: %+v %v", old, err)
+	}
+	mainID, err := s.EnsureMainMachine(ctx, func() string { return "mch_made0000000000" }, "sunnys-mac", time.Now())
+	if err != nil || mainID != "mch_made0000000000" || s.MainID() != mainID {
+		t.Fatalf("ensure: %q %v", mainID, err)
+	}
+	if _, err := s.GetMachine(ctx, "main"); err != ErrNotFound {
+		t.Errorf("the old row is still there: %v", err)
+	}
 	got, err := s.GetResource(ctx, "db_1")
-	if err != nil || got.Machine != api.MainMachine || got.Stack != "" {
+	if err != nil || got.Machine != mainID || got.Stack != "" {
 		t.Fatalf("database after migration: %+v %v", got, err)
 	}
-	main, err := s.GetMachine(ctx, api.MainMachine)
-	if err != nil || main.Name != api.MainMachine || main.State != api.MachineOnline || !main.Schedulable {
+	if app, err := s.GetResource(ctx, "app_1"); err != nil || app.Machine != mainID || string(app.Spec) != `{"image":"nginx","machine":"sunnys-mac"}` {
+		t.Errorf("the pinned app keeps its machine under the new name: %+v %v", app, err)
+	}
+	main, err := s.GetMachine(ctx, mainID)
+	if err != nil || main.Name != "sunnys-mac" || !main.Main || main.State != api.MachineOnline || !main.Schedulable {
 		t.Fatalf("main machine: %+v %v", main, err)
+	}
+	// A second start changes nothing.
+	if again, err := s.EnsureMainMachine(ctx, func() string { return "mch_other" }, "elsewhere", time.Now()); err != nil || again != mainID {
+		t.Errorf("second ensure: %q %v", again, err)
 	}
 	var refs, events int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM resource_refs`).Scan(&refs)
@@ -68,11 +88,11 @@ func TestMachinesMigrationPlacesEverythingOnMain(t *testing.T) {
 	if refs != 1 || events != 1 {
 		t.Errorf("refs=%d events=%d", refs, events)
 	}
-	on, err := s.ResourcesOnMachine(ctx, api.MainMachine)
-	if err != nil || len(on) != 2 {
-		t.Errorf("resources on main: %d %v", len(on), err)
+	on, err := s.ResourcesOnMachine(ctx, mainID)
+	if err != nil || len(on) != 3 {
+		t.Errorf("resources on the main machine: %d %v", len(on), err)
 	}
-	if err := s.DeleteMachine(ctx, api.MainMachine); err != ErrConflict {
+	if err := s.DeleteMachine(ctx, mainID); err != ErrConflict {
 		t.Errorf("deleting a machine with resources: %v", err)
 	}
 }
@@ -110,7 +130,7 @@ func TestMachinesRoundTripAndJoinCodesAreUnique(t *testing.T) {
 		t.Errorf("after save: %+v", again)
 	}
 	list, _ := s.ListMachines(ctx)
-	if len(list) != 2 || list[0].ID != api.MainMachine || list[1].Name != "rack-1" {
+	if len(list) != 2 || list[0].ID != s.MainID() || list[1].Name != "rack-1" {
 		t.Errorf("list: %+v", list)
 	}
 	if err := s.AddMachineEvent(ctx, "mch_1", "joined", "Joined.", now); err != nil {
@@ -134,10 +154,10 @@ func TestAddressPoolsNeverShareAnAddress(t *testing.T) {
 	if err := s.InsertMachine(ctx, Machine{ID: "mch_1", Name: "rack-1", State: api.MachineOnline, StateSince: now, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PoolAddressTo(ctx, "es-net-shop", "10.0.0.5", api.MainMachine); err != nil {
+	if err := s.PoolAddressTo(ctx, "es-net-shop", "10.0.0.5", s.MainID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PoolAddressTo(ctx, "es-net-shop", "10.0.0.5", api.MainMachine); err != nil {
+	if err := s.PoolAddressTo(ctx, "es-net-shop", "10.0.0.5", s.MainID()); err != nil {
 		t.Errorf("giving the same machine its own address again: %v", err)
 	}
 	if err := s.PoolAddressTo(ctx, "es-net-shop", "10.0.0.5", "mch_1"); err != ErrConflict {
@@ -172,5 +192,29 @@ func TestMachineCAIsStoredOnce(t *testing.T) {
 	}
 	if got, err := s.GetMachineCA(ctx); err != nil || got.CertPEM != "cert" {
 		t.Errorf("CA: %+v %v", got, err)
+	}
+}
+
+func TestEnsureMainMachineTakesAFreeName(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "free.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	// Another machine already has the computer's name: the main machine gets a number.
+	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertMachine(ctx, Machine{ID: "mch_rack", Name: "sunnys-mac", State: api.MachineOnline, StateSince: now, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.EnsureMainMachine(ctx, func() string { return "mch_main1" }, "sunnys-mac", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.GetMachine(ctx, id); m.Name != "sunnys-mac-2" {
+		t.Errorf("the main machine's name: %q", m.Name)
 	}
 }

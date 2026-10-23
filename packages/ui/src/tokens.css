@@ -52,6 +52,13 @@
   --es-av-5-bg: #FBDDE4; --es-av-5-ink: #A1284A;
   --es-av-6-bg: #DDF3DE; --es-av-6-ink: #22663A;
 
+  /* Guide parts (L2.5-001 §7): what it is, when to use it, how, an example, good to know. They follow the theme. */
+  --es-guide-what: var(--es-accent);
+  --es-guide-when: var(--es-ok);
+  --es-guide-how: var(--es-series-7);
+  --es-guide-example: var(--es-series-3);
+  --es-guide-note: var(--es-warn);
+
   /* Code and logs */
   /* Chart series (L2.5-001 §2): a validated categorical order, never cycled — slot n is the nth series. */
   --es-series-1: #2A78D6; --es-series-2: #EB6834; --es-series-3: #1BAF7A; --es-series-4: #EDA100;
@@ -67,7 +74,19 @@
   --es-wash: radial-gradient(70% 60% at 0% 0%, #2C4BFF1F 0%, #2C4BFF00 70%),
     radial-gradient(60% 55% at 100% 0%, #6E86FF17 0%, #6E86FF00 70%),
     radial-gradient(70% 50% at 70% 100%, #2E9E620D 0%, #2E9E6200 70%), var(--es-surface);
-  --es-shadow-card: none;
+  --es-shadow-card: 0 1px 2px #1115130A, 0 14px 34px -22px #11151347;
+  --es-glow: radial-gradient(55vmax 45vmax at 15% -12%, #2C4BFF14, transparent 70%),
+    radial-gradient(45vmax 40vmax at 105% 2%, #2E9E620F, transparent 70%);
+
+  /* Sidebar: a floating dark panel in both themes (L2.5-001 §7) */
+  --es-side: #121815;
+  --es-side-rim: #FFFFFF12;
+  --es-on-side: #E9EDEA;
+  --es-side-dim: #E9EDEA94;
+  --es-side-hover: #FFFFFF12;
+  --es-side-active: #FFFFFF1F;
+  --es-side-accent: #9AABFF;
+  --es-side-shadow: 0 30px 60px -30px #1215158C;
   --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #11151366;
   --es-scrim: #11151366;
   --es-focus: 0 0 0 2px var(--es-bg), 0 0 0 4px var(--es-accent);
@@ -115,13 +134,17 @@
   /* Sizes */
   --es-tap: 44px;
   --es-control: 40px;
-  --es-sidebar: 264px;
+  --es-sidebar: 256px;
+  --es-rail: 72px;
+  --es-side-w: var(--es-sidebar); /* the sidebar's current width: the rail sets it to --es-rail */
+  --es-inset: 12px;
   --es-column: 340px;
 
   /* Motion */
   --es-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --es-fast: 120ms;
   --es-normal: 200ms;
+  --es-slow: 300ms;
 
   color-scheme: light;
 }
@@ -164,6 +187,17 @@
       radial-gradient(60% 55% at 100% 0%, #6E86FF14 0%, #6E86FF00 70%), var(--es-surface);
     --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #000000B3;
     --es-scrim: #0000008C;
+    --es-shadow-card: 0 1px 0 #FFFFFF08 inset, 0 18px 40px -26px #000000D9;
+    --es-glow: radial-gradient(55vmax 45vmax at 15% -12%, #7C92FF1F, transparent 70%),
+      radial-gradient(45vmax 40vmax at 105% 2%, #3DDC840A, transparent 70%);
+    --es-side: #080B0A;
+    --es-side-rim: #FFFFFF12;
+    --es-on-side: #E9EDEA;
+    --es-side-dim: #E9EDEA94;
+    --es-side-hover: #FFFFFF12;
+    --es-side-active: #FFFFFF1F;
+    --es-side-accent: #9AABFF;
+    --es-side-shadow: 0 0 0 1px #FFFFFF0F, 0 30px 60px -30px #000000CC;
     color-scheme: dark;
   }
 }
@@ -205,5 +239,16 @@
     radial-gradient(60% 55% at 100% 0%, #6E86FF14 0%, #6E86FF00 70%), var(--es-surface);
   --es-shadow-pop: 0 0 0 1px var(--es-hair-strong), 0 24px 60px -18px #000000B3;
   --es-scrim: #0000008C;
+  --es-shadow-card: 0 1px 0 #FFFFFF08 inset, 0 18px 40px -26px #000000D9;
+  --es-glow: radial-gradient(55vmax 45vmax at 15% -12%, #7C92FF1F, transparent 70%),
+    radial-gradient(45vmax 40vmax at 105% 2%, #3DDC840A, transparent 70%);
+  --es-side: #080B0A;
+  --es-side-rim: #FFFFFF12;
+  --es-on-side: #E9EDEA;
+  --es-side-dim: #E9EDEA94;
+  --es-side-hover: #FFFFFF12;
+  --es-side-active: #FFFFFF1F;
+  --es-side-accent: #9AABFF;
+  --es-side-shadow: 0 0 0 1px #FFFFFF0F, 0 30px 60px -30px #000000CC;
   color-scheme: dark;
 }

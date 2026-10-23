@@ -42,7 +42,7 @@ func (r *Reconciler) place(ctx context.Context, res *domain.Resource) error {
 	}
 	if r.Machines == nil || r.Machines.Count(ctx) <= 1 {
 		// One machine: everything runs on it, as before v0.8 (PLC-08).
-		return r.setMachine(ctx, res, api.MainMachine)
+		return r.setMachine(ctx, res, r.Store.MainID())
 	}
 	need, err := r.need(ctx, res)
 	if err != nil {
@@ -127,9 +127,12 @@ func (r *Reconciler) withMachine(ctx context.Context, res *domain.Resource, out 
 	if !domain.Placed(res.Kind) || out == nil {
 		return out
 	}
-	name := api.MainMachine
+	id := res.MachineOn(r.Store.MainID())
+	name := id
 	if r.Machines != nil {
-		name = r.Machines.Name(ctx, res.MachineID())
+		name = r.Machines.Name(ctx, id)
+	} else if mc, err := r.Store.GetMachine(ctx, id); err == nil {
+		name = mc.Name
 	}
 	out[OutputMachine] = name
 	return out

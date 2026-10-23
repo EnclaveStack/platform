@@ -39,7 +39,7 @@ describe('design tokens (ADR-014)', () => {
   });
 
   it('component and layout CSS use only tokens: no colour literals', () => {
-    for (const f of ['components.css', 'layout.css']) {
+    for (const f of ['components.css', 'layout.css', 'pages.css']) {
       const offending = read(f).split('\n').filter((l) => COLOUR.test(l));
       expect(offending, f).toEqual([]);
     }
@@ -47,8 +47,9 @@ describe('design tokens (ADR-014)', () => {
 
   it('every var(--es-*) used by the CSS is defined', () => {
     const used = new Set<string>();
-    for (const f of ['components.css', 'layout.css', 'tokens.css']) for (const m of read(f).matchAll(/var\((--es-[a-z0-9-]+)/g)) if (m[1]) used.add(m[1]);
-    const defined = new Set([...light, '--es-grid-min']);
+    for (const f of ['components.css', 'layout.css', 'pages.css', 'tokens.css']) for (const m of read(f).matchAll(/var\((--es-[a-z0-9-]+)/g)) if (m[1]) used.add(m[1]);
+    // Set by a rule for its own children: the grid's column width, a guide part's tone.
+    const defined = new Set([...light, '--es-grid-min', '--es-guide-tone']);
     for (const u of used) expect(defined, u).toContain(u);
   });
 

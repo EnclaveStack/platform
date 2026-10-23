@@ -563,7 +563,7 @@ func TestEachMachineHasItsOwnMetrics(t *testing.T) {
 	rack := env.AddAgent(t, c, "rack-1", nil)
 	env.WaitMachine(t, c, "rack-1", api.MachineOnline)
 	there := create(t, c, api.KindApp, "far", api.AppSpec{Image: "nginx", Placed: api.Placed{Machine: "rack-1"}})
-	here := create(t, c, api.KindApp, "near", api.AppSpec{Image: "nginx", Placed: api.Placed{Machine: api.MainMachine}})
+	here := create(t, c, api.KindApp, "near", api.AppSpec{Image: "nginx", Placed: api.Placed{Machine: testenv.MainName()}})
 	m := env.Monitor
 	clk := &clock{t: time.Now().Add(-5 * time.Minute)}
 	m.Now = clk.now
@@ -577,7 +577,7 @@ func TestEachMachineHasItsOwnMetrics(t *testing.T) {
 	if err != nil || last(t, far, "memory") != 300<<20 || len(far.Items[1].Points) != 0 {
 		t.Errorf("rack-1: %+v %v", far, err)
 	}
-	main, err := c.MachineMetricsOf(ctx, api.MainMachine, []string{"memory"}, from, to)
+	main, err := c.MachineMetricsOf(ctx, testenv.MainName(), []string{"memory"}, from, to)
 	if err != nil || last(t, main, "memory") != 100<<20 {
 		t.Errorf("main: %+v %v", main, err)
 	}

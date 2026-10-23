@@ -9,9 +9,9 @@
 | Version | v11 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -148,14 +148,14 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Trust boundaries, STRIDE table, cryptography, known limitations |
-| v2 | 2026-10-20 | Soupler Labs | Known limitations: caches without a password; object store image provenance |
-| v3 | 2026-10-20 | Soupler Labs | §5 v0.3 controls (planned): edge proxy exposure, config injection, internal CA, ACME email, engine exec, job output, backups, builds |
-| v4 | 2026-10-21 | Soupler Labs | Edge controls as built: loopback default, --edge-address opt-in, 404 for unknown hosts, Host-header note |
-| v5 | 2026-10-21 | Soupler Labs | §6 v0.4 controls (planned): networks, firewall helper and rule loss, published ports, load balancer config and stats, DNS credentials and record ownership, DNS-01 keys, wildcards |
-| v6 | 2026-10-21 | Soupler Labs | §6 controls built |
-| v7 | 2026-10-21 | Soupler Labs | §7 v0.5 controls (planned): QMP sockets, QEMU, VM link frame port, VM firewalls, SSH, first-boot scripts, images, snapshot data |
-| v8 | 2026-10-21 | Soupler Labs | §7 controls built; the frame-port guard and the socket-directory check are tested |
-| v9 | 2026-10-21 | Soupler Labs | §8 v0.6 additions (planned): broker isolation, message and email access, webhooks, database engine users, search auth, email relay, CDN bucket policy, transcoder sandboxing |
-| v10 | 2026-10-22 | Soupler Labs | §9 v0.7 additions (planned): roles, project isolation, invites, removal, last admin, audit, notifications, log export, secret stores, metrics |
-| v11 | 2026-10-22 | Soupler Labs | §10 v0.8 additions (planned): agent channel and CA, join codes, removed machines, secrets over the wire, tunnel, network crossing, helper privileges, catalogue templates, machine visibility |
+| v1 | 2026-10-20 | Soupler | Trust boundaries, STRIDE table, cryptography, known limitations |
+| v2 | 2026-10-20 | Soupler | Known limitations: caches without a password; object store image provenance |
+| v3 | 2026-10-20 | Soupler | §5 v0.3 controls (planned): edge proxy exposure, config injection, internal CA, ACME email, engine exec, job output, backups, builds |
+| v4 | 2026-10-21 | Soupler | Edge controls as built: loopback default, --edge-address opt-in, 404 for unknown hosts, Host-header note |
+| v5 | 2026-10-21 | Soupler | §6 v0.4 controls (planned): networks, firewall helper and rule loss, published ports, load balancer config and stats, DNS credentials and record ownership, DNS-01 keys, wildcards |
+| v6 | 2026-10-21 | Soupler | §6 controls built |
+| v7 | 2026-10-21 | Soupler | §7 v0.5 controls (planned): QMP sockets, QEMU, VM link frame port, VM firewalls, SSH, first-boot scripts, images, snapshot data |
+| v8 | 2026-10-21 | Soupler | §7 controls built; the frame-port guard and the socket-directory check are tested |
+| v9 | 2026-10-21 | Soupler | §8 v0.6 additions (planned): broker isolation, message and email access, webhooks, database engine users, search auth, email relay, CDN bucket policy, transcoder sandboxing |
+| v10 | 2026-10-22 | Soupler | §9 v0.7 additions (planned): roles, project isolation, invites, removal, last admin, audit, notifications, log export, secret stores, metrics |
+| v11 | 2026-10-22 | Soupler | §10 v0.8 additions (planned): agent channel and CA, join codes, removed machines, secrets over the wire, tunnel, network crossing, helper privileges, catalogue templates, machine visibility |

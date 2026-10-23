@@ -1,32 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN } from './api/mock';
-import { SessionProvider } from './auth/session';
+import { renderConsole, signIn } from './test-console';
 
 // v0.4 operator flows (L2-001 CON-26 – CON-31) through real routes and components on the mock adapter.
 
-function renderConsole(path: string) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 describe('networking in the console', () => {
   it('creates a network with a subnet, checking the ranges as you type (CON-26)', async () => {
@@ -70,6 +48,8 @@ describe('networking in the console', () => {
 
     await api.createResource('firewall', 'db-access', { targets: ['database/orders'], ingress: [{ from: ['app/api'], protocol: 'tcp', ports: ['5432'] }] });
     await user.click(screen.getByRole('link', { name: /Firewalls/ }));
+    // A section lists its resources; each opens on a page of its own (CON-64).
+    await user.click(await screen.findByRole('link', { name: 'db-access' }));
     expect(await screen.findByRole('heading', { name: 'db-access' })).toBeInTheDocument();
     expect(await screen.findByText('Allow tcp 5432 from app/api')).toBeInTheDocument();
     expect(screen.getAllByText(/published host ports stay reachable/i).length).toBeGreaterThan(0);

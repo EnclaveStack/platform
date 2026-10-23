@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-21 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -208,5 +208,5 @@ Engineering: `L3-002` §9, `L3-003` ADR-029 – ADR-034, `L3-004` DAR-021 – DA
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-21 | Soupler Labs | v0.6 scope: database engines, queue, topic, search, transcoder, cdn and email kinds (DBE, QUE, TOP, SRC, TRN, CDN, EML requirements). Scope, broker, search engine and email approach decided with the owner |
-| v2 | 2026-10-22 | Soupler Labs | Delivery status: phases 1 – 6 built and tested on every surface and on real Docker; as-built notes (MongoDB 7.0 default, dead letters at the next receive, manual transcodes refused at concurrency, search and email placement fixed, LOGIN relay auth, fixed host ports) |
+| v1 | 2026-10-21 | Soupler | v0.6 scope: database engines, queue, topic, search, transcoder, cdn and email kinds (DBE, QUE, TOP, SRC, TRN, CDN, EML requirements). Scope, broker, search engine and email approach decided with the owner |
+| v2 | 2026-10-22 | Soupler | Delivery status: phases 1 – 6 built and tested on every surface and on real Docker; as-built notes (MongoDB 7.0 default, dead letters at the next receive, manual transcodes refused at concurrency, search and email placement fixed, LOGIN relay auth, fixed host ports) |

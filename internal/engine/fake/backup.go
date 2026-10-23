@@ -41,12 +41,13 @@ func (d *Driver) Dump(ctx context.Context, in engine.EnsureInput, w io.Writer) (
 	d.mu.Lock()
 	f := d.faults[r.Name]
 	rt := d.runtimes[r.ID]
+	running := rt != nil && rt.running // read under the lock: Ensure rewrites it
 	data := d.data[r.ID]
 	d.mu.Unlock()
 	if f != nil && f.DumpFails {
 		return engine.DumpInfo{}, errors.New("pg_dump: connection lost (injected fault)")
 	}
-	if rt == nil || !rt.running {
+	if !running {
 		return engine.DumpInfo{}, fmt.Errorf("%s isn't running", r.Name)
 	}
 	info := engine.DumpInfo{Ext: engine.DumpExt(in.Spec), Engine: "redis (fake)"}

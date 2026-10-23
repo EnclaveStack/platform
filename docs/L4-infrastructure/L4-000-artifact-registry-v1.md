@@ -9,9 +9,9 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -25,8 +25,8 @@ Registry of every artifact in layer **L4 — Infrastructure & Deployment** (envi
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L4-001-local-dev-setup-v1 | Local Development Setup & Smoke Runbook | Draft | v15 | Soupler Labs | 2026-10-22 |
-| L4-002-ci-release-runbook-v1 | CI Pipeline and Release Runbook | Draft | v7 | Soupler Labs | 2026-10-22 |
+| L4-001-local-dev-setup-v1 | Local Development Setup & Smoke Runbook | Draft | v19 | Soupler | 2026-10-23 |
+| L4-002-ci-release-runbook-v1 | CI Pipeline and Release Runbook | Draft | v8 | Soupler | 2026-10-23 |
 
 ## Version history
 

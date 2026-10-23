@@ -6,12 +6,12 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v22 |
+| Version | v15 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -701,14 +701,14 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 ## ADR-044 — Placement: one machine per resource, kept in the store; an engine router
 - **Status**: Accepted (DAR-039) — planned for v0.8, `L2-010` PLC-01 – PLC-08
 - **Decision**:
-  - **Store.** A `machines` table holds each machine. The main machine is the row `main`, made by the migration with the machine name. `resources` gains `machine_id` (default `main`), so every existing row is on the main machine.
+  - **Store.** A `machines` table holds each machine. The main machine is the row with `is_main = 1`: its ID (`mch_…`) and name (the computer's name, numbered if taken) are made when the server first starts, never fixed words. `resources` gains `machine_id`, so every existing row is on the main machine.
   - **Spec.** App, database, cache, job, load balancer, VM, volume, search and email specs gain `machine` and `machineLabels`. Placement is the reconciler's: a resource with no machine is placed by `domain.ChooseMachine` before its first ensure, in a transaction that counts every resource's reservation per machine (CP-16 per machine). It considers online, schedulable machines of the same minor version, with the labels and the support the kind needs, and the machine of the volumes it uses (PLC-04). The resource is placed on the one with the most free memory, the main machine on a tie. If none fits, the resource waits with the reason and tries again every 30 seconds.
-  - **Pinned kinds.** Buckets, queues, topics, domains, CDNs, transcoders, zones, records and the system containers stay on `main`. Secrets, networks, firewalls, backups, snapshots and the v0.7 kinds have no runtime of their own and keep `main`.
+  - **Pinned kinds.** Buckets, queues, topics, domains, CDNs, transcoders, zones, records and the system containers stay on the main machine. Secrets, networks, firewalls, backups, snapshots and the v0.7 kinds have no runtime of their own and keep the main machine.
   - **Engine router.** `internal/engine/cluster.Router` implements `engine.Driver` and `engine.Hypervisor`. It routes each call by the machine of the resource it names: in process for `main`, `agent.Remote` for the others. Calls naming no resource go to the machine they concern. The edge, broker, object store, certificates, transcoding and project store access go to `main`. Networks go to every online machine. A job run goes to its job's machine, a build to its app's machine, a dump to its database's machine. A call to an offline machine fails at once with `ErrMachineOffline`, which the reconciler treats like `ErrUnavailable`, with the machine in the message. The reconciler, services and monitor keep their single `Driver` and `Hypervisor`, so archtest still forbids services the state-changing calls.
   - **Outputs.** Every placed resource reports `machine` (its name). Published ports bind on that machine's publish address, and `host` is the machine's advertised address.
 - **Consequences**:
   - `domain.Resource` gains `Machine` (an ID); the router reads it, so nothing below the reconciler changes signature.
-  - With one machine, the router sends everything to `main` and every output keeps its value (PLC-08).
+  - With one machine, the router sends everything to the main machine and every output keeps its value (PLC-08).
 
 ## ADR-045 — Networks across machines: a mesh container per machine, stand-ins, address pools
 - **Status**: Accepted (DAR-035, DAR-036; spiked 2026-10-22) — planned for v0.8, `L2-010` XNET-01 – XNET-08
@@ -778,25 +778,26 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | ADR-003 – ADR-012: API-first, declarative reconciliation, SQLite, engine drivers, auth, single binary, provider placement, errors/idempotency/concurrency, observability, resilience |
-| v2 | 2026-10-20 | Soupler Labs | ADR-013: object store image (Chainguard MinIO pinned by digest) |
-| v3 | 2026-10-20 | Soupler Labs | ADR-014: design system package @enclavestack/ui; no inline styles, stylesheets or hand-written classes in apps (enforced by tests) |
-| v4 | 2026-10-20 | Soupler Labs | ADR-015 – ADR-019 for v0.3: Caddy edge proxy, revisions and probes, scheduler and runs, streamed logical backups, builds through the engine API (spike gate) |
-| v5 | 2026-10-21 | Soupler Labs | ADR-016 implemented: revisions numbered by a counter that only grows, interrupted deploys discarded and restarted, implicit tcp default, v0.2 adoption, measured internal-client limit |
-| v6 | 2026-10-21 | Soupler Labs | ADR-015 implemented: stable-alias upstreams with dial retries (no edge change on deploys), loopback default and --edge-address, server layout, loopback guard, certificate refresh, rebuild migrations |
-| v7 | 2026-10-21 | Soupler Labs | ADR-015: certificate refresh relative to lifetime |
-| v8 | 2026-10-21 | Soupler Labs | ADR-017 implemented for jobs: scheduler in the reconciler, adoption path (idempotent start, at-least-once), catch-up bound, results and events |
-| v9 | 2026-10-21 | Soupler Labs | ADR-018 implemented: as-implemented notes (SHA in the run, verify before restore, Redis via AOF, marker outputs, ms keys, retention per backup and never on a run being restored, forgotten artifacts, recoverable failed replace, ready → failed); ADR-014 gains Choice |
-| v10 | 2026-10-21 | Soupler Labs | ADR-019 implemented: context through the build session (Docker Desktop truncates chunked build bodies), Retry rebuilds after a failed build, in-use images kept |
-| v11 | 2026-10-21 | Soupler Labs | ADR-017 status: implemented for backups too |
-| v12 | 2026-10-21 | Soupler Labs | ADR-020 – ADR-024 for v0.4: networks and private DNS, nftables firewalls, replicas and HAProxy load balancers, DNS provider plug-ins, DNS-01 and wildcard certificates (planned) |
-| v13 | 2026-10-21 | Soupler Labs | ADR-020 – ADR-024 implemented, with as-built notes and measurements |
-| v14 | 2026-10-21 | Soupler Labs | ADR-022: zero-drop deploys behind a load balancer measured; fast connect timeout and retry on another replica |
-| v15 | 2026-10-21 | Soupler Labs | ADR-025 – ADR-028 for v0.5: QEMU hypervisor over QMP, a link container per VM (spiked), volumes, snapshots (planned) |
-| v16 | 2026-10-21 | Soupler Labs | ADR-025 – ADR-028 implemented, with as-built notes: QMP per operation, image cache, fixed link MAC (found live), chain names, filled volumes release snapshots |
-| v17 | 2026-10-21 | Soupler Labs | ADR-029 – ADR-034 for v0.6: NATS JetStream broker, database engines, OpenSearch, Mailpit email, nginx CDN, FFmpeg transcoders (planned; broker spiked) |
-| v18 | 2026-10-22 | Soupler Labs | ADR-029 – ADR-034 implemented, with as-built notes: hyphens kept in stream names, dead letters move at the next receive, host ports fixed at create (found on real Docker), MongoDB 7.0 default (kernel refusal), LOGIN relay auth without TLS, manual transcode refused at concurrency, shared run metrics |
-| v19 | 2026-10-22 | Soupler Labs | ADR-035 – ADR-041 for v0.7: projects as namespaces, roles and scoped tokens, built-in metrics, alerts, notification outbox, log shipper, external secret stores (planned) |
-| v20 | 2026-10-22 | Soupler Labs | ADR-040 as implemented: inclusive reads, skip counts, rotation gaps |
-| v21 | 2026-10-22 | Soupler Labs | ADR-042 – ADR-048 for v0.8: agent over mutual TLS, machine identity and join codes, placement and the engine router, networks across machines (mesh, stand-ins, address pools; spiked), offline machines, moving, catalogue and stacks (planned) |
-| v22 | 2026-10-22 | Soupler Labs | Token prefix `es_pat_` (was `hc_pat_` after the rename) |
+| v1 | 2026-10-20 | Soupler | ADR-003 – ADR-012: API-first, declarative reconciliation, SQLite, engine drivers, auth, single binary, provider placement, errors/idempotency/concurrency, observability, resilience |
+| v2 | 2026-10-20 | Soupler | ADR-013: object store image (Chainguard MinIO pinned by digest) |
+| v3 | 2026-10-20 | Soupler | ADR-014: design system package @enclavestack/ui; no inline styles, stylesheets or hand-written classes in apps (enforced by tests) |
+| v4 | 2026-10-20 | Soupler | ADR-015 – ADR-019 for v0.3: Caddy edge proxy, revisions and probes, scheduler and runs, streamed logical backups, builds through the engine API (spike gate) |
+| v5 | 2026-10-21 | Soupler | ADR-016 implemented: revisions numbered by a counter that only grows, interrupted deploys discarded and restarted, implicit tcp default, v0.2 adoption, measured internal-client limit |
+| v6 | 2026-10-21 | Soupler | ADR-015 implemented: stable-alias upstreams with dial retries (no edge change on deploys), loopback default and --edge-address, server layout, loopback guard, certificate refresh, rebuild migrations |
+| v7 | 2026-10-21 | Soupler | ADR-015: certificate refresh relative to lifetime |
+| v8 | 2026-10-21 | Soupler | ADR-017 implemented for jobs: scheduler in the reconciler, adoption path (idempotent start, at-least-once), catch-up bound, results and events |
+| v9 | 2026-10-21 | Soupler | ADR-018 implemented: as-implemented notes (SHA in the run, verify before restore, Redis via AOF, marker outputs, ms keys, retention per backup and never on a run being restored, forgotten artifacts, recoverable failed replace, ready → failed); ADR-014 gains Choice |
+| v10 | 2026-10-21 | Soupler | ADR-019 implemented: context through the build session (Docker Desktop truncates chunked build bodies), Retry rebuilds after a failed build, in-use images kept |
+| v11 | 2026-10-21 | Soupler | ADR-017 status: implemented for backups too |
+| v12 | 2026-10-21 | Soupler | ADR-020 – ADR-024 for v0.4: networks and private DNS, nftables firewalls, replicas and HAProxy load balancers, DNS provider plug-ins, DNS-01 and wildcard certificates (planned) |
+| v13 | 2026-10-21 | Soupler | ADR-020 – ADR-024 implemented, with as-built notes and measurements |
+| v14 | 2026-10-21 | Soupler | ADR-022: zero-drop deploys behind a load balancer measured; fast connect timeout and retry on another replica |
+| v15 | 2026-10-21 | Soupler | ADR-025 – ADR-028 for v0.5: QEMU hypervisor over QMP, a link container per VM (spiked), volumes, snapshots (planned) |
+| v16 | 2026-10-21 | Soupler | ADR-025 – ADR-028 implemented, with as-built notes: QMP per operation, image cache, fixed link MAC (found live), chain names, filled volumes release snapshots |
+| v17 | 2026-10-21 | Soupler | ADR-029 – ADR-034 for v0.6: NATS JetStream broker, database engines, OpenSearch, Mailpit email, nginx CDN, FFmpeg transcoders (planned; broker spiked) |
+| v18 | 2026-10-22 | Soupler | ADR-029 – ADR-034 implemented, with as-built notes: hyphens kept in stream names, dead letters move at the next receive, host ports fixed at create (found on real Docker), MongoDB 7.0 default (kernel refusal), LOGIN relay auth without TLS, manual transcode refused at concurrency, shared run metrics |
+| v19 | 2026-10-22 | Soupler | ADR-035 – ADR-041 for v0.7: projects as namespaces, roles and scoped tokens, built-in metrics, alerts, notification outbox, log shipper, external secret stores (planned) |
+| v20 | 2026-10-22 | Soupler | ADR-040 as implemented: inclusive reads, skip counts, rotation gaps |
+| v21 | 2026-10-22 | Soupler | ADR-042 – ADR-048 for v0.8: agent over mutual TLS, machine identity and join codes, placement and the engine router, networks across machines (mesh, stand-ins, address pools; spiked), offline machines, moving, catalogue and stacks (planned) |
+| v22 | 2026-10-22 | Soupler | Token prefix `es_pat_` (was `hc_pat_` after the rename) |
+| v15 | 2026-10-23 | Soupler | ADR-042 – ADR-044: the main machine has a generated ID and a computer-derived name; no `main` row or alias |

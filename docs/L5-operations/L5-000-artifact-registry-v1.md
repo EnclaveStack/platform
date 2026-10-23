@@ -9,9 +9,9 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -25,9 +25,10 @@ Registry of every artifact in layer **L5 — Operations & GTM** (test playbook, 
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v22 | Soupler Labs | 2026-10-22 |
-| L5-002-test-strategy-v1 | Test Strategy | Draft | v19 | Soupler Labs | 2026-10-22 |
-| L5-003-performance-baseline-v1 | Performance Baseline | Draft | v3 | Soupler Labs | 2026-10-22 |
+| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v25 | Soupler | 2026-10-23 |
+| L5-002-test-strategy-v1 | Test Strategy | Draft | v19 | Soupler | 2026-10-22 |
+| L5-003-performance-baseline-v1 | Performance Baseline | Draft | v3 | Soupler | 2026-10-22 |
+| L5-004-user-guide-v1 | User Guide: install, run and use EnclaveStack | Draft | v1 | Soupler | 2026-10-23 |
 
 ## Version history
 

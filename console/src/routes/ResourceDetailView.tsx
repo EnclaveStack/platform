@@ -1,9 +1,9 @@
 import {
-  Alert, Avatar, BackSlot, Button, buttonClass, Card, Chip, Choice, Code, CodeBlock, ConfirmDialog, DetailBody, DetailHead, DetailHero, DetailProgress,
-  DetailTitle, DetailToolbar, Disclosure, Drawer, EmptyState, Fact, Field, Fieldset, Form, FormRow, Grid, Icons, Inline, Input, Row, Rows, SegmentedTabs, Skeleton, StageTrack, Stack,
-  Table, TabPanel, Terminal, TerminalLine, TerminalText, Text, useToast, VisuallyHidden,
+  Alert, Button, buttonClass, Card, Chip, Choice, Code, CodeBlock, ConfirmDialog, DetailBody, DetailProgress, Disclosure, Drawer, EmptyState, Fact,
+  Field, Fieldset, Form, FormRow, Grid, Icons, Inline, Input, PageHeader, Row, Rows, SegmentedTabs, Skeleton, Stack, StageTrack, Table, TabPanel,
+  Terminal, TerminalLine, TerminalText, Text, useToast, VisuallyHidden,
 } from '@enclavestack/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
 import { MANAGED } from '../api/generated';
@@ -17,7 +17,7 @@ import { inProgress, StatusBadge } from '../components/StatusBadge';
 import { isPlaced, MoveButton, OfflineBanner } from '../components/MachineFields';
 import { StackForm, StackMembers } from '../components/StackFields';
 import { cliCommand, tofuBlock } from '../lib/codegen';
-import { formatBytes } from '../lib/format';
+import { formatAgo, formatBytes } from '../lib/format';
 import { describeSchedule } from '../lib/schedule';
 import { describeHealthCheck } from '../lib/validation';
 import { RULES } from '../api/generated';
@@ -25,6 +25,7 @@ import { metricsOf } from '../lib/operate';
 import { useProject } from '../lib/project';
 import { needRole } from '../lib/roles';
 import { sectionByKind } from '../lib/sections';
+import { usePageTitle } from '../lib/shell';
 import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { ResourceForm } from './ResourceForm';
@@ -97,11 +98,13 @@ const DEPLOY_LABEL: Record<string, string> = { succeeded: 'Succeeded', failed: '
 
 interface Props {
   id: string;
+  /** The way back to the resource's section, shown above its name (CON-63). */
+  back: ReactNode;
   onChanged: () => void;
   onDeleted: () => void;
 }
 
-export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
+export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
   const api = useApi();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('overview');
@@ -120,6 +123,7 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
   const r = detail.data;
   const { allowed } = useProject();
   const busyPhase = r ? inProgress(r.status.phase) : false;
+  usePageTitle(r?.name);
 
   // Poll while anything is in progress, then refresh the list once it settles (L2.5-002 §4).
   usePolling(busyPhase, POLL_MS, detail.reload);
@@ -231,19 +235,23 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
 
   return (
     <>
-      <DetailHead label="Summary">
-        <DetailToolbar>
-          <Inline gap={2} wrap>
-            <BackSlot>
-              <Link to={`/${section.slug}`} className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All {section.label.toLowerCase()}</Link>
-            </BackSlot>
-            <Chip tone="accent">{section.noun}</Chip>
+      <PageHeader
+        label="Summary"
+        back={back}
+        title={r.name}
+        status={<StatusBadge phase={r.status.phase} />}
+        lede={`${section.noun[0]?.toUpperCase() ?? ''}${section.noun.slice(1)} in project ${r.project} · changed ${formatAgo(r.updatedAt)}`}
+        meta={(r.ownerId !== null || r.stack || (typeof r.outputs.machine === 'string' && r.outputs.machine)) && (
+          <>
             {r.ownerId !== null && <Chip>Managed by {r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : 'its database'}</Chip>}
             {r.stack && <StackChip id={r.stack} />}
             {typeof r.outputs.machine === 'string' && r.outputs.machine && (
               <Link to={`/machines/${encodeURIComponent(r.outputs.machine)}`}><Chip mono icon={<Icons.Server />}>{r.outputs.machine}</Chip></Link>
             )}
-          </Inline>
+          </>
+        )}
+        actions={
+          <>
           {!canEdit ? (
             <Inline gap={2} wrap>
               <Text size="sm" tone="subtle">View only</Text>
@@ -290,36 +298,26 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
             {!managed && r.status.phase !== 'deleting' && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</Button>}
           </Inline>
           )}
-        </DetailToolbar>
+          </>
+        }
+      />
+      {(r.status.steps.length > 0 || failed) && (
+        <DetailProgress>
+          {r.status.steps.length > 0 && (
+            <StageTrack label="Progress" stages={r.status.steps.map((s) => ({ label: (s.name[0] ?? '').toUpperCase() + s.name.slice(1), state: s.state }))} />
+          )}
+          {failed && (
+            <Button variant="dark" icon={<Icons.RotateCw />} disabled={busy} onClick={() => run(`Retrying ${r.name}`, () => api.action(r.id, 'reconcile'))}>Retry</Button>
+          )}
+        </DetailProgress>
+      )}
 
-        <DetailHero aside={<HeroFacts r={r} />}>
-          <Avatar name={r.name} size="xl" />
-          <DetailTitle>{r.name}</DetailTitle>
-          <Inline gap={3} wrap>
-            <StatusBadge phase={r.status.phase} />
-            <Text size="sm" tone="subtle">Project {r.project}</Text>
-            <Text size="sm" tone="subtle">Generation {r.generation}</Text>
-          </Inline>
-        </DetailHero>
+      {isPlaced(r.kind) && <OfflineBanner r={r} />}
+      {r.status.message && (
+        <Alert tone={failed ? 'bad' : 'info'} role={failed ? 'alert' : undefined}>{r.status.message}</Alert>
+      )}
 
-        {(r.status.steps.length > 0 || failed) && (
-          <DetailProgress>
-            {r.status.steps.length > 0 && (
-              <StageTrack label="Progress" stages={r.status.steps.map((s) => ({ label: (s.name[0] ?? '').toUpperCase() + s.name.slice(1), state: s.state }))} />
-            )}
-            {failed && (
-              <Button variant="dark" icon={<Icons.RotateCw />} disabled={busy} onClick={() => run(`Retrying ${r.name}`, () => api.action(r.id, 'reconcile'))}>Retry</Button>
-            )}
-          </DetailProgress>
-        )}
-
-        {isPlaced(r.kind) && <OfflineBanner r={r} />}
-        {r.status.message && (
-          <Alert tone={failed ? 'bad' : 'info'} role={failed ? 'alert' : undefined}>{r.status.message}</Alert>
-        )}
-      </DetailHead>
-
-      <DetailBody>
+      <Stack gap={5}>
         <div>
           <SegmentedTabs label="Details" tabs={tabs} selected={tab} onSelect={setTab} />
         </div>
@@ -339,7 +337,7 @@ export function ResourceDetailView({ id, onChanged, onDeleted }: Props) {
           {tab === 'emails' && <EmailMessages email={r} />}
           {tab === 'events' && <Events id={r.id} version={`${r.generation}:${r.updatedAt}:${r.status.phase}`} />}
         </TabPanel>
-      </DetailBody>
+      </Stack>
 
       {editing && (
         <Drawer title={r.kind === 'stack' ? `Parameters of ${r.name}` : `Edit ${r.kind} ${r.name}`} onClose={() => setEditing(false)}>
@@ -650,15 +648,6 @@ function MachineSettingsCard() {
 }
 
 /** Created and last-changed times, beside the title. */
-function HeroFacts({ r }: { r: Resource }) {
-  return (
-    <Stack gap={0}>
-      <Fact label="Created" value={new Date(r.createdAt).toLocaleString()} />
-      <Fact label="Last changed" value={new Date(r.updatedAt).toLocaleString()} />
-    </Stack>
-  );
-}
-
 function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
   const facts: [string, string][] = Object.entries(r.outputs)
     .filter(([k]) => !HIDDEN_OUTPUTS.has(k))
@@ -793,6 +782,7 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
       break;
     }
   }
+  facts.push(['Created', new Date(r.createdAt).toLocaleString()]);
   return (
     <Stack gap={4}>
       {facts.length > 0 && (

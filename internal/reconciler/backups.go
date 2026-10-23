@@ -313,6 +313,10 @@ func (r *Reconciler) restoreInto(ctx context.Context, target *domain.Resource, i
 	if pr.Replace && !pr.SafetyDone {
 		engine.Note(report, "Taking a safety backup of the current data first.")
 		safety := &domain.Run{ID: domain.NewID("run"), ResourceID: bres.ID, Trigger: api.TriggerPreRestore, Status: api.RunRunning, StartedAt: r.Now()}
+		// Claim the run before it exists: the scheduler adopts every running run, and a second execution
+		// would overwrite this object with the data after the restore.
+		r.adopt(safety.ID)
+		defer r.release("run:" + safety.ID)
 		if err := r.Store.InsertRun(ctx, safety); err != nil {
 			return "", err
 		}

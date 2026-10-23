@@ -114,7 +114,7 @@ export function MoveDialog({ r, onClose, onMoved }: { r: Resource; onClose: () =
           {offlineHere && isDataKind(r.kind) && (
             <Alert tone="warn">{here} is offline, so the data of {r.name} can&apos;t be read. Restore a backup to a new {r.kind} instead.</Alert>
           )}
-          <Field id="move-to" label={`From ${here || 'its machine'} to`}>
+          <Field id="move-to" hint="Its data is copied first, then it starts there with the same address." label={`From ${here || 'its machine'} to`}>
             <Select id="move-to" value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="">Choose…</option>
               {targets.map((m) => <option key={m.id} value={m.name} disabled={m.state !== 'online' || !m.schedulable}>{machineOption(m)}</option>)}

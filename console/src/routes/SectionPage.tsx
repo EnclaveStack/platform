@@ -1,18 +1,18 @@
 import {
-  Alert, Avatar, Badge, Button, CodeBlock, Drawer, EmptyState, Heading, Icons, Inline, Input, List, ListCardContent, listCardClass, ListHead, Panel,
-  Skeleton, Stack, Text, useToast, VisuallyHidden, Workspace,
+  Alert, Badge, Button, buttonClass, CodeBlock, Drawer, EmptyState, Icons, Inline, Input, Page, PageHeader, Skeleton, Stack, StatRow, StatTile, Table, Text, useToast,
+  VisuallyHidden,
 } from '@enclavestack/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../api/context';
 import { MachineDashboard } from '../components/MetricsPanel';
 import { SectionIcon } from '../components/SectionIcon';
-import { inProgress, PhaseDot } from '../components/StatusBadge';
+import { inProgress, StatusBadge } from '../components/StatusBadge';
 import { filterResources } from '../lib/filter';
-import { formatBytes } from '../lib/format';
+import { formatAgo, formatBytes } from '../lib/format';
 import { useProject } from '../lib/project';
 import { needRole } from '../lib/roles';
-import { sectionBySlug } from '../lib/sections';
+import { inSentence, sectionBySlug } from '../lib/sections';
 import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { ResourceDetailView } from './ResourceDetailView';
@@ -61,7 +61,17 @@ export function SectionPage() {
   const { section: slug, id } = useParams();
   const section = sectionBySlug(slug);
   const [query, setQuery] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // `?new=1` opens the create form: the overview's quick actions and the top bar's New link here.
+  const [opened, setOpened] = useState(false);
+  const creating = opened || params.get('new') === '1';
+  const setCreating = (open: boolean) => {
+    setOpened(open);
+    if (!open && params.has('new')) {
+      params.delete('new');
+      setParams(params, { replace: true });
+    }
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   const kind = section?.kind ?? 'app';
   const { project, createIn, allowed } = useProject();
@@ -104,110 +114,137 @@ export function SectionPage() {
 
   if (!section) return <Navigate to="/apps" replace />;
 
-  // Default to the first resource that isn't on its way out.
-  // Monitoring opens on the machine's own dashboard (MET-05).
-  const machineView = kind === 'dashboard' && (id === 'machine' || !id);
-  const selectedId = machineView ? undefined : (id ?? list.data?.find((r) => r.status.phase !== 'deleting')?.id);
-  const total = (list.data ?? []).filter((r) => r.status.phase !== 'deleting').length;
+  const listTo = `/${section.slug}${project ? `?project=${encodeURIComponent(project)}` : ''}`;
+  const back = <Link to={listTo} className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All {inSentence(section.label)}</Link>;
+  const live = (list.data ?? []).filter((r) => r.status.phase !== 'deleting');
+  const total = live.length;
+  const counts = {
+    ready: live.filter((r) => r.status.phase === 'ready').length,
+    busy: live.filter((r) => inProgress(r.status.phase)).length,
+    failed: live.filter((r) => r.status.phase === 'failed').length,
+  };
+  // Records are part of their zone's guide (CON-67).
+  const guideTo = `/guide/${section.slug === 'records' ? 'zones' : section.slug}`;
+  const guideLink = <Link to={guideTo} className={buttonClass({ variant: 'outline' })}><Icons.ScrollText /> Guide</Link>;
   // Viewers see no create button (CON-48); the tooltip says who can.
   // Stacks are installed from the catalogue (CON-59).
   const newButton = canCreate
     ? <Button variant="dark" icon={<Icons.Plus />} onClick={() => (kind === 'stack' ? navigate('/catalogue') : setCreating(true))}>New {section.noun}</Button>
     : <Text size="xs" tone="subtle" title={needRole('editor', createIn)}>View only</Text>;
+  const createDrawer = creating && (
+    <Drawer title={`New ${section.noun}`} onClose={() => setCreating(false)}>
+      <ResourceForm
+        kind={section.kind}
+        onDone={(r) => {
+          setCreating(false);
+          toast(`Creating ${r.kind} ${r.name}`);
+          refresh();
+          navigate(`/${section.slug}/${encodeURIComponent(r.id)}`);
+        }}
+      />
+    </Drawer>
+  );
+
+  // Monitoring's machine dashboard is a page of its own (MET-05).
+  if (kind === 'dashboard' && id === 'machine') {
+    return (
+      <Page>
+        <PageHeader label="Summary" back={back} title="This machine"
+          lede="How much of this machine EnclaveStack uses, the disk EnclaveStack keeps its data on, and how many resources have failed." />
+        <MachineDashboard />
+      </Page>
+    );
+  }
+
+  // A resource opens on a page of its own (CON-64).
+  if (id) {
+    return (
+      <Page>
+        <Stack as="section" gap={5} aria-label="Details">
+          <ResourceDetailView key={id} id={id} back={back} onChanged={refresh} onDeleted={onDeleted} />
+        </Stack>
+      </Page>
+    );
+  }
 
   return (
-    <Workspace hasSelection={Boolean(id)}>
-      <Panel layout="list" aria-label={`${section.label} list`}>
-        <ListHead>
-          <Inline justify="between">
-            <Inline gap={2}>
-              <Heading level={2}>{section.label}</Heading>
-              {list.data && <Badge tone="soft">{total}</Badge>}
-            </Inline>
-            {newButton}
-          </Inline>
-          <VisuallyHidden><label htmlFor="search">Search {section.label.toLowerCase()}</label></VisuallyHidden>
-          <Input id="search" ref={searchRef} sunk type="search" placeholder="Search…  ( / )" value={query} onChange={(e) => setQuery(e.target.value)} />
-          {noVMs && (
-            <Alert tone="warn">
-              <Text size="sm" weight="semibold">VMs unavailable</Text>
-              <Text size="sm">{noVMs}</Text>
-              {fix && <CodeBlock label="Fix" code={fix} />}
-            </Alert>
-          )}
-        </ListHead>
-        <List>
-          {kind === 'dashboard' && (
-            <Link to={`/${section.slug}/machine`} className={listCardClass} aria-current={machineView ? 'true' : undefined}>
-              <ListCardContent avatar={<Avatar name="machine"><Icons.Server /></Avatar>} name="This machine" meta={<span>disk, memory, CPU and failures</span>} />
-            </Link>
-          )}
-          {list.loading && !list.data && [0, 1, 2].map((i) => <Skeleton key={i} shape="card" />)}
-          {list.error && (
-            <Alert>
-              <Inline justify="between">
-                <span>{list.error.message}</span>
-                <Button size="sm" onClick={list.reload}>Retry</Button>
-              </Inline>
-            </Alert>
-          )}
-          {visible.map((r) => {
-            const fact = keyFact(r);
-            return (
-              <Link key={r.id} to={`/${section.slug}/${encodeURIComponent(r.id)}`} className={listCardClass} aria-current={r.id === selectedId ? 'true' : undefined}>
-                <ListCardContent
-                  avatar={<Avatar name={r.name} />}
-                  name={r.name}
-                  meta={
-                    <>
-                      <PhaseDot phase={r.status.phase} />
-                      <span>{r.status.phase === 'ready' ? section.noun : r.status.phase}</span>
-                      {fact && <Text mono truncate>{fact}</Text>}
-                      {!project && <Badge tone="soft" mono>{r.project}</Badge>}
-                      {manyMachines && r.outputs.machine !== undefined && <Badge tone="soft" mono>{String(r.outputs.machine)}</Badge>}
-                    </>
-                  }
-                />
-              </Link>
-            );
-          })}
-          {list.data && visible.length === 0 && (
-            query ? (
-              <EmptyState>Nothing matches “{query}”.</EmptyState>
-            ) : (
-              <EmptyState icon={<SectionIcon kind={section.kind} />} title={`No ${section.label.toLowerCase()} yet.`} action={newButton}>
-                <Text size="sm" tone="subtle">{section.blurb}</Text>
-              </EmptyState>
-            )
-          )}
-        </List>
-      </Panel>
-      <Panel layout="detail" aria-label="Details">
-        {machineView ? (
-          <Stack gap={4}>
-            <Heading level={2}>This machine</Heading>
-            <Text tone="muted">How much of this machine EnclaveStack uses, the disk EnclaveStack keeps its data on, and how many resources have failed.</Text>
-            <MachineDashboard />
-          </Stack>
-        ) : selectedId ? (
-          <ResourceDetailView key={selectedId} id={selectedId} onChanged={refresh} onDeleted={onDeleted} />
-        ) : (
-          !list.loading && <EmptyState full icon={<SectionIcon kind={section.kind} />} title="Nothing selected">Select a resource to see its details.</EmptyState>
-        )}
-      </Panel>
-      {creating && (
-        <Drawer title={`New ${section.noun}`} onClose={() => setCreating(false)}>
-          <ResourceForm
-            kind={section.kind}
-            onDone={(r) => {
-              setCreating(false);
-              toast(`Creating ${r.kind} ${r.name}`);
-              refresh();
-              navigate(`/${section.slug}/${encodeURIComponent(r.id)}`);
-            }}
-          />
-        </Drawer>
+    <Page>
+      <PageHeader label={section.label} title={section.label} status={list.data && <Badge tone="soft">{total}</Badge>} lede={section.blurb}
+        actions={<>{guideLink}{newButton}</>} />
+      {list.data && total > 0 && (
+        <StatRow label={`${section.label} by state`}>
+          <StatTile label="Total" value={total} />
+          <StatTile label="Running" value={counts.ready} tone="ok" />
+          {counts.busy > 0 && <StatTile label="In progress" value={counts.busy} />}
+          {counts.failed > 0 && <StatTile label="Need attention" value={counts.failed} tone="bad" />}
+        </StatRow>
       )}
-    </Workspace>
+      <Stack as="section" gap={3} aria-label={`${section.label} list`}>
+        <VisuallyHidden><label htmlFor="search">Search {inSentence(section.label)}</label></VisuallyHidden>
+        <Input id="search" ref={searchRef} sunk type="search" placeholder="Search…  ( / )" value={query} onChange={(e) => setQuery(e.target.value)} />
+        {noVMs && (
+          <Alert tone="warn">
+            <Text size="sm" weight="semibold">VMs unavailable</Text>
+            <Text size="sm">{noVMs}</Text>
+            {fix && <CodeBlock label="Fix" code={fix} />}
+          </Alert>
+        )}
+        {list.loading && !list.data && [0, 1, 2].map((i) => <Skeleton key={i} shape="card" />)}
+        {list.error && (
+          <Alert>
+            <Inline justify="between">
+              <span>{list.error.message}</span>
+              <Button size="sm" onClick={list.reload}>Retry</Button>
+            </Inline>
+          </Alert>
+        )}
+        {list.data && (visible.length > 0 || kind === 'dashboard') && (
+          <Table aria-label={`${section.label}`}>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">State</th>
+                <th scope="col">Details</th>
+                {!project && <th scope="col">Project</th>}
+                {manyMachines && <th scope="col">Machine</th>}
+                <th scope="col">Changed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kind === 'dashboard' && (
+                <tr>
+                  <td><Link to={`/${section.slug}/machine`}>This machine</Link></td>
+                  <td />
+                  <td><Text size="sm" tone="subtle">disk, memory, CPU and failures</Text></td>
+                  {!project && <td />}
+                  {manyMachines && <td />}
+                  <td />
+                </tr>
+              )}
+              {visible.map((r) => (
+                <tr key={r.id}>
+                  <td><Link to={`/${section.slug}/${encodeURIComponent(r.id)}`}><Text weight="semibold">{r.name}</Text></Link></td>
+                  <td><StatusBadge phase={r.status.phase} /></td>
+                  <td><Text size="sm" mono truncate>{keyFact(r)}</Text></td>
+                  {!project && <td><Text size="sm" tone="subtle" mono>{r.project}</Text></td>}
+                  {manyMachines && <td><Text size="sm" tone="subtle" mono>{r.outputs.machine === undefined ? '' : String(r.outputs.machine)}</Text></td>}
+                  <td><Text size="sm" tone="subtle">{formatAgo(r.updatedAt)}</Text></td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        {list.data && visible.length === 0 && kind !== 'dashboard' && (
+          query ? (
+            <EmptyState>Nothing matches “{query}”.</EmptyState>
+          ) : (
+            <EmptyState icon={<SectionIcon kind={section.kind} />} title={`No ${inSentence(section.label)} yet.`} action={<Inline gap={2} wrap>{newButton}<Link to={guideTo} className={buttonClass({ variant: 'outline' })}>Read the guide</Link></Inline>}>
+              <Text size="sm" tone="subtle">{section.blurb}</Text>
+            </EmptyState>
+          )
+        )}
+      </Stack>
+      {createDrawer}
+    </Page>
   );
 }

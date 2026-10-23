@@ -89,9 +89,12 @@ func orDefault(d, def time.Duration) time.Duration {
 	return def
 }
 
+// MainID implements cluster.Machines: the main machine's ID.
+func (m *Manager) MainID() string { return m.Store.MainID() }
+
 // Engines implements cluster.Machines.
 func (m *Manager) Engines(machineID string) (engine.Driver, engine.Hypervisor, error) {
-	if machineID == "" || machineID == api.MainMachine {
+	if machineID == "" || machineID == m.Store.MainID() {
 		return m.Local, m.LocalHV, nil
 	}
 	m.mu.RLock()
@@ -130,7 +133,7 @@ func (m *Manager) describeOffline(id string, since time.Time) (string, string) {
 func (m *Manager) OnlineMachines() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := []string{api.MainMachine}
+	out := []string{m.Store.MainID()}
 	var others []string
 	for id, r := range m.remotes {
 		if r.online {
@@ -145,14 +148,14 @@ func (m *Manager) OnlineMachines() []string {
 func (m *Manager) MachineOf(ctx context.Context, resourceID string) string {
 	r, err := m.Store.GetResource(ctx, resourceID)
 	if err != nil {
-		return api.MainMachine
+		return m.Store.MainID()
 	}
-	return r.MachineID()
+	return r.MachineOn(m.Store.MainID())
 }
 
 // Online reports whether a machine takes calls now.
 func (m *Manager) Online(machineID string) bool {
-	if machineID == api.MainMachine {
+	if machineID == m.Store.MainID() {
 		return true
 	}
 	m.mu.RLock()
@@ -307,7 +310,7 @@ func (m *Manager) CheckAll(ctx context.Context) {
 	}
 	var wg sync.WaitGroup
 	for _, mc := range all {
-		if mc.ID == api.MainMachine || mc.State == api.MachineWaiting {
+		if mc.ID == m.Store.MainID() || mc.State == api.MachineWaiting {
 			continue
 		}
 		wg.Add(1)
@@ -321,7 +324,7 @@ func (m *Manager) CheckAll(ctx context.Context) {
 
 // refreshMain records the main machine's own facts for the machine list.
 func (m *Manager) refreshMain(ctx context.Context) {
-	mc, err := m.Store.GetMachine(ctx, api.MainMachine)
+	mc, err := m.Store.GetMachine(ctx, m.Store.MainID())
 	if err != nil {
 		return
 	}
@@ -435,7 +438,7 @@ func (m *Manager) Load(ctx context.Context) error {
 		return err
 	}
 	for _, mc := range all {
-		if mc.ID == api.MainMachine || mc.State != api.MachineOnline {
+		if mc.ID == m.Store.MainID() || mc.State != api.MachineOnline {
 			continue
 		}
 		if _, err := m.client(ctx, mc); err != nil {
@@ -469,10 +472,10 @@ func (m *Manager) Candidates(ctx context.Context) ([]domain.Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	reserved := domain.ReservedByMachine(resources)
+	reserved := domain.ReservedByMachine(resources, m.Store.MainID())
 	out := make([]domain.Candidate, 0, len(all))
 	for _, mc := range all {
-		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == api.MainMachine, Online: m.Online(mc.ID), Schedulable: mc.Schedulable,
+		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Online: m.Online(mc.ID), Schedulable: mc.Schedulable,
 			Labels: mc.Labels, VMs: mc.Info.VMs.Available, MemoryTotalMiB: int(mc.Info.MemoryTotalBytes >> 20), ReservedMiB: reserved[mc.ID],
 			VersionOK: mc.Info.AgentVersion == "" || SameMinor(mc.Info.AgentVersion, version.Version)}
 		if c.Main {
@@ -485,8 +488,8 @@ func (m *Manager) Candidates(ctx context.Context) ([]domain.Candidate, error) {
 
 // Name is a machine's name, or its ID when it is gone.
 func (m *Manager) Name(ctx context.Context, machineID string) string {
-	if machineID == "" || machineID == api.MainMachine {
-		return api.MainMachine
+	if machineID == "" {
+		machineID = m.Store.MainID()
 	}
 	if mc, err := m.Store.GetMachine(ctx, machineID); err == nil {
 		return mc.Name
@@ -548,7 +551,7 @@ func (m *Manager) Members(ctx context.Context) ([]engine.MeshMember, error) {
 		if mc.State == api.MachineWaiting {
 			continue
 		}
-		mem := engine.MeshMember{ID: mc.ID, Name: mc.Name, Main: mc.ID == api.MainMachine, PublicKey: mc.TunnelPublicKey, TunnelPort: mc.TunnelPort}
+		mem := engine.MeshMember{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), PublicKey: mc.TunnelPublicKey, TunnelPort: mc.TunnelPort}
 		if mem.Main {
 			mem.TunnelPort = m.TunnelPort
 			if m.TunnelAddress != "" {

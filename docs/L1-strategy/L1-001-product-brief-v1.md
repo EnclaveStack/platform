@@ -9,9 +9,9 @@
 | Version | v4 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -82,7 +82,7 @@ All three talk to one control-plane API; nothing is possible in one surface that
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Initial brief: problem, product, segments, open-source positioning, success measures |
-| v2 | 2026-10-20 | Soupler Labs | "Our own AWS": three equal surfaces (console, CLI, OpenTofu provider), API-first positioning, scope by release, parity and latency measures |
-| v3 | 2026-10-22 | Soupler Labs | Renamed Homecloud → EnclaveStack (name unavailable): GitHub org `EnclaveStack` with `platform`, `marketing`, `assets`; CLI `enclave`, `ENCLAVE_*` settings, `enclave_*` OpenTofu resources, `es-` resource names |
-| v4 | 2026-10-22 | Soupler Labs | Licence MIT → Apache License 2.0 (patent grant, trademark clause, contribution terms); nothing was released under MIT |
+| v1 | 2026-10-20 | Soupler | Initial brief: problem, product, segments, open-source positioning, success measures |
+| v2 | 2026-10-20 | Soupler | "Our own AWS": three equal surfaces (console, CLI, OpenTofu provider), API-first positioning, scope by release, parity and latency measures |
+| v3 | 2026-10-22 | Soupler | Renamed Homecloud → EnclaveStack (name unavailable): GitHub org `EnclaveStack` with `platform`, `marketing`, `assets`; CLI `enclave`, `ENCLAVE_*` settings, `enclave_*` OpenTofu resources, `es-` resource names |
+| v4 | 2026-10-22 | Soupler | Licence MIT → Apache License 2.0 (patent grant, trademark clause, contribution terms); nothing was released under MIT |

@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-21 |
 | Last Updated | 2026-10-21 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -160,5 +160,5 @@ Galiaraa's needs map onto this directly: a private data tier, a load-balanced ga
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-21 | Soupler Labs | v0.4 scope: network, firewall, loadbalancer, zone and record kinds; placement, private DNS, replicas, DNS-01 and wildcard certificates (NET, FW, LB, DNS, CRT requirements) |
-| v2 | 2026-10-21 | Soupler Labs | Delivery status: all five phases built and tested on every surface (unreleased); as-built notes |
+| v1 | 2026-10-21 | Soupler | v0.4 scope: network, firewall, loadbalancer, zone and record kinds; placement, private DNS, replicas, DNS-01 and wildcard certificates (NET, FW, LB, DNS, CRT requirements) |
+| v2 | 2026-10-21 | Soupler | Delivery status: all five phases built and tested on every surface (unreleased); as-built notes |

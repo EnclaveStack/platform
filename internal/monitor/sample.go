@@ -23,6 +23,7 @@ import (
 
 // sample is what one pass found, before it is written.
 type sample struct {
+	mainID string // the main machine's ID, whose series keeps the plain name
 	at     int64
 	points []store.Point
 	gauges []gauge
@@ -45,7 +46,7 @@ func (s *sample) add(r *domain.Resource, metric string, v float64) {
 
 // addMachine adds a point to a machine's own series.
 func (s *sample) addMachine(machineID, metric string, v float64) {
-	s.points = append(s.points, store.Point{ResourceID: store.MachineSeriesOf(machineID), Metric: metric, TS: s.at, Value: v})
+	s.points = append(s.points, store.Point{ResourceID: store.MachineSeriesOf(machineID, s.mainID), Metric: metric, TS: s.at, Value: v})
 }
 
 // machineTotals is what runs on one machine, summed.
@@ -89,23 +90,23 @@ func (m *Monitor) SampleOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s := &sample{at: now.Unix()}
+	s := &sample{at: now.Unix(), mainID: m.Store.MainID()}
 	edge, err := m.Driver.EdgeRequests(ctx)
 	if err != nil {
 		m.Log.Debug("read edge request counters failed", "error", err)
 	}
 	// Every machine's series, the main one's always (MET-03, v0.8 one per machine).
-	machines := map[string]*machineTotals{api.MainMachine: {}}
+	machines := map[string]*machineTotals{s.mainID: {}}
 	if list, err := m.Store.ListMachines(ctx); err == nil {
 		for _, mc := range list {
 			machines[mc.ID] = &machineTotals{}
 		}
 	}
 	on := func(r *domain.Resource) *machineTotals {
-		t, ok := machines[r.MachineID()]
+		t, ok := machines[r.MachineOn(s.mainID)]
 		if !ok {
 			t = &machineTotals{}
-			machines[r.MachineID()] = t
+			machines[r.MachineOn(s.mainID)] = t
 		}
 		return t
 	}

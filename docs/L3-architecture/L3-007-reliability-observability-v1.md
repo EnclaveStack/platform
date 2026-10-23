@@ -9,9 +9,9 @@
 | Version | v13 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -159,16 +159,16 @@ slog JSON (text on a TTY). Every HTTP request logs once on completion: `request_
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Error layers, backoff, timeouts, recovery, drift, engine outage, logging, metrics, probes |
-| v2 | 2026-10-20 | Soupler Labs | Memory policy (argon2id working set, lazy timing hash) and how to measure footprint |
-| v3 | 2026-10-20 | Soupler Labs | §8 v0.3 behaviour (planned): rolling deploy failure semantics, edge repair and certificates, scheduler, backups, timeouts, logs, metrics |
-| v4 | 2026-10-21 | Soupler Labs | Reconcile operation timeout 30 min (rolling deploys) |
-| v5 | 2026-10-21 | Soupler Labs | Certificate refresh rule relative to the certificate lifetime |
-| v6 | 2026-10-21 | Soupler Labs | §9 v0.4 behaviour (planned): networks, firewall apply and drift, replicas, load balancers, DNS calls, DNS-01 orders, timeouts, metrics |
-| v7 | 2026-10-21 | Soupler Labs | §9 behaviour and metrics built |
-| v8 | 2026-10-21 | Soupler Labs | §10 v0.5 behaviour (planned): VM availability, processes and adoption, stop, link reconnect, images, snapshot copies, timeouts, metrics |
-| v9 | 2026-10-21 | Soupler Labs | §10 behaviour and metrics built; link repair measured |
-| v10 | 2026-10-21 | Soupler Labs | §11 v0.6 behaviour (planned): broker drift, deliveries, slow starts, transcoder and CDN recovery, timeouts, metrics |
-| v11 | 2026-10-22 | Soupler Labs | §11 metrics as built: `enclave_purges_total{kind}` for queues and CDNs; transcodes counted by the shared run metrics |
-| v12 | 2026-10-22 | Soupler Labs | §12 v0.7 behaviour (planned): sampler, metric storage, alert evaluation, notification retries, log export, secret sync, timeouts, metrics |
-| v13 | 2026-10-22 | Soupler Labs | §13 v0.8 behaviour (planned): machine health, offline calls, restarting elsewhere, mesh sync, address pools, agent calls and restarts, moves, join expiry, timeouts, metrics, logs |
+| v1 | 2026-10-20 | Soupler | Error layers, backoff, timeouts, recovery, drift, engine outage, logging, metrics, probes |
+| v2 | 2026-10-20 | Soupler | Memory policy (argon2id working set, lazy timing hash) and how to measure footprint |
+| v3 | 2026-10-20 | Soupler | §8 v0.3 behaviour (planned): rolling deploy failure semantics, edge repair and certificates, scheduler, backups, timeouts, logs, metrics |
+| v4 | 2026-10-21 | Soupler | Reconcile operation timeout 30 min (rolling deploys) |
+| v5 | 2026-10-21 | Soupler | Certificate refresh rule relative to the certificate lifetime |
+| v6 | 2026-10-21 | Soupler | §9 v0.4 behaviour (planned): networks, firewall apply and drift, replicas, load balancers, DNS calls, DNS-01 orders, timeouts, metrics |
+| v7 | 2026-10-21 | Soupler | §9 behaviour and metrics built |
+| v8 | 2026-10-21 | Soupler | §10 v0.5 behaviour (planned): VM availability, processes and adoption, stop, link reconnect, images, snapshot copies, timeouts, metrics |
+| v9 | 2026-10-21 | Soupler | §10 behaviour and metrics built; link repair measured |
+| v10 | 2026-10-21 | Soupler | §11 v0.6 behaviour (planned): broker drift, deliveries, slow starts, transcoder and CDN recovery, timeouts, metrics |
+| v11 | 2026-10-22 | Soupler | §11 metrics as built: `enclave_purges_total{kind}` for queues and CDNs; transcodes counted by the shared run metrics |
+| v12 | 2026-10-22 | Soupler | §12 v0.7 behaviour (planned): sampler, metric storage, alert evaluation, notification retries, log export, secret sync, timeouts, metrics |
+| v13 | 2026-10-22 | Soupler | §13 v0.8 behaviour (planned): machine health, offline calls, restarting elsewhere, mesh sync, address pools, agent calls and restarts, moves, join expiry, timeouts, metrics, logs |

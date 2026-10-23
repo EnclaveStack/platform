@@ -147,6 +147,9 @@ func TestTwoMachines(t *testing.T) {
 		}
 	})
 	_, c := setupAndToken(t, s)
+	// The server runs in a container, so the main machine's name comes from the container's host name, not
+	// this computer's (MCH-01): ask the server.
+	mainName := mainMachineName(t, c)
 	explain = func() string {
 		var b strings.Builder
 		if ms, err := c.ListMachines(ctx); err == nil {
@@ -183,7 +186,7 @@ func TestTwoMachines(t *testing.T) {
 				}
 			}
 			for _, r := range rs {
-				if r.Outputs["machine"] == nil || r.Outputs["machine"] == api.MainMachine {
+				if r.Outputs["machine"] == nil || r.Outputs["machine"] == mainName {
 					_ = c.WaitGone(ctx, r.ID, time.Second)
 				}
 			}
@@ -248,7 +251,7 @@ func TestTwoMachines(t *testing.T) {
 	}
 	host := fmt.Sprint(cache.Outputs["internalHost"])
 	job := func(name, cmd string) api.Resource {
-		return create(api.KindJob, name, api.JobSpec{Schedule: "0 0 1 1 *", Image: "redis:7", Command: []string{"sh", "-c", cmd}, Network: "shop", Placed: api.Placed{Machine: api.MainMachine}})
+		return create(api.KindJob, name, api.JobSpec{Schedule: "0 0 1 1 *", Image: "redis:7", Command: []string{"sh", "-c", cmd}, Network: "shop", Placed: api.Placed{Machine: mainName}})
 	}
 	set := job("set-key", fmt.Sprintf("redis-cli -h %s set greeting hello-from-main", host))
 	if d := runJob(t, c, set.ID); d.Status != "succeeded" || !strings.Contains(d.OutputTail, "OK") {
@@ -256,12 +259,12 @@ func TestTwoMachines(t *testing.T) {
 	}
 
 	// Move the cache to main, with its data (MOVE-*).
-	if _, err := c.UpdateResource(ctx, cache.ID, map[string]any{"machine": api.MainMachine}, nil); err != nil {
+	if _, err := c.UpdateResource(ctx, cache.ID, map[string]any{"machine": mainName}, nil); err != nil {
 		t.Fatal(err)
 	}
 	until(t, 5*time.Minute, "the move", func() bool {
 		r, err := c.GetResource(ctx, cache.ID)
-		return err == nil && r.Status.Phase == api.PhaseReady && r.Outputs["machine"] == api.MainMachine
+		return err == nil && r.Status.Phase == api.PhaseReady && r.Outputs["machine"] == mainName
 	})
 	get := job("get-key", fmt.Sprintf("redis-cli -h %s get greeting", host))
 	if d := runJob(t, c, get.ID); d.Status != "succeeded" || !strings.Contains(d.OutputTail, "hello-from-main") {
@@ -274,7 +277,7 @@ func TestTwoMachines(t *testing.T) {
 	if drifter.Outputs["machine"] != "rack-1" {
 		t.Fatalf("drifter runs on %v", drifter.Outputs["machine"])
 	}
-	if _, err := c.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Labels: map[string]string{"zone": "b"}}); err != nil {
+	if _, err := c.UpdateMachineByName(ctx, mainName, api.UpdateMachine{Labels: map[string]string{"zone": "b"}}); err != nil {
 		t.Fatal(err)
 	}
 	docker(t, "exec", m2, "sh", "-c", "kill $(cat /tmp/agent.pid)")
@@ -284,7 +287,7 @@ func TestTwoMachines(t *testing.T) {
 	})
 	until(t, 3*time.Minute, "drifter on main", func() bool {
 		r, err := c.GetResource(ctx, drifter.ID)
-		return err == nil && r.Status.Phase == api.PhaseReady && r.Outputs["machine"] == api.MainMachine
+		return err == nil && r.Status.Phase == api.PhaseReady && r.Outputs["machine"] == mainName
 	})
 	if out := mustCLI(t, s, tokenOf(c), "", "machine", "ls"); !regexp.MustCompile(`rack-1\s.*offline`).MatchString(out) {
 		t.Errorf("machine ls: %s", out)
@@ -296,3 +299,19 @@ func TestTwoMachines(t *testing.T) {
 }
 
 func tokenOf(c *client.Client) string { return c.Token }
+
+// mainMachineName is the name the server gave its main machine.
+func mainMachineName(t *testing.T, c *client.Client) string {
+	t.Helper()
+	ms, err := c.ListMachines(context.Background())
+	if err != nil {
+		t.Fatalf("list machines: %v", err)
+	}
+	for _, m := range ms {
+		if m.Main {
+			return m.Name
+		}
+	}
+	t.Fatalf("no main machine in %+v", ms)
+	return ""
+}

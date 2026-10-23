@@ -13,7 +13,7 @@ const isMock = resolveApiMode(import.meta.env) === 'mock';
 export function LoginPage() {
   const { state, signIn } = useSession();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? '/apps';
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

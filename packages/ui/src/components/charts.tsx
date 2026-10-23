@@ -94,7 +94,7 @@ export function LineChart({ title, series, from, to, format, empty = 'No data ye
           <text key={t} className="es-chart-axis" x={x(t)} y={H - 6} textAnchor={t === from ? 'start' : t === to ? 'end' : 'middle'}>{timeLabel(t, span)}</text>
         ))}
         {shown.map((s, i) => (
-          <polyline key={s.label} className={cx('es-chart-line', `es-series-${i + 1}`)} fill="none"
+          <polyline key={s.label} className={cx('es-chart-line', `es-series-${i + 1}`)} fill="none" pathLength={1}
             points={s.points.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')} />
         ))}
         {hover !== null && tip && (

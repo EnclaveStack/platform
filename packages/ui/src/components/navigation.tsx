@@ -1,5 +1,5 @@
-import { Check, X } from 'lucide-react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import { Check, ChevronDown, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cx, VisuallyHidden } from './primitives';
 
 export interface TabItem<T extends string> {
@@ -70,5 +70,81 @@ export function StageTrack({ label, stages }: { label: string; stages: Stage[] }
         </li>
       ))}
     </ol>
+  );
+}
+
+export interface MenuOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * A styled single choice for the sidebar (the project menu): a button that opens a list under it. Arrow
+ * keys, Home, End, Enter and Escape work, and a click outside closes it (WAI-ARIA listbox popup).
+ */
+export function MenuSelect({ label, value, options, onChange, icon }: {
+  label: string; value: string; options: MenuOption[]; onChange: (value: string) => void; icon?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const listId = useId();
+  const selected = Math.max(options.findIndex((o) => o.value === value), 0);
+  const current = options[selected];
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  useEffect(() => { if (open) list.current?.focus(); }, [open]);
+
+  const show = () => { setActive(selected); setOpen(true); };
+  const close = (refocus: boolean) => { setOpen(false); if (refocus) button.current?.focus(); };
+  const choose = (i: number) => {
+    const o = options[i];
+    close(true);
+    if (o && o.value !== value) onChange(o.value);
+  };
+  function onKey(e: KeyboardEvent<HTMLUListElement>) {
+    const last = options.length - 1;
+    const move: Record<string, number> = { ArrowDown: Math.min(active + 1, last), ArrowUp: Math.max(active - 1, 0), Home: 0, End: last };
+    if (e.key in move) {
+      e.preventDefault();
+      setActive(move[e.key] ?? 0);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      choose(active);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close(true);
+    } else if (e.key === 'Tab') {
+      close(false);
+    }
+  }
+  return (
+    <div className="es-menu-select" ref={root}>
+      <button ref={button} type="button" className="es-menu-select-button" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
+        aria-label={`${label}: ${current?.label ?? ''}`} title={current?.label} onClick={() => (open ? close(false) : show())}>
+        {icon && <span className="es-menu-select-icon" aria-hidden="true">{icon}</span>}
+        <span className="es-menu-select-text">{current?.label}</span>
+        <ChevronDown className="es-menu-select-chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <ul ref={list} id={listId} className="es-menu-select-list" role="listbox" aria-label={label} tabIndex={-1}
+          aria-activedescendant={`${listId}-${active}`} onKeyDown={onKey}>
+          {options.map((o, i) => (
+            <li key={o.value} id={`${listId}-${i}`} role="option" aria-selected={o.value === value} data-active={i === active}
+              className="es-menu-select-option" onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(i)}>
+              <span className="es-menu-select-option-text">{o.label}</span>
+              {o.value === value && <Check aria-hidden="true" />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

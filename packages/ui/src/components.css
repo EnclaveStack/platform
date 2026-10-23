@@ -104,7 +104,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .es-chip {
   display: inline-flex; align-items: center; gap: var(--es-s-1); min-height: 24px; padding: 0 10px;
   border-radius: var(--es-r-pill); font-size: var(--es-text-xs); font-weight: var(--es-weight-medium);
-  border: 1px solid var(--es-hair-strong); background: var(--es-surface); color: var(--es-muted); white-space: nowrap;
+  border: 1px solid var(--es-hair); background: var(--es-surface); color: var(--es-muted); white-space: nowrap;
 }
 .es-chip svg { width: 13px; height: 13px; }
 .es-chip-accent { background: var(--es-accent-soft); border-color: transparent; color: var(--es-accent-ink); }
@@ -140,14 +140,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .es-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--es-text-sm); font-weight: var(--es-weight-semibold); }
 .es-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: currentColor; }
 .es-status-ok { color: var(--es-ok-ink); } .es-status-ok .es-dot, .es-dot.es-status-ok { background: var(--es-ok); }
-.es-status-busy { color: var(--es-warn-ink); } .es-status-busy .es-dot, .es-dot.es-status-busy { background: var(--es-warn); animation: es-pulse 1.2s ease-in-out infinite; }
+.es-status-busy { color: var(--es-warn-ink); } .es-status-busy .es-dot, .es-dot.es-status-busy { background: var(--es-warn); }
 .es-status-bad { color: var(--es-bad-ink); } .es-status-bad .es-dot, .es-dot.es-status-bad { background: var(--es-bad); }
-@keyframes es-pulse { 50% { opacity: 0.35; } }
 
 /* ── Surfaces ───────────────────────────────────────── */
-.es-panel { background: var(--es-panel); border: 1px solid var(--es-hair); border-radius: var(--es-r-xl); min-width: 0; }
+.es-panel { background: var(--es-panel); border-radius: var(--es-r-xl); box-shadow: inset 0 0 0 1px var(--es-hair), var(--es-shadow-card); min-width: 0; }
 .es-panel-wash { background: var(--es-wash); }
-.es-card { background: var(--es-surface); border: 1px solid var(--es-hair); border-radius: var(--es-r-lg); padding: var(--es-s-5); min-width: 0; }
+.es-card { background: var(--es-surface); border-radius: var(--es-r-lg); box-shadow: inset 0 0 0 1px var(--es-hair), var(--es-shadow-card); padding: var(--es-s-5); min-width: 0; }
 .es-card-tight { padding: var(--es-s-4); }
 .es-card-flush { padding: 0; overflow: hidden; }
 .es-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--es-s-3); margin-bottom: var(--es-s-4); }
@@ -199,16 +198,20 @@ select.es-input { appearance: auto; }
 .es-alert-warn { background: var(--es-warn-bg); color: var(--es-warn-ink); }
 
 /* ── Segmented tabs ─────────────────────────────────── */
-.es-tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--es-r-pill); background: var(--es-surface); border: 1px solid var(--es-hair); max-width: 100%; overflow-x: auto; }
+.es-tabs { display: flex; gap: var(--es-s-1); max-width: 100%; overflow-x: auto; border-bottom: 1px solid var(--es-hair); scrollbar-width: none; }
+/* Text tabs with an accent underline on the active one (L2.5-001 §7). */
 .es-tab {
-  display: inline-flex; align-items: center; gap: var(--es-s-2); min-height: 36px; padding: 0 var(--es-s-4);
-  border: 0; border-radius: var(--es-r-pill); background: transparent; color: var(--es-muted);
+  position: relative; display: inline-flex; align-items: center; gap: var(--es-s-2); min-height: 42px; padding: 0 var(--es-s-3);
+  border: 0; border-radius: var(--es-r-xs) var(--es-r-xs) 0 0; background: transparent; color: var(--es-muted);
   font-weight: var(--es-weight-semibold); font-size: var(--es-text-base); cursor: pointer; white-space: nowrap;
+  transition: color var(--es-fast) var(--es-ease);
 }
+.es-tab::after { content: ''; position: absolute; left: var(--es-s-3); right: var(--es-s-3); bottom: -1px; height: 2px; border-radius: 2px; background: transparent; transition: background var(--es-normal) var(--es-ease); }
 .es-tab:hover { color: var(--es-ink); }
-.es-tab[aria-selected='true'] { background: var(--es-act); color: var(--es-on-act); }
+.es-tab[aria-selected='true'] { color: var(--es-ink); }
+.es-tab[aria-selected='true']::after { background: var(--es-accent); }
 .es-tab-count { font-size: var(--es-text-xs); min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--es-r-pill); display: inline-flex; align-items: center; justify-content: center; background: var(--es-surface-2); color: var(--es-muted); }
-.es-tab[aria-selected='true'] .es-tab-count { background: var(--es-act-hover); color: var(--es-on-act); }
+.es-tab[aria-selected='true'] .es-tab-count { background: var(--es-accent-soft); color: var(--es-accent-ink); }
 
 /* ── Stage track ────────────────────────────────────── */
 .es-stages {
@@ -224,7 +227,7 @@ select.es-input { appearance: auto; }
 .es-stage-done { color: var(--es-ink); }
 .es-stage-done .es-stage-num { background: var(--es-accent); border-color: var(--es-accent); color: var(--es-on-accent); }
 .es-stage-active { background: var(--es-accent-soft); color: var(--es-accent-ink); }
-.es-stage-active .es-stage-num { border-color: var(--es-accent); color: var(--es-accent-ink); animation: es-pulse 1.2s ease-in-out infinite; }
+.es-stage-active .es-stage-num { border-color: var(--es-accent); color: var(--es-accent-ink); }
 .es-stage-failed { background: var(--es-bad-bg); color: var(--es-bad-ink); }
 .es-stage-failed .es-stage-num { background: var(--es-bad); border-color: var(--es-bad); color: var(--es-on-accent); }
 .es-stage-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -234,7 +237,9 @@ select.es-input { appearance: auto; }
 .es-progress::-webkit-progress-bar { background: var(--es-surface-2); border-radius: var(--es-r-pill); }
 .es-progress::-webkit-progress-value { background: var(--es-accent); border-radius: var(--es-r-pill); transition: width var(--es-normal) var(--es-ease); }
 .es-progress::-moz-progress-bar { background: var(--es-accent); border-radius: var(--es-r-pill); }
-.es-skeleton { display: block; border-radius: var(--es-r-sm); background: var(--es-surface-2); animation: es-pulse 1.4s ease-in-out infinite; }
+/* A placeholder breathes only while something loads; nothing else moves on its own (CON-68). */
+.es-skeleton { display: block; border-radius: var(--es-r-sm); background: var(--es-surface-2); animation: es-loading 1.4s ease-in-out infinite; }
+@keyframes es-loading { 50% { opacity: 0.5; } }
 .es-skeleton-line { height: 14px; width: 100%; }
 .es-skeleton-short { height: 14px; width: 40%; }
 .es-skeleton-title { height: 32px; width: 60%; }
@@ -290,7 +295,9 @@ select.es-input { appearance: auto; }
 .es-chart-svg { width: 100%; height: auto; display: block; overflow: visible; touch-action: none; }
 .es-chart-grid { stroke: var(--es-hair); stroke-width: 1; }
 .es-chart-axis { fill: var(--es-subtle); font-size: 11px; font-family: var(--es-font); }
-.es-chart-line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* Lines draw in (CON-68). The resting state is the whole line, so with motion off it simply shows. */
+.es-chart-line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 1; animation: es-draw 700ms var(--es-ease) both; }
+@keyframes es-draw { from { stroke-dashoffset: 1; } }
 .es-chart-cross { stroke: var(--es-hair-strong); stroke-width: 1; }
 .es-chart-dot { stroke: var(--es-surface); stroke-width: 2; }
 .es-chart-tip { fill: var(--es-surface); stroke: var(--es-hair-strong); }

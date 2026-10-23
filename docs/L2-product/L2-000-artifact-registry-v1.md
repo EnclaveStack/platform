@@ -9,9 +9,9 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -25,16 +25,16 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v13 | Soupler Labs | 2026-10-22 |
-| L2-002-cli-prd-v1 | Command-Line Interface PRD | Draft | v16 | Soupler Labs | 2026-10-22 |
-| L2-003-opentofu-provider-prd-v1 | OpenTofu Provider PRD | Draft | v14 | Soupler Labs | 2026-10-22 |
-| L2-004-control-plane-resource-lifecycle-prd-v1 | Control Plane and Resource Lifecycle PRD | Draft | v3 | Soupler Labs | 2026-10-21 |
-| L2-005-v0-3-run-a-real-product-prd-v1 | v0.3 "Run a Real Product" PRD | Draft | v2 | Soupler Labs | 2026-10-21 |
-| L2-006-v0-4-networking-prd-v1 | v0.4 "Networking" PRD | Draft | v2 | Soupler Labs | 2026-10-21 |
-| L2-007-v0-5-vms-and-volumes-prd-v1 | v0.5 "VMs and Volumes" PRD | Draft | v2 | Soupler Labs | 2026-10-21 |
-| L2-008-v0-6-data-and-messaging-prd-v1 | v0.6 "Data and Messaging" PRD | Draft | v2 | Soupler Labs | 2026-10-22 |
-| L2-009-v0-7-operate-prd-v1 | v0.7 "Operate" PRD | Draft | v5 | Soupler Labs | 2026-10-22 |
-| L2-010-v0-8-many-machines-prd-v1 | v0.8 "Many Machines" PRD | Draft | v2 | Soupler Labs | 2026-10-22 |
+| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v15 | Soupler | 2026-10-23 |
+| L2-002-cli-prd-v1 | Command-Line Interface PRD | Draft | v17 | Soupler | 2026-10-23 |
+| L2-003-opentofu-provider-prd-v1 | OpenTofu Provider PRD | Draft | v14 | Soupler | 2026-10-22 |
+| L2-004-control-plane-resource-lifecycle-prd-v1 | Control Plane and Resource Lifecycle PRD | Draft | v3 | Soupler | 2026-10-21 |
+| L2-005-v0-3-run-a-real-product-prd-v1 | v0.3 "Run a Real Product" PRD | Draft | v2 | Soupler | 2026-10-21 |
+| L2-006-v0-4-networking-prd-v1 | v0.4 "Networking" PRD | Draft | v2 | Soupler | 2026-10-21 |
+| L2-007-v0-5-vms-and-volumes-prd-v1 | v0.5 "VMs and Volumes" PRD | Draft | v2 | Soupler | 2026-10-21 |
+| L2-008-v0-6-data-and-messaging-prd-v1 | v0.6 "Data and Messaging" PRD | Draft | v2 | Soupler | 2026-10-22 |
+| L2-009-v0-7-operate-prd-v1 | v0.7 "Operate" PRD | Draft | v5 | Soupler | 2026-10-22 |
+| L2-010-v0-8-many-machines-prd-v1 | v0.8 "Many Machines" PRD | Draft | v3 | Soupler | 2026-10-23 |
 
 ## Version history
 

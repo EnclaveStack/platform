@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
@@ -40,6 +41,8 @@ type Queries struct{ q querier }
 type Store struct {
 	*Queries
 	db *sql.DB
+	// mainID is the main machine's ID, set by EnsureMainMachine before anything runs (MCH-01).
+	mainID atomic.Value
 }
 
 // Open opens (creating if needed) the database at path and applies pending migrations.

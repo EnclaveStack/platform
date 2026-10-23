@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { useId, type HTMLAttributes, type ReactNode } from 'react';
 import { cx } from './primitives';
 
 interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'className' | 'style'> {
@@ -26,13 +26,14 @@ interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'className' | 'sty
   action?: ReactNode;
 }
 
-/** Rounded white card for a group of facts or a form. */
+/** Rounded white card for a group of facts or a form. A titled card is named by its title, so a section card is a landmark. */
 export function Card({ as: As = 'div', padding = 'normal', tone = 'plain', title, action, children, ...rest }: CardProps) {
+  const headingId = useId();
   return (
-    <As className={cx('es-card', padding !== 'normal' && `es-card-${padding}`, tone === 'accent' && 'es-card-accent')} {...rest}>
+    <As className={cx('es-card', padding !== 'normal' && `es-card-${padding}`, tone === 'accent' && 'es-card-accent')} aria-labelledby={title ? headingId : undefined} {...rest}>
       {(title || action) && (
         <div className="es-card-head">
-          {title && <h2 className="es-card-title">{title}</h2>}
+          {title && <h2 className="es-card-title" id={headingId}>{title}</h2>}
           {action}
         </div>
       )}

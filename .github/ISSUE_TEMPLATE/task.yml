@@ -1,14 +1,38 @@
 name: Task
-description: Engineering, infrastructure or documentation work
+description: Planned engineering, infrastructure or documentation work (mostly maintainers)
+title: "Task: "
 labels: [task]
 body:
   - type: textarea
     id: goal
-    attributes: { label: Goal }
+    attributes:
+      label: Goal
+      description: What will be true when this is done, and why it matters.
     validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What's in, what's out, and the files or areas it touches.
   - type: dropdown
     id: category
     attributes:
       label: Change category (L0-006 §2)
       options: [Strategic, Product, Engineering, Operational]
+    validations: { required: true }
+  - type: dropdown
+    id: owner-layer
+    attributes:
+      label: Layer that owns it
+      description: The owning layer gets the first edit (L0-006).
+      options: [L1 Strategy, L2 Product, L2.5 UX & Design, L3 Architecture, L4 Infrastructure, L5 Operations, L6 Remediation]
+    validations: { required: true }
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      placeholder: |
+        - [ ] Docs updated and registered
+        - [ ] Tests added
+        - [ ] CHANGELOG.md updated
     validations: { required: true }

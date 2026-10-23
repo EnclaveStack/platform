@@ -2,6 +2,7 @@ package reconciler_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -152,10 +153,23 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	env := testenv.Start(t)
 	c, _ := env.Token(t, api.ScopeWrite)
 	ctx := context.Background()
-	job := newJob(t, c, "minutely", api.JobSpec{Schedule: "* * * * *", TimeZone: "Asia/Kolkata", Image: "busybox", Command: []string{"sleep 0.5"}})
+	// Every minute of one hour, twelve hours away: its own occurrences never come round while the test runs,
+	// so each phase sees only the runs it caused, whenever the test starts. (With "* * * * *", a phase that
+	// started in a minute's first second or crossed into the next minute saw one run more or less.)
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(ist)
+	hour := (now.Hour() + 12) % 24
+	job := newJob(t, c, "minutely", api.JobSpec{Schedule: fmt.Sprintf("* %d * * *", hour), TimeZone: "Asia/Kolkata", Image: "busybox", Command: []string{"sleep 0.5"}})
+	// The hour's last minute on the most recent day it has passed: the latest occurrence before now.
+	due := time.Date(now.Year(), now.Month(), now.Day(), hour, 59, 0, 0, ist)
+	if !due.Before(now) {
+		due = due.AddDate(0, 0, -1)
+	}
 
 	// Due a moment ago: one scheduled run, and the next run moves into the future.
-	due := time.Now().Add(-time.Second).Truncate(time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &due); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +187,7 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	}
 
 	// Ten minutes of downtime: one skipped record counting the missed runs, then a single catch-up run.
-	past := time.Now().Add(-10 * time.Minute).Truncate(time.Minute)
+	past := due.Add(-10 * time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &past); err != nil {
 		t.Fatal(err)
 	}
@@ -210,8 +224,8 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().Add(-time.Second)
-	if err := env.Store.SetNextRun(ctx, job.ID, &now); err != nil {
+	dueNow := time.Now().Add(-time.Second)
+	if err := env.Store.SetNextRun(ctx, job.ID, &dueNow); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, 10*time.Second, func() bool {

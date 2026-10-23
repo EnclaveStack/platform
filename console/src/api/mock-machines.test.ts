@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { choose, mainMachine, joined, waitingMachine } from './mock-machines';
+import { choose, mainMachine, joined, MAIN, waitingMachine } from './mock-machines';
 import { createMockApi, DEMO_ADMIN, type MockOptions } from './mock';
 import type { EnclaveApi } from './client';
 import type { ApiError, StackMember, StackSpec } from './types';
@@ -30,8 +30,8 @@ describe('placement (ADR-044)', () => {
   const rack = joined(waitingMachine('mch_1', 'rack-1', { disk: 'ssd' }), '10.0.0.1');
   it('takes the machine with the most free memory, main on a tie, and honours labels', () => {
     const main = mainMachine('Mac', 0, 0);
-    expect(choose({}, [main, rack], GiB)).toEqual({ machine: 'main' }); // 16 GiB free beats 8
-    expect(choose({}, [{ ...main, memoryTotalBytes: 8 * GiB }, rack], GiB)).toEqual({ machine: 'main' });
+    expect(choose({}, [main, rack], GiB)).toEqual({ machine: MAIN.name }); // 16 GiB free beats 8
+    expect(choose({}, [{ ...main, memoryTotalBytes: 8 * GiB }, rack], GiB)).toEqual({ machine: MAIN.name });
     expect(choose({ machineLabels: { disk: 'ssd' } }, [main, rack], GiB)).toEqual({ machine: 'rack-1' });
     expect(choose({ machineLabels: { disk: 'nvme' } }, [main, rack], GiB)).toEqual({ reason: 'No machine has the labels disk=nvme.' });
     expect(choose({}, [main, { ...rack, schedulable: false }], 20 * GiB)).toEqual({ reason: 'No machine has 20480 MiB free.' });
@@ -42,8 +42,8 @@ describe('placement (ADR-044)', () => {
 describe('mock api, v0.8', () => {
   it('lists machines, refuses main as a name, and removes only empty ones (L3-002 §11.2)', async () => {
     const api = await signedIn({ machines: [{ name: 'rack-1' }] });
-    expect((await api.listMachines()).map((m) => m.name)).toEqual(['main', 'rack-1']);
-    expect((await fails(api.addMachine('main')))?.code).toBe('VALIDATION_FAILED');
+    expect((await api.listMachines()).map((m) => m.name)).toEqual([MAIN.name, 'rack-1']);
+    expect((await fails(api.addMachine('Bad Name')))?.code).toBe('VALIDATION_FAILED');
     expect((await fails(api.addMachine('rack-1')))?.code).toBe('NAME_TAKEN');
     const added = await api.addMachine('rack-2', { disk: 'ssd' });
     expect(added.machine.state).toBe('waiting');
@@ -54,8 +54,8 @@ describe('mock api, v0.8', () => {
     expect(e?.code).toBe('MACHINE_NOT_EMPTY');
     expect(e?.details[0]?.field).toBe('database/orders');
     expect((await fails(api.removeMachine('rack-1', true)))?.code).toBe('MACHINE_ONLINE');
-    expect((await fails(api.removeMachine('main')))?.code).toBe('ACTION_NOT_SUPPORTED');
-    expect((await fails(api.drainMachine('main')))?.code).toBe('ACTION_NOT_SUPPORTED');
+    expect((await fails(api.removeMachine(MAIN.name)))?.code).toBe('ACTION_NOT_SUPPORTED');
+    expect((await fails(api.drainMachine(MAIN.name)))?.code).toBe('ACTION_NOT_SUPPORTED');
     await api.removeMachine('rack-2');
     expect((await fails(api.getMachineByName('rack-2')))?.code).toBe('NOT_FOUND');
   });
@@ -64,7 +64,7 @@ describe('mock api, v0.8', () => {
     const api = await signedIn({ machines: [{ name: 'rack-1' }] });
     const db = await api.createResource('database', 'orders', { engine: 'postgres', version: '16' });
     await vi.advanceTimersByTimeAsync(400);
-    expect((await api.getResource(db.id)).outputs.machine).toBe('main');
+    expect((await api.getResource(db.id)).outputs.machine).toBe(MAIN.name);
     const moving = await api.updateResource(db.id, { machine: 'rack-1' }, 1);
     expect(moving.status.steps[0]?.name).toBe('move');
     await vi.advanceTimersByTimeAsync(600);

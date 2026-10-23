@@ -25,6 +25,7 @@ import {
   type LogLine,
   type Machine,
   type MachineSettings,
+  type SetupStatus,
   type MessageList,
   type ReceivedMessage,
   type Resource,
@@ -115,7 +116,7 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
 
   const enc = encodeURIComponent;
   return {
-    getSetupRequired: async () => (await call<{ required: boolean }>({ method: 'GET', path: '/setup' })).required,
+    getSetupStatus: () => call<SetupStatus>({ method: 'GET', path: '/setup' }),
     setup: (input) => call<Session>({ method: 'POST', path: '/setup', body: input }),
     signIn: (email, password) => call<Session>({ method: 'POST', path: '/session', body: { email, password } }),
     getSession: async () => {

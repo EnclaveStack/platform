@@ -9,9 +9,9 @@
 | Version | v8 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -544,11 +544,11 @@ Resolution: **most free memory**, the main machine on a tie, filtered by version
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | DAR-001 – DAR-007: language, surface architecture, provisioning model, state store, runtime integration, client credentials, provider placement |
-| v2 | 2026-10-20 | Soupler Labs | DAR-008 – DAR-011 for v0.3: edge proxy, health-check placement, builds, backup format |
-| v3 | 2026-10-21 | Soupler Labs | DAR-012 – DAR-016 for v0.4: network model, firewall enforcement, load balancer proxy, DNS provider clients, DNS-01 issuance (spikes recorded) |
-| v4 | 2026-10-21 | Soupler Labs | DAR-017 – DAR-020 for v0.5: hypervisor, VM networking, volume storage, snapshot form (spikes recorded) |
-| v5 | 2026-10-21 | Soupler Labs | DAR-021 – DAR-026 for v0.6: broker, database engines, search, email, CDN cache, transcoding (broker spike recorded) |
-| v6 | 2026-10-22 | Soupler Labs | DAR-027 – DAR-033 for v0.7: project separation, access model, metrics storage, alert evaluation, notification delivery, log export, outside secret managers |
-| v7 | 2026-10-22 | Soupler Labs | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |
-| v8 | 2026-10-22 | Soupler Labs | DAR-034 – DAR-039 for v0.8: agent transport, networks across machines (spike recorded), unique addresses, moving data, template language, choosing a machine |
+| v1 | 2026-10-20 | Soupler | DAR-001 – DAR-007: language, surface architecture, provisioning model, state store, runtime integration, client credentials, provider placement |
+| v2 | 2026-10-20 | Soupler | DAR-008 – DAR-011 for v0.3: edge proxy, health-check placement, builds, backup format |
+| v3 | 2026-10-21 | Soupler | DAR-012 – DAR-016 for v0.4: network model, firewall enforcement, load balancer proxy, DNS provider clients, DNS-01 issuance (spikes recorded) |
+| v4 | 2026-10-21 | Soupler | DAR-017 – DAR-020 for v0.5: hypervisor, VM networking, volume storage, snapshot form (spikes recorded) |
+| v5 | 2026-10-21 | Soupler | DAR-021 – DAR-026 for v0.6: broker, database engines, search, email, CDN cache, transcoding (broker spike recorded) |
+| v6 | 2026-10-22 | Soupler | DAR-027 – DAR-033 for v0.7: project separation, access model, metrics storage, alert evaluation, notification delivery, log export, outside secret managers |
+| v7 | 2026-10-22 | Soupler | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |
+| v8 | 2026-10-22 | Soupler | DAR-034 – DAR-039 for v0.8: agent transport, networks across machines (spike recorded), unique addresses, moving data, template language, choosing a machine |

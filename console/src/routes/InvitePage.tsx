@@ -22,7 +22,7 @@ export function InvitePage() {
   const [busy, setBusy] = useState(false);
   const [joined, setJoined] = useState(false);
 
-  if (joined && state.status === 'signed-in') return <Navigate to="/apps" replace />;
+  if (joined && state.status === 'signed-in') return <Navigate to="/" replace />;
   if (info.loading && !info.data && !info.error) return <Splash />;
 
   async function submit(e: FormEvent) {

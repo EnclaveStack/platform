@@ -90,10 +90,10 @@ func (r *Resource) StackRef() *string {
 	return &s
 }
 
-// MachineID is the machine the resource runs on, the main machine when unset.
-func (r *Resource) MachineID() string {
+// MachineOn is the machine the resource runs on: mainID when it has none yet.
+func (r *Resource) MachineOn(mainID string) string {
 	if r.Machine == "" {
-		return api.MainMachine
+		return mainID
 	}
 	return r.Machine
 }

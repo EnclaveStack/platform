@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="console/public/favicon.svg" alt="EnclaveStack" width="72" height="72" />
+<a href="https://enclavestack.soupler.com"><img src="console/public/favicon.svg" alt="EnclaveStack" width="72" height="72" /></a>
 
 # EnclaveStack
 
@@ -13,6 +13,8 @@
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#status)
 [![Runs on macOS and Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-555)](#quick-start)
 
+**[Website](https://enclavestack.soupler.com)** · **[Docs](https://enclavestack.soupler.com/docs/)** · **[Services](https://enclavestack.soupler.com/services/)**
+
 [Quick start](#quick-start) · [What you get](#what-you-get) · [Three ways to drive it](#three-ways-to-drive-it) · [Many machines](#many-machines) · [How it works](#how-it-works) · [FAQ](#faq) · [Documentation](#documentation)
 
 </div>
@@ -22,7 +24,7 @@
 <div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/console-dark.png" />
-  <img src=".github/assets/console-light.png" alt="The EnclaveStack console: an app with its deploy stages, address and machine" width="1200" />
+  <img src=".github/assets/console-light.png" alt="The EnclaveStack console overview: what is running, what needs attention, the machines and a chart of each" width="1200" />
 </picture>
 </div>
 
@@ -38,30 +40,135 @@ Paying a cloud bill for side projects, a small team or a homelab? EnclaveStack t
 
 It is one program. Install it and open the console. Everything after that is a click, a command or a line of OpenTofu away: networks, firewalls, load balancers, VMs, metrics, alerts. Add a second computer and your resources spread across both.
 
-> [!NOTE]
-> EnclaveStack is **pre-release**. Nothing is published yet, so you build it from source. It is Apache-2.0 licensed and runs entirely on your machines: no account, no telemetry.
-
 ## Quick start
 
-You need **Docker**, **Go 1.26+**, **Node 22.12+** with **pnpm 9**, and **QEMU 8+** for VMs (`brew install qemu`, or `qemu-system` and `qemu-utils` on Linux).
+EnclaveStack is one program. You download the source, build the program once, and run it. It then serves a web console on your computer (port 7070) and creates your databases, apps and buckets as containers on the Docker that is already installed there. Everything runs on your machine.
+
+There is no installer yet, so you build it from the source code. Pick what you want to do:
+
+| I want to… | Use | You need |
+|---|---|---|
+| **Look around**: click through the console with sample data, and nothing real is created | [Option 1: try it](#option-1-try-it-with-sample-data) | Go, Node and pnpm |
+| **Use it**: run real databases and apps on this computer | [Option 2: run it for real](#option-2-run-it-for-real) | the same, plus Docker running |
+
+Go 1.26+, Node 22.12+ and pnpm 9 are needed by both. Only VMs need **QEMU** (`brew install qemu`, or `qemu-system` and `qemu-utils` on Linux); skip it until you want one.
+
+### Option 1: try it with sample data
 
 ```bash
 git clone https://github.com/EnclaveStack/platform.git enclavestack && cd enclavestack
-pnpm install && make build          # builds ./build/enclave with the console inside
-./build/enclave server              # prints the console URL and a one-time setup code
+pnpm install     # once: downloads the JavaScript libraries the web console is built from
+make demo        # builds the program, starts it with sample data (script: examples/demo/run.sh)
 ```
 
-Open **http://127.0.0.1:7070**, enter the setup code and create your admin account. Then, from another terminal:
+When it says *EnclaveStack is running*, open **http://127.0.0.1:7070** and sign in as `admin@enclave.local` with the password `enclave-demo`. It starts with sample apps, databases, a cache, a bucket, a job, a WordPress site and a second project, all on a simulated engine, so no Docker is needed. Press Ctrl-C to stop it and remove everything.
+
+### Option 2: run it for real
+
+**1. Get the code.** Once:
 
 ```bash
-./build/enclave login
-./build/enclave db create orders --wait
-./build/enclave app create web --image nginx:1.27-alpine --port 80 --publish --wait
-./build/enclave stack create blog --template wordpress --param domain=blog.localhost --wait
-./build/enclave ls
+git clone https://github.com/EnclaveStack/platform.git enclavestack && cd enclavestack
+pnpm install     # downloads the JavaScript libraries the web console is built from
 ```
 
-Just want to look around? `pnpm install && make demo` starts it on a simulated engine, so no Docker is needed. It creates the admin account (`admin@enclave.local` / `enclave-demo`) and fills it with sample apps, databases, a cache, a bucket, a job, a WordPress stack and a second project. `make demo DRIVER=docker` does the same with real containers.
+**2. Start it.** Make sure Docker is running, then:
+
+```bash
+make start
+```
+
+This does two things in one go. It **builds** the program (the web console, then the single `enclave` program with the console inside, saved as `./build/enclave`; the first time takes a few minutes), then it **runs** `./build/enclave server`. Leave this terminal open: it prints a web address and a one-time setup code, and EnclaveStack stops when you close it. Your data is kept in `~/.enclave`, so running `make start` again later picks up where you left off.
+
+**3. Create your account.** Open **http://127.0.0.1:7070**, enter the setup code and choose an email and password. The machine name starts as your computer's own name, and you can change it later. You are now in the console, which is empty.
+
+**4. Make something.** Everything below talks to the same server, so what you create one way shows up in the others.
+
+- **The console.** Click **New** in any section. When it is ready, the page shows the connection details (host, port, password) to put in your own code.
+- **The terminal.** In a second terminal, in the same folder, run `make install` once. It puts the `enclave` program on your PATH so any terminal understands the word `enclave` (without it, type `./build/enclave` instead). Then:
+
+  ```bash
+  enclave login                                   # sign the terminal in as you (asked once)
+  enclave db create orders --wait                 # a PostgreSQL database
+  enclave app create web --image nginx:1.27-alpine --port 80 --publish --wait   # a web app from a container image
+  enclave stack create blog --template wordpress --param domain=blog.localhost --wait   # a WordPress site with its database and storage
+  enclave ls                                      # list everything you have
+  ```
+
+  `--wait` makes the command wait until the thing is ready.
+- **As code, with OpenTofu.** Describe what you want in `.tf` files and let OpenTofu create it. `make tofu` does the set-up for you: it builds the OpenTofu plug-in for EnclaveStack, signs you in (once), keeps a token and runs `tofu`. Try the included example, which makes a database, a cache, a secret and an app that uses all three:
+
+  ```bash
+  make tofu CMD=plan        # shows what would be created, and creates nothing
+  make tofu                 # creates it (type yes when asked)
+  make tofu CMD=destroy     # removes it again
+  make tofu DIR=path/to/your/files CMD=plan    # the same for your own .tf files
+  ```
+
+**5. Stop it.** Press Ctrl-C in the terminal that is running `make start`. Containers you created keep running until you delete them.
+
+> **The complete guide** — installing every tool, each command in detail, the console, the `enclave` command, OpenTofu, connecting your code, updating, removing everything and troubleshooting — is [`docs/L5-operations/L5-004-user-guide-v1.md`](docs/L5-operations/L5-004-user-guide-v1.md). This quick start is the short version.
+
+### What each command does, and how often you run it
+
+| Command | How often | What it does |
+|---|---|---|
+| `git clone …` and `pnpm install` | once per download | Gets the code, and the libraries the web console is built from. |
+| `make start` | every time you want EnclaveStack running | `make build`, then `./build/enclave server`: runs EnclaveStack for real with Docker. Leave the terminal open. |
+| Creating your account in the browser | once | Uses the one-time setup code `make start` prints. |
+| `make install` | once, and again after you update the code | Copies `enclave` to a folder on your PATH (`/opt/homebrew/bin` or `/usr/local/bin`, or `BINDIR=…`) so any terminal knows the word `enclave`. |
+| `enclave login` | once per computer | Signs this terminal in as you and saves a token in `~/.config/enclave`. |
+| `enclave …` commands | whenever you make or change things | The terminal way to use EnclaveStack (below). |
+| `make tofu` | whenever you want OpenTofu to apply your `.tf` files | Runs OpenTofu against your server (`examples/opentofu/run.sh`): builds the plug-in, signs in once, then `tofu <CMD>` in `DIR`. |
+| `make demo` | only when you want to look around | `make build`, then a server with sample data on a simulated engine (`examples/demo/run.sh`). `DRIVER=docker` makes the samples real containers. |
+| `make build` | rarely: `make start` and `make install` do it for you | Builds the console, the `enclave` program (`./build/enclave`) and the OpenTofu plug-in. |
+
+### Using the `enclave` command
+
+Every command has the same shape: `enclave <thing> <what to do> <name> [options]`.
+
+```bash
+enclave db create orders --wait      # make a database and wait until it is ready
+enclave db list                      # list your databases
+enclave db get orders                # show one
+enclave db delete orders             # delete it (the data is lost)
+enclave ls                           # everything you have, of every kind
+enclave app create --help            # every option of a command
+enclave --help                       # every kind of thing you can make: apps, databases, caches, buckets, secrets, domains, queues, VMs…
+```
+
+Useful options on any command: `-p shop` works in another project, `-o json` prints machine-readable output for scripts, and `--server` or `--token` (or the `ENCLAVE_SERVER` and `ENCLAVE_TOKEN` environment variables) point it at another EnclaveStack, for example from a script or CI.
+
+### Using OpenTofu
+
+OpenTofu is the "as code" way. You describe what you want in a text file, and OpenTofu makes EnclaveStack match it. Run it again after changing the file and only the difference is applied; delete a block and that resource is removed. Because it is a file, you can keep it in Git and review changes like code.
+
+A file of your own looks like this (`main.tf`, in any folder):
+
+```hcl
+terraform {
+  required_providers {
+    enclave = { source = "enclavestack/enclave" }
+  }
+}
+
+provider "enclave" {}        # finds your server and token from ENCLAVE_SERVER and ENCLAVE_TOKEN, which make tofu sets
+
+resource "enclave_database" "orders" {
+  name    = "orders"
+  version = "16"
+}
+
+resource "enclave_app" "web" {
+  name    = "web"
+  image   = "nginx:1.27-alpine"
+  port    = 80
+  publish = true
+  env     = { DB_HOST = enclave_database.orders.internal_host }   # one resource feeding another
+}
+```
+
+Then, from the repo: `make tofu DIR=path/to/that/folder CMD=plan` to see what would change, and `make tofu DIR=path/to/that/folder` to apply it. `examples/opentofu/main.tf` is a larger working example, and every service page on the [website](https://enclavestack.soupler.com) shows its OpenTofu block and every setting it takes.
 
 ## What you get
 
@@ -82,7 +189,10 @@ Just want to look around? `pnpm install && make demo` starts it on a simulated e
 | **Catalogue** | WordPress, Ghost, n8n, Uptime Kuma, Gitea and Plausible, or your own template, installed as one stack | Marketplace |
 
 <div align="center">
-<img src=".github/assets/catalogue.png" alt="The catalogue: ready-made stacks to install" width="1000" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/catalogue-dark.png" />
+  <img src=".github/assets/catalogue-light.png" alt="The catalogue: ready-made stacks to install" width="1000" />
+</picture>
 </div>
 
 ## Three ways to drive it
@@ -128,6 +238,13 @@ resource "enclave_app" "api" {
 
 See [`examples/opentofu`](examples/opentofu) for a full configuration.
 
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/app-dark.png" />
+  <img src=".github/assets/app-light.png" alt="An app in the console: its deploy stages, address, machine and actions" width="1000" />
+</picture>
+</div>
+
 ## Many machines
 
 Got an old laptop or a mini PC? Join it, and EnclaveStack places new resources wherever there is room.
@@ -144,7 +261,10 @@ enclave agent join http://<main machine>:7070 --code <code>
 - **Move** anything, data included: `enclave move database/orders --to main`. **Drain** a machine before you unplug it.
 
 <div align="center">
-<img src=".github/assets/machines.png" alt="Machines: the main machine and a second one, both online" width="1000" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/machines-dark.png" />
+  <img src=".github/assets/machines-light.png" alt="Machines: the main machine online and a second one waiting to join" width="1000" />
+</picture>
 </div>
 
 ## How it works
@@ -223,6 +343,7 @@ Not yet: it is pre-release. Each release is built and tested, but there is no pu
 
 ## Documentation
 
+- **Guides and every service, explained**: [enclavestack.soupler.com/docs](https://enclavestack.soupler.com/docs/)
 - **Architecture**: [`L3-001`](docs/L3-architecture/L3-001-system-architecture-v1.md)
 - **API**: [`L3-002`](docs/L3-architecture/L3-002-console-api-contract-v1.md) and [`api/openapi.yaml`](api/openapi.yaml)
 - **Security**: [`L3-006`](docs/L3-architecture/L3-006-security-architecture-v1.md)
@@ -232,7 +353,7 @@ Not yet: it is pre-release. Each release is built and tested, but there is no pu
 
 ## Contributing
 
-Issues and pull requests are welcome. Branch from `develop` (`<type>/<slug>`) and open the PR against `develop`, filling in every section of the template.
+Issues and pull requests are welcome. **Read [CONTRIBUTING.md](CONTRIBUTING.md) first**: how to report a bug or suggest a feature, how work is tracked, and how a pull request gets reviewed and merged. In short: branch from `develop` (`<type>/<slug>`), open the PR against `develop`, and fill in every section of the template. Questions go to [Discussions](https://github.com/EnclaveStack/platform/discussions), security problems to [SECURITY.md](SECURITY.md), and everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 This repository is governed by a layered documentation system. Read [`CLAUDE.md`](CLAUDE.md) first: it is the contract for people and coding agents alike. The standards are in [`docs/L0-foundation/`](docs/L0-foundation/).
 

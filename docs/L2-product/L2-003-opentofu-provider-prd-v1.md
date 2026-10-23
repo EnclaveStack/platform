@@ -9,9 +9,9 @@
 | Version | v14 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -111,17 +111,17 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | The v0.2 provider: five resources, two data sources, waits, replacements, drift, import, sensitive values, configuration, retries, versions, registry (TF-01 – TF-10). Row reconstructed from the CHANGELOG (v0.2 lists L2-003) |
-| v2 | 2026-10-20 | Soupler Labs | v0.3 requirements TF-11 – TF-15: domain, health_check and strategy, job, backup, Git source (L2-005) |
-| v3 | 2026-10-21 | Soupler Labs | TF-11 – TF-14 marked shipped; TF-14 as built |
-| v4 | 2026-10-21 | Soupler Labs | TF-15 shipped |
-| v5 | 2026-10-21 | Soupler Labs | v0.4 requirements TF-16 – TF-21: network, firewall, replicas and load balancer, zone and record, DNS-01 domains (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 row(s), which are not reconstructed (see CHANGELOG) |
-| v6 | 2026-10-21 | Soupler Labs | TF-16 – TF-21 shipped as built: list attributes instead of blocks; dns_provider and record_name (reserved and taken names) |
-| v7 | 2026-10-21 | Soupler Labs | Reconstructed the lost v1 history row |
-| v8 | 2026-10-21 | Soupler Labs | v0.5 requirements TF-22 – TF-26: enclave_vm, enclave_volume, volume mounts, enclave_snapshot (L2-007) |
-| v9 | 2026-10-21 | Soupler Labs | TF-22 – TF-26 shipped; attached_to is refreshed by the server periodically |
-| v10 | 2026-10-21 | Soupler Labs | v0.6 requirements TF-27 – TF-33: database engine, queue, topic, search, transcoder, cdn, email (L2-008) |
-| v11 | 2026-10-22 | Soupler Labs | TF-27 – TF-33 shipped |
-| v12 | 2026-10-22 | Soupler Labs | v0.7 requirements TF-34 – TF-41: project setting and attribute, project, user, dashboard and metrics, alert and channel, log export, secret store and external secrets (L2-009) |
-| v13 | 2026-10-22 | Soupler Labs | TF-40 as built: `enclave_secret_store.settings` map; TF-34 – TF-41 shipped and covered by `TestAccOperateStack` |
-| v14 | 2026-10-22 | Soupler Labs | v0.8 requirements TF-42 – TF-47: machine resource and data source, machine on placed resources, stack, catalogue template and data source, import (L2-010) |
+| v1 | 2026-10-20 | Soupler | The v0.2 provider: five resources, two data sources, waits, replacements, drift, import, sensitive values, configuration, retries, versions, registry (TF-01 – TF-10). Row reconstructed from the CHANGELOG (v0.2 lists L2-003) |
+| v2 | 2026-10-20 | Soupler | v0.3 requirements TF-11 – TF-15: domain, health_check and strategy, job, backup, Git source (L2-005) |
+| v3 | 2026-10-21 | Soupler | TF-11 – TF-14 marked shipped; TF-14 as built |
+| v4 | 2026-10-21 | Soupler | TF-15 shipped |
+| v5 | 2026-10-21 | Soupler | v0.4 requirements TF-16 – TF-21: network, firewall, replicas and load balancer, zone and record, DNS-01 domains (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 row(s), which are not reconstructed (see CHANGELOG) |
+| v6 | 2026-10-21 | Soupler | TF-16 – TF-21 shipped as built: list attributes instead of blocks; dns_provider and record_name (reserved and taken names) |
+| v7 | 2026-10-21 | Soupler | Reconstructed the lost v1 history row |
+| v8 | 2026-10-21 | Soupler | v0.5 requirements TF-22 – TF-26: enclave_vm, enclave_volume, volume mounts, enclave_snapshot (L2-007) |
+| v9 | 2026-10-21 | Soupler | TF-22 – TF-26 shipped; attached_to is refreshed by the server periodically |
+| v10 | 2026-10-21 | Soupler | v0.6 requirements TF-27 – TF-33: database engine, queue, topic, search, transcoder, cdn, email (L2-008) |
+| v11 | 2026-10-22 | Soupler | TF-27 – TF-33 shipped |
+| v12 | 2026-10-22 | Soupler | v0.7 requirements TF-34 – TF-41: project setting and attribute, project, user, dashboard and metrics, alert and channel, log export, secret store and external secrets (L2-009) |
+| v13 | 2026-10-22 | Soupler | TF-40 as built: `enclave_secret_store.settings` map; TF-34 – TF-41 shipped and covered by `TestAccOperateStack` |
+| v14 | 2026-10-22 | Soupler | v0.8 requirements TF-42 – TF-47: machine resource and data source, machine on placed resources, stack, catalogue template and data source, import (L2-010) |

@@ -1,37 +1,18 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN, DEMO_SETUP_CODE, type MockOptions } from './api/mock';
-import { SessionProvider } from './auth/session';
+import { DEMO_SETUP_CODE } from './api/mock';
+import { renderConsole, signIn } from './test-console';
 
 // Operator flows through real routes and components, with the mock adapter behind EnclaveApi.
 
-function renderConsole(path: string, options: MockOptions = {}) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null, ...options });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 describe('console', () => {
   it('first-run setup needs the code, then lands in the console (CON-02)', async () => {
     const { user, router } = renderConsole('/apps', { setupRequired: true });
     expect(await screen.findByRole('heading', { name: 'First-run setup' })).toBeInTheDocument();
+    // The machine name starts as the computer's own name (MCH-10).
+    expect(await screen.findByLabelText('Machine name')).toHaveValue('This Mac');
     await user.type(screen.getByLabelText('Setup code'), 'WRONG-CODE');
     await user.type(screen.getByLabelText('Admin email'), 'me@example.com');
     await user.type(screen.getByLabelText('Password'), 'long-enough-pw');
@@ -40,8 +21,9 @@ describe('console', () => {
     await user.clear(screen.getByLabelText('Setup code'));
     await user.type(screen.getByLabelText('Setup code'), DEMO_SETUP_CODE);
     await user.click(screen.getByRole('button', { name: 'Create admin and open console' }));
-    expect(await screen.findByRole('region', { name: 'Apps list' })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/apps');
+    // Setup lands on the overview (CON-65).
+    expect(await screen.findByRole('group', { name: 'Overview' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
   });
 
   it('shows an empty state and creates a database through the form, following it to Ready (CON-05, CON-14)', async () => {
@@ -148,7 +130,8 @@ describe('console', () => {
     await user.type(screen.getByLabelText('Public address'), '203.0.113.7');
     await user.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(async () => expect((await api.getMachine()).publicAddress).toBe('203.0.113.7'));
-    expect(screen.getByRole('link', { name: /^Domains/ })).toBeInTheDocument();
+    // The sidebar lists it (the breadcrumb links to Domains too, CON-63).
+    expect(within(screen.getByRole('navigation', { name: 'Networking' })).getByRole('link', { name: /^Domains/ })).toBeInTheDocument();
   });
 
   it('creates a job, runs it now and shows the run and its output (CON-22)', async () => {

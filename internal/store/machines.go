@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/enclavestack/platform/pkg/api"
@@ -29,6 +31,8 @@ type Machine struct {
 	JoinCodeHash    string
 	JoinExpiresAt   *time.Time
 	CreatedAt       time.Time
+	// Main is the computer EnclaveStack runs on; exactly one machine is (MCH-01).
+	Main bool
 }
 
 // MachineInfo is what a machine's agent last reported about it (or, for the main machine, its engine).
@@ -42,8 +46,101 @@ type MachineInfo struct {
 	VMs              api.VMSupport `json:"vms"`
 }
 
+// MainID is the main machine's ID ("" until EnsureMainMachine has run).
+func (s *Store) MainID() string {
+	id, _ := s.mainID.Load().(string)
+	return id
+}
+
+// legacyMainID is the ID the main machine had before 0014: a fixed word instead of a made ID.
+const legacyMainID = "main"
+
+// EnsureMainMachine makes sure the main machine has a generated ID (mch_…) and a name made from the
+// computer's own name, and returns its ID (MCH-01). A database from before 0014 has the row "main": it is
+// renamed once, with everything that pointed at it, in one transaction. newID makes the ID; handle is the
+// name wanted, which gets -2, -3… when another machine already has it.
+func (s *Store) EnsureMainMachine(ctx context.Context, newID func() string, handle string, now time.Time) (string, error) {
+	var id string
+	err := s.WithTx(ctx, func(q *Queries) error {
+		var main Machine
+		var err error
+		if main, err = q.oneMachine(ctx, `SELECT `+machineCols+` FROM machines WHERE is_main = 1`); errors.Is(err, ErrNotFound) {
+			main, err = Machine{}, nil
+		} else if err != nil {
+			return err
+		}
+		switch {
+		case main.ID != "" && main.ID != legacyMainID:
+			id = main.ID // already done
+			return nil
+		case main.ID == "":
+			// A new database has the flagged row from 0013 as "main"; with none, make one.
+			main = Machine{ID: newID(), Name: handle, State: api.MachineOnline, StateSince: now, Schedulable: true, CreatedAt: now, Main: true}
+			if main.Name, err = q.freeMachineName(ctx, handle, ""); err != nil {
+				return err
+			}
+			id = main.ID
+			return q.InsertMachine(ctx, main)
+		}
+		name, err := q.freeMachineName(ctx, handle, legacyMainID)
+		if err != nil {
+			return err
+		}
+		id = newID()
+		return q.renameMainMachine(ctx, name, id)
+	})
+	if err != nil {
+		return "", err
+	}
+	s.mainID.Store(id)
+	return id, nil
+}
+
+// freeMachineName returns name, or name-2, name-3… when another machine (not ignore) already has it.
+func (q *Queries) freeMachineName(ctx context.Context, name, ignoreID string) (string, error) {
+	for n := 1; ; n++ {
+		try := name
+		if n > 1 {
+			try = name + "-" + strconv.Itoa(n)
+		}
+		var taken int
+		if err := q.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM machines WHERE name = ? AND id <> ?`, try, ignoreID).Scan(&taken); err != nil {
+			return "", err
+		}
+		if taken == 0 {
+			return try, nil
+		}
+	}
+}
+
+// renameMainMachine gives the pre-0014 row "main" its generated ID and name, and rewrites everything that
+// held the old ID or name: placements, address pools, events, and the machine name in specs and outputs.
+func (q *Queries) renameMainMachine(ctx context.Context, name, id string) error {
+	if _, err := q.q.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
+		return err
+	}
+	steps := []struct {
+		sql  string
+		args []any
+	}{
+		{`UPDATE machines SET id = ?, name = ? WHERE id = ?`, []any{id, name, legacyMainID}},
+		{`UPDATE resources SET machine_id = ? WHERE machine_id = ?`, []any{id, legacyMainID}},
+		{`UPDATE address_pool SET machine_id = ? WHERE machine_id = ?`, []any{id, legacyMainID}},
+		{`UPDATE machine_events SET machine_id = ? WHERE machine_id = ?`, []any{id, legacyMainID}},
+		// A pinned resource names its machine by name, and a placed one's outputs do too.
+		{`UPDATE resources SET spec_json = json_set(spec_json, '$.machine', ?) WHERE json_extract(spec_json, '$.machine') = ?`, []any{name, legacyMainID}},
+		{`UPDATE resources SET outputs_json = json_set(outputs_json, '$.machine', ?) WHERE json_extract(outputs_json, '$.machine') = ?`, []any{name, legacyMainID}},
+	}
+	for _, st := range steps {
+		if _, err := q.q.ExecContext(ctx, st.sql, st.args...); err != nil {
+			return fmt.Errorf("make the main machine %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 const machineCols = `id, name, state, state_since, labels_json, schedulable, address, agent_port, tunnel_port, tunnel_public_key,
-	cert_serial, cert_not_after, info_json, last_seen_at, join_code_hash, join_expires_at, created_at`
+	cert_serial, cert_not_after, info_json, last_seen_at, join_code_hash, join_expires_at, created_at, is_main`
 
 // InsertMachine stores a new machine; a duplicate name or join code returns ErrConflict.
 func (q *Queries) InsertMachine(ctx context.Context, m Machine) error {
@@ -51,9 +148,9 @@ func (q *Queries) InsertMachine(ctx context.Context, m Machine) error {
 	if err != nil {
 		return err
 	}
-	_, err = q.q.ExecContext(ctx, `INSERT INTO machines (`+machineCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = q.q.ExecContext(ctx, `INSERT INTO machines (`+machineCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Name, m.State, ts(m.StateSince), labels, boolInt(m.Schedulable), nullable(m.Address), m.AgentPort, m.TunnelPort, m.TunnelPublicKey,
-		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), ts(m.CreatedAt))
+		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), ts(m.CreatedAt), boolInt(m.Main))
 	if isUnique(err) {
 		return ErrConflict
 	}
@@ -119,7 +216,7 @@ func (q *Queries) GetMachineByJoinCode(ctx context.Context, hash string) (Machin
 
 // ListMachines returns every machine, the main machine first, then by name.
 func (q *Queries) ListMachines(ctx context.Context) ([]Machine, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT `+machineCols+` FROM machines ORDER BY id <> ?, name`, api.MainMachine)
+	rows, err := q.q.QueryContext(ctx, `SELECT `+machineCols+` FROM machines ORDER BY is_main DESC, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -315,10 +412,10 @@ func (q *Queries) oneMachine(ctx context.Context, query string, args ...any) (Ma
 func scanMachine(r scanner) (Machine, error) {
 	var m Machine
 	var since, labels, info, created string
-	var schedulable int
+	var schedulable, isMain int
 	var address, certNotAfter, lastSeen, joinHash, joinExpires sql.NullString
 	err := r.Scan(&m.ID, &m.Name, &m.State, &since, &labels, &schedulable, &address, &m.AgentPort, &m.TunnelPort, &m.TunnelPublicKey,
-		&m.CertSerial, &certNotAfter, &info, &lastSeen, &joinHash, &joinExpires, &created)
+		&m.CertSerial, &certNotAfter, &info, &lastSeen, &joinHash, &joinExpires, &created, &isMain)
 	if err != nil {
 		return m, err
 	}
@@ -328,7 +425,7 @@ func scanMachine(r scanner) (Machine, error) {
 	if err := json.Unmarshal([]byte(info), &m.Info); err != nil {
 		return m, err
 	}
-	m.StateSince, m.CreatedAt, m.Schedulable = parseTS(since), parseTS(created), schedulable != 0
+	m.StateSince, m.CreatedAt, m.Schedulable, m.Main = parseTS(since), parseTS(created), schedulable != 0, isMain != 0
 	m.Address, m.JoinCodeHash = address.String, joinHash.String
 	m.CertNotAfter, m.LastSeenAt, m.JoinExpiresAt = parseNullTS(certNotAfter), parseNullTS(lastSeen), parseNullTS(joinExpires)
 	return m, nil

@@ -153,6 +153,12 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	if err != nil {
 		return nil, err
 	}
+	// The main machine gets its own ID and a name from the computer's own (MCH-01).
+	host, _ := os.Hostname()
+	if _, err := st.EnsureMainMachine(ctx, func() string { return domain.NewID("mch") }, api.MachineHandleFromHostname(host), time.Now()); err != nil {
+		st.Close()
+		return nil, err
+	}
 	key, err := secretbox.LoadOrCreateKey(filepath.Join(cfg.DataDir, "master.key"))
 	if err != nil {
 		st.Close()

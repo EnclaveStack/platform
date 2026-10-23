@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-21 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -148,5 +148,5 @@ Galiaraa's own needs map onto this one-to-one: the gateway on a domain, rolling 
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | v0.3 scope: domain, job and backup kinds; zero-downtime deploys; builds from source (DOM, DEP, JOB, BAK, BLD requirements) |
-| v2 | 2026-10-21 | Soupler Labs | Delivery status: all five phases built (unreleased) |
+| v1 | 2026-10-20 | Soupler | v0.3 scope: domain, job and backup kinds; zero-downtime deploys; builds from source (DOM, DEP, JOB, BAK, BLD requirements) |
+| v2 | 2026-10-21 | Soupler | Delivery status: all five phases built (unreleased) |

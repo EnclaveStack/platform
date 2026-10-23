@@ -9,4 +9,5 @@ export * from './components/overlays';
 export * from './components/code';
 export * from './components/layout';
 export * from './components/charts';
+export * from './components/pages';
 export * as Icons from './icons';

@@ -9,9 +9,9 @@
 | Version | v3 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -52,6 +52,6 @@ Notes: macOS `ps` RSS read 90 MB because it still counts pages Go has returned t
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Targets and method |
-| v2 | 2026-10-20 | Soupler Labs | First measured baseline (Apple M4, 2026-10-20): every target met |
-| v3 | 2026-10-22 | Soupler Labs | §2: CI runs the thresholds at 10 + 2 virtual users; at 50 + 10 a shared runner passed or failed the read p95 by chance |
+| v1 | 2026-10-20 | Soupler | Targets and method |
+| v2 | 2026-10-20 | Soupler | First measured baseline (Apple M4, 2026-10-20): every target met |
+| v3 | 2026-10-22 | Soupler | §2: CI runs the thresholds at 10 + 2 virtual users; at 50 + 10 a shared runner passed or failed the read p95 by chance |

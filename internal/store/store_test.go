@@ -21,6 +21,9 @@ func open(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
+	if _, err := s.EnsureMainMachine(context.Background(), func() string { return "mch_testmain0000000" }, "test-computer", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	return s
 }
 

@@ -6,12 +6,12 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v7 |
+| Version | v8 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -58,14 +58,17 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 
 `go.yml` gains **Machines E2E** (`make e2e-machines`): the server runs in a container on the runner's Docker, and a Docker-in-Docker container acts as the second machine (ADR-042 – ADR-047). It joins, places, reaches across machines through a private network, moves a cache with its data, and cuts the agent off so an app restarts elsewhere. It runs on every pull request and becomes a required check in the same PR that adds it. The real-Docker suite (`make engine-docker`) gains the two-engine mesh test, which also uses Docker-in-Docker; GitHub's Ubuntu runners allow privileged containers.
 
+`make engine-docker` runs with `-timeout 30m` (`go test` stops a package after 10 minutes by default, and this package takes about that long; a run on 2026-10-23 was killed at 10 m while every test was passing, and left `es-system-probe` behind). The rolling-deploy test's failure message lists what Docker reports for each container, so a CI failure says why the driver and the daemon disagree.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Workflows, local reproduction, release plan |
-| v2 | 2026-10-20 | Soupler Labs | Actual workflow and job names, make targets, staticcheck v0.8.2, OpenTofu acceptance environment |
-| v3 | 2026-10-21 | Soupler Labs | v0.5: KVM and QEMU in Engine E2E, make engine-qemu (§4) |
-| v4 | 2026-10-22 | Soupler Labs | Quality Checks and Tests run the JS workspace only (the Go suite ran twice per push); Go Quality, Go Tests, Provider Acceptance and Console E2E are required checks; workflows renamed to Console Checks (was CI) and Go and End-to-End Tests; all workflows PR-only (no push or nightly), Engine E2E and Load Test run on every PR and are required |
-| v5 | 2026-10-22 | Soupler Labs | §5 two machines in CI (planned): Machines E2E job, the two-engine mesh test |
-| v6 | 2026-10-22 | Soupler Labs | §5: what Machines E2E covers, as built |
-| v7 | 2026-10-22 | Soupler Labs | Load Test runs at 10 + 2 virtual users (`L5-003` v3); Console E2E compiles the server before Playwright starts it |
+| v1 | 2026-10-20 | Soupler | Workflows, local reproduction, release plan |
+| v2 | 2026-10-20 | Soupler | Actual workflow and job names, make targets, staticcheck v0.8.2, OpenTofu acceptance environment |
+| v3 | 2026-10-21 | Soupler | v0.5: KVM and QEMU in Engine E2E, make engine-qemu (§4) |
+| v4 | 2026-10-22 | Soupler | Quality Checks and Tests run the JS workspace only (the Go suite ran twice per push); Go Quality, Go Tests, Provider Acceptance and Console E2E are required checks; workflows renamed to Console Checks (was CI) and Go and End-to-End Tests; all workflows PR-only (no push or nightly), Engine E2E and Load Test run on every PR and are required |
+| v5 | 2026-10-22 | Soupler | §5 two machines in CI (planned): Machines E2E job, the two-engine mesh test |
+| v6 | 2026-10-22 | Soupler | §5: what Machines E2E covers, as built |
+| v7 | 2026-10-22 | Soupler | Load Test runs at 10 + 2 virtual users (`L5-003` v3); Console E2E compiles the server before Playwright starts it |
+| v8 | 2026-10-23 | Soupler | `make engine-docker` runs with a 30 m timeout; the rolling-deploy failure message lists Docker's container states |

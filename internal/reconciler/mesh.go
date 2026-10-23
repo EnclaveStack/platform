@@ -102,7 +102,7 @@ func (r *Reconciler) SyncMesh(ctx context.Context) error {
 		infos[m.ID] = ni
 	}
 	defaultRange := ""
-	for _, n := range infos[api.MainMachine] {
+	for _, n := range infos[r.Store.MainID()] {
 		if n.Name == engine.NetworkName {
 			defaultRange = n.Subnet
 		}

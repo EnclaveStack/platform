@@ -9,9 +9,9 @@
 | Version | v2 |
 | Created | 2026-10-21 |
 | Last Updated | 2026-10-21 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -169,5 +169,5 @@ Engineering: `L3-002` §8, `L3-003` ADR-025 – ADR-028, `L3-004` DAR-017 – DA
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-21 | Soupler Labs | v0.5 scope: vm, volume and snapshot kinds; images, VMs in networks, volume mounts for apps and jobs (VM, IMG, VMN, VOL, SNP requirements). Engine and volume scope decided with the owner |
-| v2 | 2026-10-21 | Soupler Labs | Delivery status: phases 1 – 4 built and tested on every surface (VMN-06 not built); live measurements; as-built notes |
+| v1 | 2026-10-21 | Soupler | v0.5 scope: vm, volume and snapshot kinds; images, VMs in networks, volume mounts for apps and jobs (VM, IMG, VMN, VOL, SNP requirements). Engine and volume scope decided with the owner |
+| v2 | 2026-10-21 | Soupler | Delivery status: phases 1 – 4 built and tested on every surface (VMN-06 not built); live measurements; as-built notes |

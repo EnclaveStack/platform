@@ -306,7 +306,6 @@ export const RULES = {
   infisicalSiteDefault: "https://app.infisical.com",
   secretKeyMax: 512,
   secretFieldMax: 128,
-  mainMachine: "main",
   machineStates: ["waiting","online","offline"],
   placedKinds: ["app","database","cache","job","loadbalancer","vm","volume","search","email"],
   dataKinds: ["database","cache","search","email","volume","vm"],

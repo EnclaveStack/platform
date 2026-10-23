@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 
 	"github.com/enclavestack/platform/internal/domain"
@@ -69,6 +70,24 @@ func revisionsOf(t *testing.T, d *Driver, r *domain.Resource) []string {
 		names = append(names, rev.name)
 	}
 	return names
+}
+
+// statesOf is what Docker itself reports for each container of the resource, for a failure message that
+// says why the driver and the daemon disagree (on CI the daemon answered "running" right after a stop).
+func statesOf(d *Driver, r *domain.Resource) string {
+	list, err := d.cli.ContainerList(context.Background(), container.ListOptions{All: true, Filters: filters.NewArgs(filters.Arg("label", LabelResourceID+"="+r.ID))})
+	if err != nil {
+		return "listing containers: " + err.Error()
+	}
+	var out []string
+	for _, c := range list {
+		name := c.ID[:12]
+		if len(c.Names) > 0 {
+			name = c.Names[0][1:]
+		}
+		out = append(out, fmt.Sprintf("%s=%s (%s)", name, c.State, c.Status))
+	}
+	return strings.Join(out, ", ")
 }
 
 func TestRollingDeploySwitchesToAHealthyRevisionAndKeepsServing(t *testing.T) {
@@ -154,11 +173,27 @@ func TestRollingDeploySwitchesToAHealthyRevisionAndKeepsServing(t *testing.T) {
 
 	// Drift: the serving revision stopped outside EnclaveStack is reported and restarted in place.
 	name := engine.RevisionName(r, 2)
+	// This step tests EnclaveStack's drift detection, not Docker's own restart policy, which on some
+	// daemons brings a stopped container straight back: take it out of the picture.
+	if _, err := d.cli.ContainerUpdate(context.Background(), name, container.UpdateConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.cli.ContainerStop(context.Background(), name, container.StopOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if h, _ := d.Health(context.Background(), r, engine.ObjectStore{}); h != engine.Stopped {
-		t.Errorf("health of stopped serving revision = %v", h)
+	// Docker finishes a stop a moment after the call returns on some daemons: wait for it to show.
+	h := engine.Healthy
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if h, _ = d.Health(context.Background(), r, engine.ObjectStore{}); h == engine.Stopped {
+			break
+		}
+	}
+	if h != engine.Stopped {
+		detail := ""
+		if c, err := d.cli.ContainerInspect(context.Background(), name); err == nil && c.State != nil {
+			detail = fmt.Sprintf("; %s restarted %d times, finished %s, exit code %d", name, c.RestartCount, c.State.FinishedAt, c.State.ExitCode)
+		}
+		t.Errorf("health of stopped serving revision = %v (want Stopped); serving revision %d; docker reports: %s%s", h, r.ServingRevision, statesOf(d, r), detail)
 	}
 	r.Generation = 2
 	spec.HealthCheck = hc

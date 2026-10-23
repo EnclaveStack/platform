@@ -10,7 +10,7 @@ import { OPERATE_IMMUTABLE, OPERATE_KINDS, useOperateForm } from '../components/
 import { useProject } from '../lib/project';
 import { hasInternet, PlacementFields, RuleEditor, ruleRows, rulesOf, TargetChecklist, TargetEditor, targetRows, targetsOf, type RuleRow, type TargetRow } from '../components/NetworkingFields';
 import { fromRows, KeyValueEditor, toRows, type Row } from '../components/KeyValueEditor';
-import { sectionByKind } from '../lib/sections';
+import { inSentence, sectionByKind } from '../lib/sections';
 import { useLoad } from '../lib/useLoad';
 import { describeSchedule, nextRuns } from '../lib/schedule';
 import { cidrSize, parseCidr, validateName, validateNetwork, validateSpec, type FieldErrors } from '../lib/validation';
@@ -493,7 +493,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           <Input id="f-name" mono value={name} readOnly aria-readonly="true" />
         </Field>
       ) : (
-        <Field id="f-name" label="Name" hint={`3–40 lowercase letters, numbers or hyphens. Other ${section.label.toLowerCase()} in ${project} can't share it.`} error={err('name')}>
+        <Field id="f-name" label="Name" hint={`3–40 lowercase letters, numbers or hyphens. Other ${inSentence(section.label)} in ${project} can't share it.`} error={err('name')}>
           <Input id="f-name" mono value={name} onChange={(e) => setName(e.target.value)} onBlur={onBlur} autoComplete="off" spellCheck={false}
             aria-invalid={Boolean(err('name'))} aria-describedby={describedBy('f-name', err('name'), true)} placeholder={`my-${section.noun.replace(' ', '-')}`} />
         </Field>
@@ -519,7 +519,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                   <Input id="f-git" mono value={gitUrl} onChange={(e) => setGitUrl(e.target.value)} onBlur={onBlur} spellCheck={false}
                     placeholder="https://github.com/acme/api.git" aria-invalid={Boolean(err('spec.source.git'))} />
                 </Field>
-                <Field id="f-ref" label="Branch, tag or commit" error={err('spec.source.ref')}>
+                <Field id="f-ref" hint="The branch, tag or commit to build, like main or v1.2.0." label="Branch, tag or commit" error={err('spec.source.ref')}>
                   <Input id="f-ref" mono value={gitRef} onChange={(e) => setGitRef(e.target.value)} onBlur={onBlur} spellCheck={false} />
                 </Field>
               </FormRow>
@@ -527,7 +527,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                 <Field id="f-dockerfile" label="Dockerfile" hint="Relative to the context." error={err('spec.source.dockerfile')}>
                   <Input id="f-dockerfile" mono value={gitDockerfile} onChange={(e) => setGitDockerfile(e.target.value)} onBlur={onBlur} spellCheck={false} />
                 </Field>
-                <Field id="f-context" label="Build context" error={err('spec.source.context')}>
+                <Field id="f-context" hint="The folder in the repository the build starts from. A dot means its top." label="Build context" error={err('spec.source.context')}>
                   <Input id="f-context" mono value={gitContext} onChange={(e) => setGitContext(e.target.value)} onBlur={onBlur} spellCheck={false} />
                 </Field>
               </FormRow>
@@ -592,7 +592,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             {(hcType === 'http' || hcType === 'tcp') && (
               <FormRow>
                 {hcType === 'http' && (
-                  <Field id="f-es-path" label="Path" error={err('spec.healthCheck.path')}>
+                  <Field id="f-es-path" hint="The page the check asks for, like /healthz." label="Path" error={err('spec.healthCheck.path')}>
                     <Input id="f-es-path" mono value={hcPath} onChange={(e) => setHcPath(e.target.value)} onBlur={onBlur} spellCheck={false} />
                   </Field>
                 )}
@@ -608,13 +608,13 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             )}
             {hcType && hcType !== 'none' && (
               <FormRow>
-                <Field id="f-es-interval" label="Interval (s)" error={err('spec.healthCheck.intervalSeconds')}>
+                <Field id="f-es-interval" hint="How often the check runs." label="Interval (s)" error={err('spec.healthCheck.intervalSeconds')}>
                   <Input id="f-es-interval" inputMode="numeric" value={hcInterval} onChange={(e) => setHcInterval(e.target.value)} onBlur={onBlur} />
                 </Field>
-                <Field id="f-es-retries" label="Retries" error={err('spec.healthCheck.retries')}>
+                <Field id="f-es-retries" hint="Failed checks in a row before a revision counts as unhealthy." label="Retries" error={err('spec.healthCheck.retries')}>
                   <Input id="f-es-retries" inputMode="numeric" value={hcRetries} onChange={(e) => setHcRetries(e.target.value)} onBlur={onBlur} />
                 </Field>
-                <Field id="f-es-start" label="Start period (s)" error={err('spec.healthCheck.startPeriodSeconds')}>
+                <Field id="f-es-start" hint="How long a new revision may take to start before failed checks count." label="Start period (s)" error={err('spec.healthCheck.startPeriodSeconds')}>
                   <Input id="f-es-start" inputMode="numeric" value={hcStart} onChange={(e) => setHcStart(e.target.value)} onBlur={onBlur} />
                 </Field>
               </FormRow>
@@ -633,7 +633,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                 onChange={() => { setDbEngine(e.engine); setVersion((RULES.databaseDefaultVersions as Record<string, string>)[e.engine] ?? ''); }} />
             ))}
           </Fieldset>
-          <Field id="f-version" label={`${DB_ENGINES.find((e) => e.engine === dbEngine)?.title ?? 'Engine'} version`} hint={editing ? 'The engine and version can\'t change; create a new database instead.' : undefined} error={err('spec.version') ?? err('spec.engine')}>
+          <Field id="f-version" label={`${DB_ENGINES.find((e) => e.engine === dbEngine)?.title ?? 'Engine'} version`} hint={editing ? 'The engine and version can\'t change; create a new database instead.' : 'Choose the version your app was built for.'} error={err('spec.version') ?? err('spec.engine')}>
             <Select id="f-version" value={version} onChange={(e) => setVersion(e.target.value)} disabled={editing}>
               {((RULES.databaseEngineVersions as Record<string, readonly string[]>)[dbEngine] ?? []).map((v) => (
                 <option key={v} value={v}>{v}</option>
@@ -670,14 +670,14 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             </Field>
           </FormRow>
           <FormRow>
-            <Field id="f-run-with" label="Run with">
+            <Field id="f-run-with" hint="Use an app’s image, environment and secrets, or an image of its own." label="Run with">
               <Select id="f-run-with" value={runWith} onChange={(e) => setRunWith(e.target.value as 'app' | 'image')}>
                 <option value="app">An app's image and environment</option>
                 <option value="image">Its own image</option>
               </Select>
             </Field>
             {runWith === 'app' ? (
-              <Field id="f-job-app" label="App" error={err('spec.app')}>
+              <Field id="f-job-app" hint="The app whose image, environment and secrets each run uses." label="App" error={err('spec.app')}>
                 <Select id="f-job-app" value={jobApp} onChange={(e) => setJobApp(e.target.value)} aria-invalid={Boolean(err('spec.app'))}>
                   <option value="">Choose an app…</option>
                   {appNames.map((a) => (
@@ -686,7 +686,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                 </Select>
               </Field>
             ) : (
-              <Field id="f-job-image" label="Image" error={err('spec.image') ?? err('spec.app')}>
+              <Field id="f-job-image" hint="The container image each run starts from, like alpine:3." label="Image" error={err('spec.image') ?? err('spec.app')}>
                 <Input id="f-job-image" mono value={jobImage} onChange={(e) => setJobImage(e.target.value)} onBlur={onBlur} placeholder="busybox:1.37" spellCheck={false} />
               </Field>
             )}
@@ -698,7 +698,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             <Field id="f-job-timeout" label="Timeout (s)" error={err('spec.timeoutSeconds')} hint="A run is stopped after this.">
               <Input id="f-job-timeout" inputMode="numeric" value={jobTimeout} onChange={(e) => setJobTimeout(e.target.value)} onBlur={onBlur} />
             </Field>
-            <Field id="f-overlap" label="If a run is still going" error={err('spec.overlap')}>
+            <Field id="f-overlap" hint="What happens when the next run is due before the last one has ended." label="If a run is still going" error={err('spec.overlap')}>
               <Select id="f-overlap" value={overlap} onChange={(e) => setOverlap(e.target.value as Overlap)}>
                 <option value="forbid">Skip the next run</option>
                 <option value="allow">Run anyway</option>
@@ -729,7 +729,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                 <option value="cache">A cache</option>
               </Select>
             </Field>
-            <Field id="f-source" label={sourceKind === 'database' ? 'Database' : 'Cache'} error={err('spec.source')}>
+            <Field id="f-source" hint="What to back up." label={sourceKind === 'database' ? 'Database' : 'Cache'} error={err('spec.source')}>
               <Select id="f-source" value={sourceName} onChange={(e) => setSourceName(e.target.value)} disabled={editing} aria-invalid={Boolean(err('spec.source'))}>
                 <option value="">Choose a {sourceKind}…</option>
                 {(editing && sourceName ? [sourceName] : namesOf(sourceKind)).map((n) => (
@@ -747,7 +747,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               </Select>
             </Field>
             {destKind === 'bucket' ? (
-              <Field id="f-dest-bucket" label="Bucket" error={err('spec.destination.bucket')}>
+              <Field id="f-dest-bucket" hint="A bucket of this project that keeps the copies." label="Bucket" error={err('spec.destination.bucket')}>
                 <Select id="f-dest-bucket" value={destBucket} onChange={(e) => setDestBucket(e.target.value)} aria-invalid={Boolean(err('spec.destination.bucket'))}>
                   <option value="">Choose a bucket…</option>
                   {namesOf('bucket').map((n) => (
@@ -757,13 +757,13 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               </Field>
             ) : (
               <>
-                <Field id="f-s3-endpoint" label="Endpoint" error={err('spec.destination.s3.endpoint')}>
+                <Field id="f-s3-endpoint" hint="The address of the S3-compatible storage, like https://storage.example.com." label="Endpoint" error={err('spec.destination.s3.endpoint')}>
                   <Input id="f-s3-endpoint" mono value={s3Endpoint} onChange={(e) => setS3Endpoint(e.target.value)} onBlur={onBlur} spellCheck={false}
                     placeholder="https://s3.eu-central-1.amazonaws.com" aria-invalid={Boolean(err('spec.destination.s3.endpoint'))}
                     aria-describedby={describedBy('f-s3-endpoint', err('spec.destination.s3.endpoint'), false)} />
                 </Field>
                 <FormRow>
-                  <Field id="f-s3-bucket" label="Bucket" error={err('spec.destination.s3.bucket')}>
+                  <Field id="f-s3-bucket" hint="The bucket’s name at that storage." label="Bucket" error={err('spec.destination.s3.bucket')}>
                     <Input id="f-s3-bucket" mono value={s3Bucket} onChange={(e) => setS3Bucket(e.target.value)} onBlur={onBlur} spellCheck={false} placeholder="acme-backups" />
                   </Field>
                   <Field id="f-s3-region" label="Region" hint="If the service needs one.">
@@ -822,7 +822,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             </Field>
           )}
           <FormRow>
-            <Field id="f-domain-app" label="App" error={err('spec.app')}>
+            <Field id="f-domain-app" hint="The app this address sends visitors to." label="App" error={err('spec.app')}>
               <Select id="f-domain-app" value={domainApp} onChange={(e) => setDomainApp(e.target.value)} aria-invalid={Boolean(err('spec.app'))}>
                 <option value="">Choose an app…</option>
                 {appNames.map((a) => (
@@ -896,13 +896,13 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             <Field id="f-lb-port" label="Port" error={err('spec.port')} hint="Where the load balancer listens.">
               <Input id="f-lb-port" inputMode="numeric" value={lbPort} onChange={(e) => setLbPort(e.target.value)} onBlur={onBlur} />
             </Field>
-            <Field id="f-lb-protocol" label="Protocol">
+            <Field id="f-lb-protocol" hint="HTTP spreads each request; TCP spreads each connection, for anything that isn’t HTTP." label="Protocol">
               <Select id="f-lb-protocol" value={lbProtocol} onChange={(e) => setLbProtocol(e.target.value as 'http' | 'tcp')}>
                 <option value="http">HTTP</option>
                 <option value="tcp">TCP</option>
               </Select>
             </Field>
-            <Field id="f-lb-algorithm" label="Algorithm">
+            <Field id="f-lb-algorithm" hint="How the next replica is picked: in turn, the least busy, or always the same one for a client." label="Algorithm">
               <Select id="f-lb-algorithm" value={lbAlgorithm} onChange={(e) => setLbAlgorithm(e.target.value as Algorithm)}>
                 <option value="round_robin">Round robin</option>
                 <option value="least_conn">Fewest connections</option>
@@ -912,14 +912,14 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           </FormRow>
           <TargetEditor rows={lbTargets} onChange={setLbTargets} apps={allApps} errors={errors} />
           <FormRow>
-            <Field id="f-lb-check" label="Replica check">
+            <Field id="f-lb-check" hint="How each replica is checked before it gets traffic." label="Replica check">
               <Select id="f-lb-check" value={lbCheck} onChange={(e) => setLbCheck(e.target.value as 'tcp' | 'http')}>
                 <option value="tcp">TCP connection</option>
                 <option value="http">HTTP request</option>
               </Select>
             </Field>
             {lbCheck === 'http' && (
-              <Field id="f-lb-path" label="Path" error={err('spec.healthCheck.path')}>
+              <Field id="f-lb-path" hint="The page the check asks each replica for, like /healthz." label="Path" error={err('spec.healthCheck.path')}>
                 <Input id="f-lb-path" mono value={lbPath} onChange={(e) => setLbPath(e.target.value)} onBlur={onBlur} spellCheck={false} />
               </Field>
             )}
@@ -939,7 +939,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           <Field id="f-zone" label="Zone" error={err('spec.zone')} hint={editing ? "A zone's provider and name can't change." : 'The zone as it exists at the provider, like example.com. EnclaveStack never creates or deletes zones.'}>
             <Input id="f-zone" mono value={zoneName} readOnly={editing} onChange={(e) => setZoneName(e.target.value)} onBlur={onBlur} placeholder="example.com" spellCheck={false} />
           </Field>
-          <Field id="f-zone-creds" label="Credentials secret" error={err('spec.credentialsSecret')}>
+          <Field id="f-zone-creds" hint="A secret holding the provider’s API token, allowed to edit this zone’s DNS." label="Credentials secret" error={err('spec.credentialsSecret')}>
             <Select id="f-zone-creds" value={zoneCreds} onChange={(e) => setZoneCreds(e.target.value)}>
               <option value="">{secretNames.length ? 'Choose a secret…' : 'Create a secret first'}</option>
               {secretNames.map((n) => (
@@ -953,7 +953,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
       {kind === 'record' && (
         <>
           <FormRow>
-            <Field id="f-rec-zone" label="Zone" error={err('spec.zone')}>
+            <Field id="f-rec-zone" hint="The DNS zone the record is kept in." label="Zone" error={err('spec.zone')}>
               <Select id="f-rec-zone" value={recZone} disabled={editing} onChange={(e) => setRecZone(e.target.value)}>
                 <option value="">Choose a zone…</option>
                 {(editing && recZone ? [recZone] : zoneNames).map((z) => (
@@ -964,7 +964,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             <Field id="f-rec-name" label="Record name" error={err('spec.name')} hint={editing ? "Zone, name and type can't change." : 'Inside the zone: api, @ for the zone itself, *.dev for a wildcard.'}>
               <Input id="f-rec-name" mono value={recName} readOnly={editing} onChange={(e) => setRecName(e.target.value)} onBlur={onBlur} placeholder="api" spellCheck={false} />
             </Field>
-            <Field id="f-rec-type" label="Type" error={err('spec.type')}>
+            <Field id="f-rec-type" hint="A and AAAA point at addresses, CNAME at another name, TXT holds text." label="Type" error={err('spec.type')}>
               <Select id="f-rec-type" value={recType} disabled={editing} onChange={(e) => setRecType(e.target.value as RecordType)}>
                 {RULES.recordTypes.map((t) => (
                   <option key={t} value={t}>{t}</option>
@@ -980,7 +980,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               <Textarea id="f-rec-values" mono rows={3} value={recValues} onChange={(e) => setRecValues(e.target.value)} onBlur={onBlur} spellCheck={false} />
             </Field>
           )}
-          <Field id="f-rec-ttl" label="TTL (s)" error={err('spec.ttl')}>
+          <Field id="f-rec-ttl" hint="How long others may remember the answer before asking again." label="TTL (s)" error={err('spec.ttl')}>
             <Input id="f-rec-ttl" inputMode="numeric" value={recTtl} onChange={(e) => setRecTtl(e.target.value)} onBlur={onBlur} />
           </Field>
         </>
@@ -1005,7 +1005,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             )}
             {!editing && imageFrom === 'url' && (
               <FormRow>
-                <Field id="f-vm-url" label="Image URL" error={err('spec.image')}>
+                <Field id="f-vm-url" hint="A link to a cloud image of the operating system to start from." label="Image URL" error={err('spec.image')}>
                   <Input id="f-vm-url" mono value={vmUrl} onChange={(e) => setVmUrl(e.target.value)} onBlur={onBlur} spellCheck={false} placeholder="https://cloud-images.ubuntu.com/…/noble-server-cloudimg-arm64.img" />
                 </Field>
                 <Field id="f-vm-sha" label="SHA-256" hint="Optional, recommended." error={err('spec.imageSha256')}>
@@ -1057,7 +1057,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
                   <Textarea id="f-vm-keys" mono rows={3} value={vmKeys} onChange={(e) => setVmKeys(e.target.value)} onBlur={onBlur} spellCheck={false} placeholder="ssh-ed25519 AAAA… you@laptop" />
                 </Field>
               ) : (
-                <Field id="f-vm-key-secret" label="Key secret" error={err('spec.sshKeySecret')}>
+                <Field id="f-vm-key-secret" hint="A secret holding the SSH public key you log in with." label="Key secret" error={err('spec.sshKeySecret')}>
                   <Select id="f-vm-key-secret" value={vmKeySecret} onChange={(e) => setVmKeySecret(e.target.value)}>
                     <option value="">{secretNames.length ? 'Choose a secret…' : 'Create a secret first'}</option>
                     {secretNames.map((n) => (

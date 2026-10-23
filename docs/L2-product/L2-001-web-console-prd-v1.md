@@ -6,12 +6,12 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v13 |
+| Version | v15 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -102,20 +102,38 @@ A single **operator** (the machine's admin) in v0.2. Roles and multiple users ar
 | CON-59 | A **Catalogue** page: the built-in entries and the machine's own templates as cards (title, description, what it creates); **Install** opens a form generated from the entry's parameters (name, project, values, an optional domain) and creates the stack. Machine admins **Add template** from a file (errors shown with the line) and remove their own (CAT-01 – CAT-04) | Must — v0.8 |
 | CON-60 | A **Stacks** section: list with phase; a stack's page shows its template and version, its parameters, its outputs (links), and its members with their phases, linked. **Edit parameters**, **Upgrade** (when a newer version exists, with what changes) and **Delete** (lists members with data, asks first). A member's page says "Part of stack `<name>`" and hides edit and delete (CAT-05 – CAT-07) | Must — v0.8 |
 
+### Console v4: finding your way, the overview and guides (built 2026-10-23)
+
+Founder feedback (2026-10-22): the console is hard to navigate and doesn't say what each service is for. Twenty-odd sections sit in one flat list; there is no page with the whole picture; breadcrumbs aren't links; a resource opens beside a list instead of on a page of its own; status pills, chips and circled icons crowd every screen. Layout and look: `L2.5-002` §16 and `L2.5-001` §7. No API changes: the overview reads what the console already loads (resources, the machine, machine metrics, machines, alerts).
+
+| ID | Requirement | Priority |
+|---|---|---|
+| CON-61 | The sidebar opens with **Overview**, then groups the sections by what they're for: **Compute**, **Data**, **Networking**, **Messaging and media**, **Security**, **Install**, **Operate**, **Settings** (members in `L2.5-002` §16). A group opens and closes; the choice is remembered in this browser. The sidebar folds to a rail of icons, also remembered | Must |
+| CON-62 | **Find** (⌘K or Ctrl+K, and a search box in the top bar) jumps to any page or resource by name | Should |
+| CON-63 | Every page has a header: a breadcrumb whose parts are links (machine › project › section › resource), the title, a one-line explanation and the page's actions. A resource's page has a Back button to its section | Must |
+| CON-64 | A resource opens on a page of its own (`/<section>/<id>`), full width. A section lists its resources full width: a table on wide screens, cards on phones | Must |
+| CON-65 | An **Overview** page at `/`: a one-line summary of health ("Everything is running" or what needs attention); headline numbers (resources running, needing attention, machines online, memory reserved); this machine's CPU, memory, disk and failures over the last 24 hours; **Needs attention** (failed resources and firing alerts, each with a way to fix or open it); **Recently changed**; resources by group; quick actions (new app, new database, the catalogue) | Must |
+| CON-66 | Each section opens with a short summary: what it is in one sentence, its numbers by state, and a link to its guide; then the list | Must |
+| CON-67 | Each section has a **guide** (`/guide/<section>`): colour-coded parts — **What it is**, **When to use it**, **How to use it** (console steps and the same as one CLI command), **Example** (a small real scenario) and **Good to know** (limits, what it costs this machine, common mistakes). Plain words; guides explain EnclaveStack on its own terms and never compare it with other companies' products | Must |
+| CON-68 | A calmer screen: status is a small dot with a word; chips only where they carry meaning (the project when all projects show, the machine when there are several); icons without circles. Motion is CSS only — page fade, hover lift, groups opening, charts and numbers easing in — at most 300 ms, and none when the system asks for reduced motion. No animation library | Must |
+| CON-69 | Every field of a form that creates or changes a resource has a one-line hint saying what it does and what to enter (sign-in, setup and account fields explain themselves) | Should |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Soupler Labs | Console v0.1 on the mock backend: sign-in, first-run setup, resource sections, details, logs, secret reveal, sign out (CON-01 – CON-12). Row reconstructed from `L3-002` v1 and `L5-001` v2 |
-| v2 | 2026-10-20 | Soupler Labs | Console v0.2 on the real API: API tokens, create, edit, delete, retry, "Use from code" (CON-13 – CON-18). Row reconstructed from the CHANGELOG (v0.2 lists L2-001 v2) |
-| v3 | 2026-10-20 | Soupler Labs | v0.3 requirements CON-19 – CON-25: domains, root certificate, revisions and health checks, jobs, backups, Git source (L2-005) |
-| v4 | 2026-10-21 | Soupler Labs | CON-19 – CON-25 shipped (v0.3 phases 1–5) |
-| v5 | 2026-10-21 | Soupler Labs | v0.4 requirements CON-26 – CON-31: networks, firewalls, replicas and load balancers, DNS zones and records, DNS-01 certificates (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 and v2 row(s), which are not reconstructed (see CHANGELOG) |
-| v6 | 2026-10-21 | Soupler Labs | CON-26 – CON-31 shipped; CON-29 as built (two DNS sections) |
-| v7 | 2026-10-21 | Soupler Labs | Reconstructed the lost CON-09 – CON-11 (machine card, theme, engine banner) from the built console, and the lost v1 – v2 history; CON-29 as built: one DNS section with each zone's records |
-| v8 | 2026-10-21 | Soupler Labs | v0.5 requirements CON-32 – CON-36: VMs, volumes, snapshots, restart warnings, VM availability (L2-007) |
-| v9 | 2026-10-21 | Soupler Labs | CON-32 – CON-36 shipped |
-| v10 | 2026-10-21 | Soupler Labs | v0.6 requirements CON-37 – CON-44: database engines, queues, topics, search, transcoders, CDN, email (L2-008) |
-| v11 | 2026-10-22 | Soupler Labs | CON-37 – CON-44 shipped |
-| v12 | 2026-10-22 | Soupler Labs | v0.7 requirements CON-45 – CON-53: projects, people, tokens, roles in the interface, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
-| v13 | 2026-10-22 | Soupler Labs | v0.8 requirements CON-54 – CON-60: machines, a machine's page, placement in forms, moving, machine metrics and the offline alert, catalogue, stacks (L2-010) |
+| v1 | 2026-10-20 | Soupler | Console v0.1 on the mock backend: sign-in, first-run setup, resource sections, details, logs, secret reveal, sign out (CON-01 – CON-12). Row reconstructed from `L3-002` v1 and `L5-001` v2 |
+| v2 | 2026-10-20 | Soupler | Console v0.2 on the real API: API tokens, create, edit, delete, retry, "Use from code" (CON-13 – CON-18). Row reconstructed from the CHANGELOG (v0.2 lists L2-001 v2) |
+| v3 | 2026-10-20 | Soupler | v0.3 requirements CON-19 – CON-25: domains, root certificate, revisions and health checks, jobs, backups, Git source (L2-005) |
+| v4 | 2026-10-21 | Soupler | CON-19 – CON-25 shipped (v0.3 phases 1–5) |
+| v5 | 2026-10-21 | Soupler | v0.4 requirements CON-26 – CON-31: networks, firewalls, replicas and load balancers, DNS zones and records, DNS-01 certificates (L2-006). Restored the "Version history" heading and table header, lost in an earlier edit together with the v1 and v2 row(s), which are not reconstructed (see CHANGELOG) |
+| v6 | 2026-10-21 | Soupler | CON-26 – CON-31 shipped; CON-29 as built (two DNS sections) |
+| v7 | 2026-10-21 | Soupler | Reconstructed the lost CON-09 – CON-11 (machine card, theme, engine banner) from the built console, and the lost v1 – v2 history; CON-29 as built: one DNS section with each zone's records |
+| v8 | 2026-10-21 | Soupler | v0.5 requirements CON-32 – CON-36: VMs, volumes, snapshots, restart warnings, VM availability (L2-007) |
+| v9 | 2026-10-21 | Soupler | CON-32 – CON-36 shipped |
+| v10 | 2026-10-21 | Soupler | v0.6 requirements CON-37 – CON-44: database engines, queues, topics, search, transcoders, CDN, email (L2-008) |
+| v11 | 2026-10-22 | Soupler | CON-37 – CON-44 shipped |
+| v12 | 2026-10-22 | Soupler | v0.7 requirements CON-45 – CON-53: projects, people, tokens, roles in the interface, metrics and dashboards, alerts, channels, log exports, secret stores, audit (L2-009) |
+| v13 | 2026-10-22 | Soupler | v0.8 requirements CON-54 – CON-60: machines, a machine's page, placement in forms, moving, machine metrics and the offline alert, catalogue, stacks (L2-010) |
+| v15 | 2026-10-23 | Soupler | CON-61 – CON-69 built; CON-69 scoped to resource forms |
+| v14 | 2026-10-22 | Soupler | Console v4 requirements CON-61 – CON-69 (planned): grouped sidebar, find, clickable breadcrumbs, full-page resources, the overview, section summaries, guides, a calmer screen with CSS-only motion, field hints |

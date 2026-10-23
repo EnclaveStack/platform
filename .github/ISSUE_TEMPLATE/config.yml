@@ -1,1 +1,11 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/EnclaveStack/platform/discussions/categories/q-a
+    about: How do I…? Questions and help go in Discussions, not issues.
+  - name: Report a security vulnerability
+    url: https://github.com/EnclaveStack/platform/security/advisories/new
+    about: Never in public. Report it privately, as described in SECURITY.md.
+  - name: Documentation and guides
+    url: https://enclavestack.soupler.com/docs/
+    about: Getting started, the CLI and OpenTofu, and every service explained.

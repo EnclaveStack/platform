@@ -1,6 +1,6 @@
 import type { EnclaveApi } from './client';
 import { mockMetrics, normalizeOperate, operateOutputs } from './mock-operate';
-import { BUILTIN_CATALOGUE, choose, joined, mainMachine, parseTemplate, renderStack, waitingMachine } from './mock-machines';
+import { BUILTIN_CATALOGUE, choose, joined, MAIN, mainMachine, parseTemplate, renderStack, waitingMachine } from './mock-machines';
 import { ID_PREFIX, MANAGED, ROLES, RULES, STEP_NAMES } from './generated';
 import {
   ApiError,
@@ -930,19 +930,19 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   }
   /** Where a resource runs: its placed machine, or main for what isn't placed (system services, CDNs, transcoders). */
   function onMachine(r: Resource): string {
-    return String(r.outputs.machine ?? ((RULES.placedKinds as readonly Kind[]).includes(r.kind) ? '' : RULES.mainMachine));
+    return String(r.outputs.machine ?? ((RULES.placedKinds as readonly Kind[]).includes(r.kind) ? '' : MAIN.name));
   }
   function reservedOn(machine: string): number {
     let n = 0;
-    if (machine === RULES.mainMachine && [...store.values()].some((o) => (o.r.kind === 'queue' || o.r.kind === 'topic') && o.r.status.phase !== 'deleting')) n += 512 * 2 ** 20;
+    if (machine === MAIN.name && [...store.values()].some((o) => (o.r.kind === 'queue' || o.r.kind === 'topic') && o.r.status.phase !== 'deleting')) n += 512 * 2 ** 20;
     for (const { r } of store.values()) if (r.status.phase !== 'deleting' && onMachine(r) === machine) n += reservedOf(r);
     return n;
   }
   function machineList(): MachineSummary[] {
     const count = (name: string) => [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.outputs.machine === name).length;
-    return [{ ...mainMachine(admin?.machineName ?? '', reservedOn(RULES.mainMachine), count(RULES.mainMachine)), ...mainSettings },
+    return [{ ...mainMachine(admin?.machineName ?? '', reservedOn(MAIN.name), count(MAIN.name)), ...mainSettings },
       ...machines.map((m) => ({ ...m, memoryReservedBytes: reservedOn(m.name), resources: count(m.name),
-        links: m.state === 'online' ? [RULES.mainMachine, ...machines.filter((o) => o !== m && o.state === 'online').map((o) => o.name)].map((n) => ({ machine: n, connected: true, lastHandshakeAt: now() })) : [] }))];
+        links: m.state === 'online' ? [MAIN.name, ...machines.filter((o) => o !== m && o.state === 'online').map((o) => o.name)].map((n) => ({ machine: n, connected: true, lastHandshakeAt: now() })) : [] }))];
   }
   function membersOf(stackId: string): Stored[] {
     return [...store.values()].filter((o) => o.r.stack === stackId);
@@ -1071,7 +1071,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   }
 
   const api: EnclaveApi = {
-    getSetupRequired: () => wait(admin === null),
+    getSetupStatus: () => wait({ required: admin === null, suggestedMachineName: DEMO_ADMIN.machineName }),
     setup: (input) => {
       if (admin) return fail(err('SETUP_COMPLETE', 'This machine is already set up. Sign in instead.', 409));
       if (input.setupCode.replace(/[\s-]/g, '').toUpperCase() !== DEMO_SETUP_CODE.replace(/-/g, '')) {
@@ -1254,16 +1254,16 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const blocked = guard();
       if (blocked) return blocked;
       const broker = [...store.values()].some((o) => (o.r.kind === 'queue' || o.r.kind === 'topic') && o.r.status.phase !== 'deleting');
-      const reserved = reservedOn(RULES.mainMachine);
+      const reserved = reservedOn(MAIN.name);
       let reservedCpus = 0;
       for (const { r } of store.values()) {
-        if (r.kind === 'vm' && (r.spec as VMSpec).power !== 'stopped' && onMachine(r) === RULES.mainMachine) reservedCpus += (r.spec as VMSpec).cpus ?? RULES.vmCpusDefault;
+        if (r.kind === 'vm' && (r.spec as VMSpec).power !== 'stopped' && onMachine(r) === MAIN.name) reservedCpus += (r.spec as VMSpec).cpus ?? RULES.vmCpusDefault;
       }
       const vms = [...store.values()].filter((o) => o.r.kind === 'vm');
       const imageNames = [...new Set(vms.map((o) => (o.r.spec as VMSpec).image).filter((i) => !i.startsWith(RULES.snapshotImagePrefix)))];
       const snapshotBytes = [...store.values()].filter((o) => o.r.kind === 'snapshot').reduce((n, o) => n + Number(o.r.outputs.sizeBytes ?? 0), 0);
       const anyDomain = [...store.values()].some((o) => o.r.kind === 'domain' && o.r.status.phase !== 'deleting');
-      const m: Machine = { name: admin?.machineName ?? '', hostname: 'enclave.local', version: '0.3.0-mock', os: 'darwin', arch: 'arm64', cpus: 8,
+      const m: Machine = { id: MAIN.id, handle: MAIN.name, name: admin?.machineName ?? '', hostname: 'enclave.local', version: '0.3.0-mock', os: 'darwin', arch: 'arm64', cpus: 8,
         memoryTotalBytes: 16 * 2 ** 30, memoryReservedBytes: reserved, engine: { driver: 'mock', available: true, version: 'mock', message: '' },
         publicAddress: settings.publicAddress, acmeEmail: settings.acmeEmail, inviteEmail: settings.inviteEmail ? { ...settings.inviteEmail } : null,
         edge: { available: anyDomain, message: anyDomain ? '' : 'The edge proxy starts with the first domain.' },
@@ -1846,7 +1846,6 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (blocked) return blocked;
       const nameErr = validateName(name);
       const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
-        ...(name === RULES.mainMachine ? [{ field: 'name', code: 'NOT_ALLOWED' as const, message: 'main is the main machine\'s name. Choose another.' }] : []),
         ...Object.entries(validateLabels(labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }))];
       if (details.length) return validationFailed(details);
       if (machineList().some((m) => m.name === name)) return fail(err('NAME_TAKEN', `A machine named ${name} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A machine named ${name} already exists.` }]));
@@ -1867,10 +1866,17 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     updateMachineByName: (name, input) => {
       const blocked = guard() ?? adminOnly('change machines');
       if (blocked) return blocked;
-      const m = name === RULES.mainMachine ? mainSettings : machines.find((x) => x.name === name);
+      const m = name === MAIN.name ? mainSettings : machines.find((x) => x.name === name);
       if (!m) return machineNotFound(name);
-      const details = Object.entries(validateLabels(input.labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }));
+      const details: FieldError[] = Object.entries(validateLabels(input.labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }));
+      const title = input.title?.trim();
+      if (title !== undefined && (title.length < 1 || [...title].length > RULES.machineNameMax)) details.push({ field: 'title', code: 'OUT_OF_RANGE' as const, message: 'Use 1–64 characters.' });
+      else if (title !== undefined && name !== MAIN.name) details.push({ field: 'title', code: 'NOT_ALLOWED' as const, message: `${name} is shown by its name. Only the main machine has a display name of its own.` });
       if (details.length) return validationFailed(details);
+      if (title && admin) {
+        admin = { ...admin, machineName: title };
+        save();
+      }
       if (input.labels) m.labels = { ...input.labels };
       if (input.schedulable !== undefined && input.schedulable !== m.schedulable) {
         m.schedulable = input.schedulable;
@@ -1881,7 +1887,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     removeMachine: (name, force = false) => {
       const blocked = guard() ?? adminOnly('remove machines');
       if (blocked) return blocked;
-      if (name === RULES.mainMachine) return fail(err('ACTION_NOT_SUPPORTED', "The main machine runs EnclaveStack itself and can't be removed.", 409));
+      if (name === MAIN.name) return fail(err('ACTION_NOT_SUPPORTED', "The main machine runs EnclaveStack itself and can't be removed.", 409));
       const i = machines.findIndex((x) => x.name === name);
       const m = machines[i];
       if (!m) return machineNotFound(name);
@@ -1911,7 +1917,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     drainMachine: (name) => {
       const blocked = guard() ?? adminOnly('drain machines');
       if (blocked) return blocked;
-      if (name === RULES.mainMachine) return fail(err('ACTION_NOT_SUPPORTED', "The main machine keeps EnclaveStack's own services and can't be drained.", 409));
+      if (name === MAIN.name) return fail(err('ACTION_NOT_SUPPORTED', "The main machine keeps EnclaveStack's own services and can't be drained.", 409));
       const m = machines.find((x) => x.name === name);
       if (!m) return machineNotFound(name);
       m.schedulable = false;

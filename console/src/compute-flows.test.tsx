@@ -1,35 +1,13 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { routes } from './App';
-import { ApiProvider } from './api/context';
-import { createMockApi, DEMO_ADMIN, type MockOptions } from './api/mock';
 import type { AppSpec, VMSpec } from './api/types';
-import { SessionProvider } from './auth/session';
+import { renderConsole, signIn } from './test-console';
 
 // v0.5 operator flows (L2-001 CON-32 – CON-36) through real routes and components on the mock adapter.
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXTqZbAPryM1c8TBIUjg6rtRL1Dfr2uR7E954v/Icd4 test@enclave';
 
-function renderConsole(path: string, opts: MockOptions = {}) {
-  const api = createMockApi({ latencyMs: 0, stepMs: 30, storage: null, ...opts });
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(
-    <ApiProvider api={api}>
-      <SessionProvider>
-        <RouterProvider router={router} />
-      </SessionProvider>
-    </ApiProvider>,
-  );
-  return { router, api, user: userEvent.setup() };
-}
 
-async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), DEMO_ADMIN.email);
-  await user.type(screen.getByLabelText('Password'), DEMO_ADMIN.password);
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
-}
 
 describe('VMs, volumes and snapshots in the console', () => {
   it('creates a VM from the catalog with a size preset and shows how to reach it (CON-32)', async () => {

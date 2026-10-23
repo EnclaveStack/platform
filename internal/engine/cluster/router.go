@@ -29,6 +29,8 @@ type Machines interface {
 	OnlineMachines() []string
 	// MachineOf returns the machine of a resource by ID, the main machine when it isn't known.
 	MachineOf(ctx context.Context, resourceID string) string
+	// MainID is the main machine's ID.
+	MainID() string
 }
 
 // Hooks lets the mesh learn of containers that changed (ADR-045). Both may be nil.
@@ -70,7 +72,7 @@ func (rt *Router) hypervisor(machineID string) (engine.Hypervisor, error) {
 }
 
 func (rt *Router) main() engine.Driver {
-	d, _, err := rt.Machines.Engines(api.MainMachine)
+	d, _, err := rt.Machines.Engines(rt.Machines.MainID())
 	if err != nil {
 		panic("the main machine's engine is always there: " + err.Error())
 	}
@@ -78,12 +80,14 @@ func (rt *Router) main() engine.Driver {
 }
 
 func (rt *Router) mainHV() engine.Hypervisor {
-	_, h, _ := rt.Machines.Engines(api.MainMachine)
+	_, h, _ := rt.Machines.Engines(rt.Machines.MainID())
 	return h
 }
 
 // of is the driver of r's machine.
-func (rt *Router) of(r *domain.Resource) (engine.Driver, error) { return rt.driver(r.MachineID()) }
+func (rt *Router) of(r *domain.Resource) (engine.Driver, error) {
+	return rt.driver(r.MachineOn(rt.Machines.MainID()))
+}
 
 func (rt *Router) changed(r *domain.Resource) {
 	if rt.Hooks.Changed != nil && r != nil {
@@ -192,7 +196,7 @@ func (rt *Router) WaitJob(ctx context.Context, runID string, timeout time.Durati
 	machine, ok := rt.runs[runID]
 	rt.mu.Unlock()
 	if !ok {
-		machine = api.MainMachine
+		machine = rt.Machines.MainID()
 	}
 	d, err := rt.driver(machine)
 	if err != nil {
@@ -242,12 +246,12 @@ func (rt *Router) EnsureNetwork(ctx context.Context, in engine.NetworkInput) (en
 		}
 		o, err := d.EnsureNetwork(ctx, in)
 		if err != nil {
-			if id == api.MainMachine {
+			if id == rt.Machines.MainID() {
 				return nil, err
 			}
 			return nil, fmt.Errorf("on machine %s: %w", id, err)
 		}
-		if id == api.MainMachine {
+		if id == rt.Machines.MainID() {
 			out = o
 		}
 	}
@@ -262,7 +266,7 @@ func (rt *Router) DeleteNetwork(ctx context.Context, r *domain.Resource) error {
 			continue
 		}
 		if err := d.DeleteNetwork(ctx, r); err != nil {
-			if id == api.MainMachine {
+			if id == rt.Machines.MainID() {
 				return err
 			}
 			return fmt.Errorf("on machine %s: %w", id, err)

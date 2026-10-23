@@ -15,7 +15,9 @@ const isMock = resolveApiMode(import.meta.env) === 'mock';
 export function SetupPage() {
   const { state, setup } = useSession();
   const [setupCode, setSetupCode] = useState('');
-  const [machineName, setMachineName] = useState('This Mac');
+  const suggested = state.status === 'signed-out' ? state.suggestedMachineName : undefined;
+  const [typedName, setMachineName] = useState<string | null>(null);
+  const machineName = typedName ?? suggested ?? '';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -23,7 +25,7 @@ export function SetupPage() {
   const [busy, setBusy] = useState(false);
 
   if (state.status === 'loading') return <Splash />;
-  if (state.status === 'signed-in') return <Navigate to="/apps" replace />;
+  if (state.status === 'signed-in') return <Navigate to="/" replace />;
   if (!state.setupRequired) return <Navigate to="/login" replace />;
 
   function validate(): FieldErrors {
@@ -70,7 +72,7 @@ export function SetupPage() {
           <Input id="setup-code" mono value={setupCode} onChange={(e) => setSetupCode(e.target.value)} autoComplete="one-time-code" spellCheck={false}
             aria-invalid={Boolean(errors.setupCode)} aria-describedby={describedBy('setup-code', errors.setupCode, true)} />
         </Field>
-        <Field id="machine" label="Machine name" error={errors.machineName}>
+        <Field id="machine" label="Machine name" hint="What people see. It starts as this computer's own name; you can change it later." error={errors.machineName}>
           <Input id="machine" value={machineName} onChange={(e) => setMachineName(e.target.value)} aria-invalid={Boolean(errors.machineName)} />
         </Field>
         <Field id="admin-email" label="Admin email" error={errors.email}>

@@ -6,12 +6,12 @@
 | Document ID | L2-010-v0-8-many-machines-prd-v1 |
 | Layer | L2 — Product |
 | Status | Draft |
-| Version | v2 |
+| Version | v3 |
 | Created | 2026-10-22 |
-| Last Updated | 2026-10-22 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
 | License | Apache-2.0 |
 ---
 
@@ -65,7 +65,8 @@ Engineering: `L3-002` §11, `L3-003` ADR-042 – ADR-048, `L3-004` DAR-034 – D
 
 | ID | Requirement | Priority |
 |---|---|---|
-| MCH-01 | The computer EnclaveStack was installed on is the **main machine**. It is listed as the machine `main`, titled with the machine name given at setup (which is free text, so it can't be the name `--machine` refers to), and everything that existed before v0.8 runs on it. It can't be removed or renamed. Other machines are titled with their name | Must |
+| MCH-01 | The computer EnclaveStack was installed on is the **main machine**. It is listed as a machine like any other: an ID made at first start (`mch_…`, stored with its data, never changed), a name that `--machine` refers to (made from the computer's own name, lowercase letters, digits and hyphens, and fixed once set), and a **display name** for people (free text). There is no special name: `main` is an ordinary name that another machine may take. If two computers have the same name, the second gets a number (`sunnys-mac-2`). Everything that existed before v0.8 runs on the main machine. It can't be removed | Must |
+| MCH-10 | The **display name** of a machine defaults to the computer's own name (setup offers it, and it can be changed there). A machine admin can **rename it** from the machine's page. Only the display name changes: the ID and the name used in commands stay the same. The machine's page shows the ID in small grey text beside the display name | Must |
 | MCH-02 | A machine admin **adds a machine** by giving it a name (the resource name rules) and optional labels (`key=value`, up to 10). EnclaveStack returns a one-time join code, valid one hour, and the command to run on the other computer: `enclave agent join <main address> --code <code>` | Must |
 | MCH-03 | The other computer needs Linux or macOS with Docker, and QEMU for VMs (as `L2-007` VM-11). From the main machine it must be reachable on the agent port (7071/tcp, configurable). The machines must reach each other on the tunnel port (51820/udp, configurable). It must reach the main machine's API once, to join | Must |
 | MCH-04 | **Joining** uses the code once. The agent makes its own key, which never leaves the computer, and gets a certificate from the main machine. From then on the main machine and the agent only talk over mutual TLS: the agent obeys only the main machine, and the main machine only accepts the computer that joined under that name | Must |
@@ -189,5 +190,6 @@ Machines are not a kind: like projects, they are machine-wide objects with their
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-22 | Soupler Labs | v0.8 scope: machines and the agent, placement, networks across machines, offline machines, moving, catalogue and stacks (MCH, PLC, XNET, FAIL, MOVE, CAT requirements). Networks spanning machines, restarting apps on machine loss, and built-in plus own templates as grouped stacks decided with the owner |
-| v2 | 2026-10-22 | Soupler Labs | Delivery status: built on every surface; as-built differences; what is not yet walked |
+| v1 | 2026-10-22 | Soupler | v0.8 scope: machines and the agent, placement, networks across machines, offline machines, moving, catalogue and stacks (MCH, PLC, XNET, FAIL, MOVE, CAT requirements). Networks spanning machines, restarting apps on machine loss, and built-in plus own templates as grouped stacks decided with the owner |
+| v2 | 2026-10-22 | Soupler | Delivery status: built on every surface; as-built differences; what is not yet walked |
+| v3 | 2026-10-23 | Soupler | MCH-01 reworded: the main machine gets a generated ID and a name from the computer's name, with no `main` alias; MCH-10: display name defaults to the computer's name, admins rename it, the ID is shown in grey |
