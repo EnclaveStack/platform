@@ -42,12 +42,14 @@ It is one program. Install it and open the console. Everything after that is a c
 
 ## Quick start
 
-There is no download yet, so you build EnclaveStack from the source code. Pick what you want to do:
+EnclaveStack is one program. You download the source, build the program once, and run it. It then serves a web console on your computer (port 7070) and creates your databases, apps and buckets as containers on the Docker that is already installed there. Everything runs on your machine.
+
+There is no installer yet, so you build it from the source code. Pick what you want to do:
 
 | I want to… | Use | You need |
 |---|---|---|
 | **Look around**: click through the console with sample data, and nothing real is created | [Option 1: try it](#option-1-try-it-with-sample-data) | Go, Node and pnpm |
-| **Use it**: run real databases and apps on this computer | [Option 2: run it for real](#option-2-run-it-for-real) | the same, plus Docker |
+| **Use it**: run real databases and apps on this computer | [Option 2: run it for real](#option-2-run-it-for-real) | the same, plus Docker running |
 
 Go 1.26+, Node 22.12+ and pnpm 9 are needed by both. Only VMs need **QEMU** (`brew install qemu`, or `qemu-system` and `qemu-utils` on Linux); skip it until you want one.
 
@@ -55,35 +57,118 @@ Go 1.26+, Node 22.12+ and pnpm 9 are needed by both. Only VMs need **QEMU** (`br
 
 ```bash
 git clone https://github.com/EnclaveStack/platform.git enclavestack && cd enclavestack
-pnpm install
-make demo
+pnpm install     # once: downloads the JavaScript libraries the web console is built from
+make demo        # builds the program, starts it with sample data (script: examples/demo/run.sh)
 ```
 
 When it says *EnclaveStack is running*, open **http://127.0.0.1:7070** and sign in as `admin@enclave.local` with the password `enclave-demo`. It starts with sample apps, databases, a cache, a bucket, a job, a WordPress site and a second project, all on a simulated engine, so no Docker is needed. Press Ctrl-C to stop it and remove everything.
 
 ### Option 2: run it for real
 
-**1. Build and start it.**
+**1. Get the code.** Once:
 
 ```bash
 git clone https://github.com/EnclaveStack/platform.git enclavestack && cd enclavestack
-pnpm install && make build     # builds the program, ./build/enclave, with the console inside
-./build/enclave server         # leave this running; it prints a web address and a one-time setup code
+pnpm install     # downloads the JavaScript libraries the web console is built from
 ```
 
-**2. Create your account.** Open **http://127.0.0.1:7070**, enter the setup code and choose an email and password. You are now in the console, which is empty.
-
-**3. Make something**, from the console or from a second terminal. Sign the terminal in once, then try any of these (each is an example, not a required step):
+**2. Start it.** Make sure Docker is running, then:
 
 ```bash
-./build/enclave login                                                   # sign the terminal in as you
-./build/enclave db create orders --wait                                 # a PostgreSQL database
-./build/enclave app create web --image nginx:1.27-alpine --port 80 --publish --wait   # a web app from a container image
-./build/enclave stack create blog --template wordpress --param domain=blog.localhost --wait  # a WordPress site, with its database and storage
-./build/enclave ls                                                      # list everything you have
+make start
 ```
 
-`--wait` makes the command wait until the thing is ready. Everything you create from the terminal also appears in the console, and the other way round. The same things can be declared as code with [OpenTofu](#three-ways-to-drive-it).
+This does two things in one go. It **builds** the program (the web console, then the single `enclave` program with the console inside, saved as `./build/enclave`; the first time takes a few minutes), then it **runs** `./build/enclave server`. Leave this terminal open: it prints a web address and a one-time setup code, and EnclaveStack stops when you close it. Your data is kept in `~/.enclave`, so running `make start` again later picks up where you left off.
+
+**3. Create your account.** Open **http://127.0.0.1:7070**, enter the setup code and choose an email and password. The machine name starts as your computer's own name, and you can change it later. You are now in the console, which is empty.
+
+**4. Make something.** Everything below talks to the same server, so what you create one way shows up in the others.
+
+- **The console.** Click **New** in any section. When it is ready, the page shows the connection details (host, port, password) to put in your own code.
+- **The terminal.** In a second terminal, in the same folder, run `make install` once. It puts the `enclave` program on your PATH so any terminal understands the word `enclave` (without it, type `./build/enclave` instead). Then:
+
+  ```bash
+  enclave login                                   # sign the terminal in as you (asked once)
+  enclave db create orders --wait                 # a PostgreSQL database
+  enclave app create web --image nginx:1.27-alpine --port 80 --publish --wait   # a web app from a container image
+  enclave stack create blog --template wordpress --param domain=blog.localhost --wait   # a WordPress site with its database and storage
+  enclave ls                                      # list everything you have
+  ```
+
+  `--wait` makes the command wait until the thing is ready.
+- **As code, with OpenTofu.** Describe what you want in `.tf` files and let OpenTofu create it. `make tofu` does the set-up for you: it builds the OpenTofu plug-in for EnclaveStack, signs you in (once), keeps a token and runs `tofu`. Try the included example, which makes a database, a cache, a secret and an app that uses all three:
+
+  ```bash
+  make tofu CMD=plan        # shows what would be created, and creates nothing
+  make tofu                 # creates it (type yes when asked)
+  make tofu CMD=destroy     # removes it again
+  make tofu DIR=path/to/your/files CMD=plan    # the same for your own .tf files
+  ```
+
+**5. Stop it.** Press Ctrl-C in the terminal that is running `make start`. Containers you created keep running until you delete them.
+
+> **The complete guide** — installing every tool, each command in detail, the console, the `enclave` command, OpenTofu, connecting your code, updating, removing everything and troubleshooting — is [`docs/L5-operations/L5-004-user-guide-v1.md`](docs/L5-operations/L5-004-user-guide-v1.md). This quick start is the short version.
+
+### What each command does, and how often you run it
+
+| Command | How often | What it does |
+|---|---|---|
+| `git clone …` and `pnpm install` | once per download | Gets the code, and the libraries the web console is built from. |
+| `make start` | every time you want EnclaveStack running | `make build`, then `./build/enclave server`: runs EnclaveStack for real with Docker. Leave the terminal open. |
+| Creating your account in the browser | once | Uses the one-time setup code `make start` prints. |
+| `make install` | once, and again after you update the code | Copies `enclave` to a folder on your PATH (`/opt/homebrew/bin` or `/usr/local/bin`, or `BINDIR=…`) so any terminal knows the word `enclave`. |
+| `enclave login` | once per computer | Signs this terminal in as you and saves a token in `~/.config/enclave`. |
+| `enclave …` commands | whenever you make or change things | The terminal way to use EnclaveStack (below). |
+| `make tofu` | whenever you want OpenTofu to apply your `.tf` files | Runs OpenTofu against your server (`examples/opentofu/run.sh`): builds the plug-in, signs in once, then `tofu <CMD>` in `DIR`. |
+| `make demo` | only when you want to look around | `make build`, then a server with sample data on a simulated engine (`examples/demo/run.sh`). `DRIVER=docker` makes the samples real containers. |
+| `make build` | rarely: `make start` and `make install` do it for you | Builds the console, the `enclave` program (`./build/enclave`) and the OpenTofu plug-in. |
+
+### Using the `enclave` command
+
+Every command has the same shape: `enclave <thing> <what to do> <name> [options]`.
+
+```bash
+enclave db create orders --wait      # make a database and wait until it is ready
+enclave db list                      # list your databases
+enclave db get orders                # show one
+enclave db delete orders             # delete it (the data is lost)
+enclave ls                           # everything you have, of every kind
+enclave app create --help            # every option of a command
+enclave --help                       # every kind of thing you can make: apps, databases, caches, buckets, secrets, domains, queues, VMs…
+```
+
+Useful options on any command: `-p shop` works in another project, `-o json` prints machine-readable output for scripts, and `--server` or `--token` (or the `ENCLAVE_SERVER` and `ENCLAVE_TOKEN` environment variables) point it at another EnclaveStack, for example from a script or CI.
+
+### Using OpenTofu
+
+OpenTofu is the "as code" way. You describe what you want in a text file, and OpenTofu makes EnclaveStack match it. Run it again after changing the file and only the difference is applied; delete a block and that resource is removed. Because it is a file, you can keep it in Git and review changes like code.
+
+A file of your own looks like this (`main.tf`, in any folder):
+
+```hcl
+terraform {
+  required_providers {
+    enclave = { source = "enclavestack/enclave" }
+  }
+}
+
+provider "enclave" {}        # finds your server and token from ENCLAVE_SERVER and ENCLAVE_TOKEN, which make tofu sets
+
+resource "enclave_database" "orders" {
+  name    = "orders"
+  version = "16"
+}
+
+resource "enclave_app" "web" {
+  name    = "web"
+  image   = "nginx:1.27-alpine"
+  port    = 80
+  publish = true
+  env     = { DB_HOST = enclave_database.orders.internal_host }   # one resource feeding another
+}
+```
+
+Then, from the repo: `make tofu DIR=path/to/that/folder CMD=plan` to see what would change, and `make tofu DIR=path/to/that/folder` to apply it. `examples/opentofu/main.tf` is a larger working example, and every service page on the [website](https://enclavestack.soupler.com) shows its OpenTofu block and every setting it takes.
 
 ## What you get
 

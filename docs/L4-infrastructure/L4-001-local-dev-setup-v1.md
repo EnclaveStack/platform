@@ -6,9 +6,9 @@
 | Document ID | L4-001-local-dev-setup-v1 |
 | Layer | L4 — Infrastructure & Deployment |
 | Status | Draft |
-| Version | v15 |
+| Version | v19 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-23 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -40,6 +40,8 @@ bash bin/install-hooks.sh
 make build            # console → console/dist → embedded; build/enclave and build/terraform-provider-enclave
 ```
 
+> People who only want to *use* EnclaveStack (not change it) should follow the user guide, `L5-004`; this runbook is for working on EnclaveStack itself.
+
 ### Try it in one command
 
 ```bash
@@ -55,6 +57,9 @@ The sample data (`examples/demo/run.sh`): a secret, a PostgreSQL database, a Red
 ```bash
 ./build/enclave server --driver fake --data-dir /tmp/hc      # no Docker needed; prints the setup code
 ./build/enclave server                                      # real Docker driver, data in ~/.enclave
+make install                                                # puts `enclave` on your PATH (BINDIR=… to choose the folder), so any terminal runs `enclave`
+make tofu CMD=plan                                          # OpenTofu against it in one step: provider, sign-in once, token, then tofu (CMD, DIR, ARGS)
+make start                                                  # the same in one step: build, then run the real server (ARGS='--listen 127.0.0.1:7171')
 # console: http://127.0.0.1:7070 (served by the binary)
 pnpm dev                                                    # console dev server on :5173 with hot reload, alone with in-memory sample data (console/.env); sign in as admin@enclave.local / enclave-demo
 VITE_ENCLAVE_API=http pnpm dev                            # the same against the server on :7070 (/api is proxied)
@@ -174,3 +179,7 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | v13 | 2026-10-22 | Soupler | v0.8 prerequisites (planned): a second machine in Docker-in-Docker, a real second computer and its ports, agent files, the mesh image, looking at the tunnel |
 | v14 | 2026-10-22 | Soupler | v0.8 as built: `make linux-binary`, `server-in-docker`, `machine2` and `machine2-down` through the bridge gateway |
 | v15 | 2026-10-22 | Soupler | §2 `make demo`: a running server with an admin and sample data in one command; `pnpm dev` uses the in-memory sample data by default (`VITE_ENCLAVE_API=http` for the server) |
+| v16 | 2026-10-23 | Soupler | `make start`: build and run the real server in one command |
+| v17 | 2026-10-23 | Soupler | `make tofu`: build the provider, sign in once and run OpenTofu in one command |
+| v18 | 2026-10-23 | Soupler | `make install`: put `enclave` on the PATH |
+| v19 | 2026-10-23 | Soupler | Points people who only use EnclaveStack to the user guide (`L5-004`) |

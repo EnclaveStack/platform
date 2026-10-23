@@ -20,3 +20,9 @@ internal/webui/dist/
 coverage.out
 console/test-results/
 console/playwright-report/
+
+# OpenTofu state and plugins from running examples (make tofu)
+*.tfstate
+*.tfstate.backup
+/examples/**/.terraform/
+/examples/**/.terraform.lock.hcl
