@@ -173,11 +173,20 @@ func TestRollingDeploySwitchesToAHealthyRevisionAndKeepsServing(t *testing.T) {
 
 	// Drift: the serving revision stopped outside EnclaveStack is reported and restarted in place.
 	name := engine.RevisionName(r, 2)
+	// This step tests EnclaveStack's drift detection, not Docker's own restart policy, which on some
+	// daemons brings a stopped container straight back: take it out of the picture.
+	if _, err := d.cli.ContainerUpdate(context.Background(), name, container.UpdateConfig{RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.cli.ContainerStop(context.Background(), name, container.StopOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if h, _ := d.Health(context.Background(), r, engine.ObjectStore{}); h != engine.Stopped {
-		t.Errorf("health of stopped serving revision = %v (want Stopped); serving revision %d; docker reports: %s", h, r.ServingRevision, statesOf(d, r))
+		detail := ""
+		if c, err := d.cli.ContainerInspect(context.Background(), name); err == nil && c.State != nil {
+			detail = fmt.Sprintf("; %s restarted %d times, finished %s, exit code %d", name, c.RestartCount, c.State.FinishedAt, c.State.ExitCode)
+		}
+		t.Errorf("health of stopped serving revision = %v (want Stopped); serving revision %d; docker reports: %s%s", h, r.ServingRevision, statesOf(d, r), detail)
 	}
 	r.Generation = 2
 	spec.HealthCheck = hc
