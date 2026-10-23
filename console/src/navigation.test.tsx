@@ -88,7 +88,8 @@ describe('full pages and breadcrumbs (CON-63, CON-64)', () => {
     await user.click(await within(list).findByRole('link', { name: new RegExp(`^${MAIN.name}`) }));
     // Titled by the machine's own name; the short name is what commands call it.
     expect(await screen.findByRole('heading', { name: 'This Mac', level: 1 })).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(`called ${MAIN.name} in commands`))).toBeInTheDocument();
+    expect(screen.getByText('Name in commands')).toBeInTheDocument();
+    expect(screen.getByText(MAIN.name, { selector: '.es-fact-value' })).toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Machines' }));
     expect(router.state.location.pathname).toBe('/machines');
   });

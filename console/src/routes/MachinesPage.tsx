@@ -1,5 +1,5 @@
 import {
-  Alert, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, Drawer, Fact, Field, Form, Grid, Heading, Icons, Inline, Input, Page, PageHeader,
+  Alert, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, Drawer, Fact, Field, Form, Grid, Heading, Icons, IconButton, Inline, Input, Page, PageHeader,
   ProgressBar, Row, Rows, Skeleton, Stack, Status, Table, Text, useToast,
 } from '@enclavestack/ui';
 import { useState, type FormEvent, type ReactNode } from 'react';
@@ -11,7 +11,7 @@ import { useSession } from '../auth/session';
 import { fromRows, KeyValueEditor, toRows, type Row as KV } from '../components/KeyValueEditor';
 import { MACHINE_STATE } from '../components/MachineFields';
 import { PhaseDot } from '../components/StatusBadge';
-import { formatBytes, percentOf } from '../lib/format';
+import { formatAgo, formatBytes, percentOf } from '../lib/format';
 import { isMachineAdmin } from '../lib/roles';
 import { sectionByKind } from '../lib/sections';
 import { usePageTitle } from '../lib/shell';
@@ -148,6 +148,15 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
   );
 }
 
+/** A small button that puts a value on the clipboard and says so. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const toast = useToast();
+  return (
+    <IconButton size="sm" variant="ghost" label={label} icon={<Icons.Copy />}
+      onClick={() => void navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast("Couldn't copy: select the text instead"))} />
+  );
+}
+
 /** The main machine's display name: the ID and the name used in commands stay (MCH-10). */
 function RenameForm({ initial, onSave }: { initial: string; onSave: (title: string) => Promise<void> }) {
   const [title, setTitle] = useState(initial);
@@ -278,13 +287,8 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
         label="Summary"
         back={back}
         title={x.main ? x.title : x.name}
-        status={(
-          <>
-            <Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>
-            <Text size="xs" tone="subtle" mono title="The machine's ID">{x.id}</Text>
-          </>
-        )}
-        lede={`${x.main ? `The main machine, called ${x.name} in commands` : 'A machine'} · since ${new Date(x.since).toLocaleString()} · last heard ${x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'}`}
+        status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
+        lede={x.main ? 'The computer EnclaveStack runs on.' : 'A computer that joined this EnclaveStack.'}
         meta={(!x.schedulable || x.versionMismatch) && (
           <>
             {!x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
@@ -296,7 +300,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
                 {x.main && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setRenaming(true)}>Rename</Button>}
                 {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
                 <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
-                  {x.schedulable ? 'Not schedulable' : 'Schedulable'}
+                  {x.schedulable ? 'Pause placing' : 'Allow placing'}
                 </Button>
                 {x.state === 'online' && !x.main && <Button size="sm" icon={<Icons.ArrowRightLeft />} disabled={busy} onClick={() => setDraining(true)}>Drain</Button>}
                 {!x.main && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => { setRemoveError(null); setRemoving('ask'); }}>Remove</Button>}
@@ -315,6 +319,10 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
           </Alert>
         )}
         <Grid min="sm">
+          <Card><Fact label="Name in commands" mono value={x.name} action={<CopyButton text={x.name} label="Copy the name" />} /></Card>
+          <Card><Fact label="ID" mono value={x.id} action={<CopyButton text={x.id} label="Copy the ID" />} /></Card>
+          <Card><Fact label={`${MACHINE_STATE[x.state] ?? x.state} since`} value={<span title={new Date(x.since).toLocaleString()}>{formatAgo(x.since)}</span>} /></Card>
+          <Card><Fact label="Last heard" value={x.lastSeenAt ? <span title={new Date(x.lastSeenAt).toLocaleString()}>{formatAgo(x.lastSeenAt)}</span> : '—'} /></Card>
           <Card><Fact label="Address" mono value={x.address ?? '—'} /></Card>
           <Card><Fact label="System" value={x.os ? `${x.os} · ${x.arch}` : '—'} /></Card>
           <Card><Fact label="Agent" mono value={x.agentVersion || '—'} /></Card>

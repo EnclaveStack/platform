@@ -42,7 +42,10 @@ describe('many machines in the console', () => {
     const { user, api } = renderConsole(`/machines/${MAIN.name}`);
     await signIn(user);
     const header = await screen.findByRole('group', { name: 'Summary' });
-    expect(within(header).getByTitle("The machine's ID")).toHaveTextContent(MAIN.id);
+    // The ID is a card with a copy button, not crammed into the header.
+    expect(screen.getByText(MAIN.id, { selector: '.es-fact-value' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy the ID' })).toBeInTheDocument();
+    expect(within(header).queryByText(MAIN.id)).not.toBeInTheDocument();
     await user.click(within(header).getByRole('button', { name: 'Rename' }));
     const drawer = await screen.findByRole('dialog', { name: 'Rename machine' });
     const field = within(drawer).getByLabelText('Display name');
