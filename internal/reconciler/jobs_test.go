@@ -2,6 +2,7 @@ package reconciler_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -152,11 +153,23 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	env := testenv.Start(t)
 	c, _ := env.Token(t, api.ScopeWrite)
 	ctx := context.Background()
-	job := newJob(t, c, "minutely", api.JobSpec{Schedule: "* * * * *", TimeZone: "Asia/Kolkata", Image: "busybox", Command: []string{"sleep 0.5"}})
+	// Every minute of one hour, twelve hours away: its own occurrences never come round while the test runs,
+	// so each phase sees only the runs it caused, whenever the test starts. (With "* * * * *", a phase that
+	// started in a minute's first second or crossed into the next minute saw one run more or less.)
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(ist)
+	hour := (now.Hour() + 12) % 24
+	job := newJob(t, c, "minutely", api.JobSpec{Schedule: fmt.Sprintf("* %d * * *", hour), TimeZone: "Asia/Kolkata", Image: "busybox", Command: []string{"sleep 0.5"}})
+	// The hour's last minute on the most recent day it has passed: the latest occurrence before now.
+	due := time.Date(now.Year(), now.Month(), now.Day(), hour, 59, 0, 0, ist)
+	if !due.Before(now) {
+		due = due.AddDate(0, 0, -1)
+	}
 
 	// Due a moment ago: one scheduled run, and the next run moves into the future.
-	awayFromMinuteEdge(t)
-	due := time.Now().Add(-time.Second).Truncate(time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &due); err != nil {
 		t.Fatal(err)
 	}
@@ -169,15 +182,12 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 		t.Errorf("scheduled run %+v", l.Items[0])
 	}
 	r, _ := env.Store.GetResource(ctx, job.ID)
-	// Advanced past the run that was due. (Not "in the future": on a slow runner the next minute may already
-	// have come by the time this looks.)
-	if r.NextRunAt == nil || !r.NextRunAt.After(due) {
-		t.Errorf("next run not advanced past %v: %v", due, r.NextRunAt)
+	if r.NextRunAt == nil || !r.NextRunAt.After(time.Now()) {
+		t.Errorf("next run not advanced: %v", r.NextRunAt)
 	}
 
 	// Ten minutes of downtime: one skipped record counting the missed runs, then a single catch-up run.
-	awayFromMinuteEdge(t)
-	past := time.Now().Add(-10 * time.Minute).Truncate(time.Minute)
+	past := due.Add(-10 * time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &past); err != nil {
 		t.Fatal(err)
 	}
@@ -210,13 +220,12 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	// Overlap forbid: an occurrence due while a run is going is recorded as skipped.
 	upd, _ := c.UpdateResource(ctx, job.ID, map[string]any{"command": []string{"sleep 3"}}, nil)
 	waitReadyWithin(t, c, upd.ID, 10*time.Second)
-	awayFromMinuteEdge(t)
 	long, err := c.RunNow(ctx, job.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().Add(-time.Second)
-	if err := env.Store.SetNextRun(ctx, job.ID, &now); err != nil {
+	dueNow := time.Now().Add(-time.Second)
+	if err := env.Store.SetNextRun(ctx, job.ID, &dueNow); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, 10*time.Second, func() bool {
@@ -224,17 +233,6 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 		return len(l.Items) == 1 && l.Items[0].Status == api.RunSkipped && strings.Contains(l.Items[0].Message, "overlap")
 	})
 	waitRun(t, c, job.ID, long.ID)
-}
-
-// awayFromMinuteEdge waits until the clock is between seconds 2 and 30 of a minute. The job above runs every
-// minute and each phase counts its runs, so a phase that starts in the first second (the previous minute is
-// then missed, and caught up) or crosses into the next minute (one more run) sees the wrong number: about one
-// CI run in fifteen did, depending only on when the test happened to start.
-func awayFromMinuteEdge(t *testing.T) {
-	t.Helper()
-	for s := time.Now().Second(); s < 2 || s > 30; s = time.Now().Second() {
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 func TestARunLeftRunningIsAdoptedAndStartedOnce(t *testing.T) {
