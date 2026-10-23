@@ -43,7 +43,11 @@ func (s *Resources) ResourceMetrics(ctx context.Context, id string, q MetricQuer
 
 // MachineMetrics returns the main machine's own series (MET-03).
 func (s *Resources) MachineMetrics(ctx context.Context, q MetricQuery) (api.MetricData, error) {
-	return s.MachineMetricsOf(ctx, api.MainMachine, q)
+	m, err := s.Store.GetMachine(ctx, s.Store.MainID())
+	if err != nil {
+		return api.MetricData{}, err
+	}
+	return s.MachineMetricsOf(ctx, m.Name, q)
 }
 
 // MachineMetricsOf returns one machine's series, by its name (L3-002 §11.2). The disk metrics are the
@@ -67,7 +71,7 @@ func (s *Resources) MachineMetricsOf(ctx context.Context, name string, q MetricQ
 			infos = append(infos, info)
 		}
 	}
-	return s.metricData(ctx, store.MachineSeriesOf(m.ID), infos, q)
+	return s.metricData(ctx, store.MachineSeriesOf(m.ID, s.Store.MainID()), infos, q)
 }
 
 func (s *Resources) metricData(ctx context.Context, seriesOf string, infos []api.MetricInfo, q MetricQuery) (api.MetricData, error) {

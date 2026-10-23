@@ -104,7 +104,7 @@ type StepState = 'pending' | 'active' | 'done' | 'failed';
 
 interface Session  { user: { id: string; email: string }; machineName: string; authMethod: 'session' | 'token'; scope: 'read' | 'write' | 'full' }
 interface Token    { id: string; name: string; prefix: string; scope: 'read' | 'write'; createdAt: string; lastUsedAt: string | null; expiresAt: string | null }
-interface Machine  { name: string; hostname: string; version: string; os: string; arch: string; cpus: number;
+interface Machine  { id: string; handle: string; name: string; hostname: string; version: string; os: string; arch: string; cpus: number;
                      memoryTotalBytes: number; memoryReservedBytes: number;
                      engine: { driver: 'docker' | 'fake'; available: boolean; version: string; message: string } }
 interface Resource {
@@ -913,7 +913,7 @@ This section specifies the v0.8 contract (`L2-010`; ADR-042 – ADR-048). As eac
 
 ### 11.1 Kinds and identifiers
 
-`Kind` gains `stack` (`stk_`). Machines are not resources: like projects, they have their own endpoints (§11.2) and are named by their name; their IDs are `mch_…`, and `main` for the main machine.
+`Kind` gains `stack` (`stk_`). Machines are not resources: like projects, they have their own endpoints (§11.2) and are named by their name; their IDs are `mch_…`, the main machine's too (made at first start, never changed).
 
 ### 11.2 Machines
 
@@ -921,7 +921,7 @@ This section specifies the v0.8 contract (`L2-010`; ADR-042 – ADR-048). As eac
 type MachineState = 'waiting' | 'online' | 'offline';
 interface MachineLink { machine: string; connected: boolean; lastHandshakeAt: string | null }
 interface MachineSummary {
-  id: string; name: string; title: string; main: boolean;   // main: name 'main', title the machine name from setup
+  id: string; name: string; title: string; main: boolean;   // main: the computer EnclaveStack runs on; its name comes from the computer's name (suffixed `-2`… if taken), its title from setup (MCH-10)
   state: MachineState; since: string;                        // since: when it entered the state
   labels: Record<string, string>; schedulable: boolean;
   address: string | null;                     // what the agent advertised; the main machine's public address or null
@@ -950,7 +950,7 @@ interface DrainResult { moving: string[]; pinned: string[] }   // "kind/name" (w
 | `PATCH /machines/{name}` | machine admin | `UpdateMachine` (`labels?`, `schedulable?`, `title?`) → `200 MachineSummary`. `title` is the display name (MCH-10): 1–64 characters after trimming, only the main machine has one (another machine is shown by its name → `422 NOT_ALLOWED`); the ID and name don't change |
 | `POST /machines/{name}/join-code` | machine admin | → `200 AddedMachine` with a new code; only while `waiting` → else `409 ACTION_NOT_SUPPORTED` |
 | `POST /machines/{name}/drain` | machine admin | → `202 DrainResult`; the main machine → `409 ACTION_NOT_SUPPORTED` |
-| `DELETE /machines/{name}?force=true` | machine admin | → `204`; anything placed there → `409 MACHINE_NOT_EMPTY` listing it; `force` on an online machine → `409 MACHINE_ONLINE`; `main` → `409 ACTION_NOT_SUPPORTED` |
+| `DELETE /machines/{name}?force=true` | machine admin | → `204`; anything placed there → `409 MACHINE_NOT_EMPTY` listing it; `force` on an online machine → `409 MACHINE_ONLINE`; the main machine → `409 ACTION_NOT_SUPPORTED` |
 | `POST /machines/join` | public, rate-limited like sign-in | `JoinRequest` → `200 JoinResponse`; unknown, used or expired code → `410 JOIN_CODE_INVALID` |
 | `GET /machines/{name}/metrics?metric=…` | any signed-in | → `200 MetricData` (§10.4 machine metrics, for that machine: CPU, memory and failed resources of what runs there; the disk metrics are the main machine's data folder, so other machines' disk series are empty); `GET /machine/metrics` stays the main machine's |
 
@@ -1064,7 +1064,7 @@ interface Resource { /* earlier fields */ stack: string | null }                
 
 | Field | Rule |
 |---|---|
-| machine `name` | resource name rules; unique; `main` is the main machine's and can't be taken |
+| machine `name` | resource name rules; unique, the main machine's included |
 | `labels` | 0 – 10; key `[a-z0-9][a-z0-9._-]{0,62}`, value `[A-Za-z0-9._-]{0,63}` |
 | `spec.machine` | an existing machine; the volume's machine when the resource uses volumes; omitted for an app job |
 | `spec.machineLabels` | as `labels`, 1 – 10 |
@@ -1120,4 +1120,4 @@ Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'n
 | v19 | 2026-10-22 | Soupler | §10.3: invites and resets by email: `MachineSettings.inviteEmail` (absent keeps, null clears), `Machine.inviteEmail`, `Invitation.emailed` / `emailError` |
 | v20 | 2026-10-22 | Soupler | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
 | v21 | 2026-10-22 | Soupler | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |
-| v22 | 2026-10-23 | Soupler | MCH-10: `GET /setup` returns `suggestedMachineName`; `PATCH /machines/{name}` takes `title` (the display name, main machine only, MCH-10). The main machine's ID and name scheme (MCH-01) is specified in L2-010 and not yet built |
+| v22 | 2026-10-23 | Soupler | `GET /machine` gains `id` (mch_…) and `handle` (the name commands use) for the main machine. MCH-10: `GET /setup` returns `suggestedMachineName`; `PATCH /machines/{name}` takes `title` (the display name, main machine only, MCH-10). The main machine gets a generated ID and a computer-derived name, with no `main` alias (MCH-01); `RULES.mainMachine` is removed from the contract |

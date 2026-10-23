@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/enclavestack/platform/internal/engine/fake"
+	"github.com/enclavestack/platform/internal/testenv"
 	"github.com/enclavestack/platform/pkg/api"
 )
 
@@ -69,7 +70,7 @@ func TestMoveAndDrainFromTheCLI(t *testing.T) {
 	rack1 := h.env.AddAgent(t, admin, "rack-1", map[string]string{"zone": "a"})
 	h.env.WaitMachine(t, admin, "rack-1", api.MachineOnline)
 
-	h.ok("db", "create", "orders", "--machine", "main", "--wait")
+	h.ok("db", "create", "orders", "--machine", testenv.MainName(), "--wait")
 	if r := h.run("move", "orders", "--to", "rack-1"); r.code == 0 || !strings.Contains(r.err, "KIND/NAME") {
 		t.Errorf("move without a kind: %d %q", r.code, r.err)
 	}
@@ -90,7 +91,7 @@ func TestMoveAndDrainFromTheCLI(t *testing.T) {
 	h.ok("cache", "create", "sessions", "--machine-label", "zone=a", "--wait")
 	rack2 := h.env.AddAgent(t, admin, "rack-2", map[string]string{"zone": "a"})
 	h.env.WaitMachine(t, admin, "rack-2", api.MachineOnline)
-	if r := h.run("machine", "drain", "main"); r.code == 0 {
+	if r := h.run("machine", "drain", testenv.MainName()); r.code == 0 {
 		t.Error("drained main")
 	}
 	r = h.ok("machine", "drain", "rack-1", "--wait")

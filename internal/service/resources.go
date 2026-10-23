@@ -207,7 +207,7 @@ func (s *Resources) createIn(ctx context.Context, q *store.Queries, p Principal,
 		return nil, nil, err
 	}
 	if !domain.Placed(r.Kind) {
-		r.Machine = api.MainMachine // placed kinds get theirs from the reconciler (ADR-044)
+		r.Machine = s.Store.MainID() // placed kinds get theirs from the reconciler (ADR-044)
 	}
 	var created []string
 	if _, err := q.GetProject(ctx, project); errors.Is(err, store.ErrNotFound) {
@@ -1150,7 +1150,7 @@ func withOutputs(base map[string]any, add map[string]any) map[string]any {
 // Machine describes the host and engine (CP-16).
 func (s *Resources) Machine(ctx context.Context, name string) (api.Machine, error) {
 	host, _ := os.Hostname()
-	m := api.Machine{Name: name, Hostname: host, Version: version.Version, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(),
+	m := api.Machine{ID: s.Store.MainID(), Name: name, Hostname: host, Version: version.Version, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(),
 		Engine: api.Engine{Driver: s.Engine.Name()}}
 	if info, err := s.Engine.Info(ctx); err == nil {
 		m.Engine.Available, m.Engine.Version = true, info.Version
@@ -1161,14 +1161,17 @@ func (s *Resources) Machine(ctx context.Context, name string) (api.Machine, erro
 	} else {
 		m.Engine.Message = "The container engine isn't reachable. Changes are queued and will apply when it's back."
 	}
+	if mc, err := s.Store.GetMachine(ctx, m.ID); err == nil {
+		m.Handle = mc.Name
+	}
 	all, err := s.Store.AllResources(ctx)
 	if err != nil {
 		return m, err
 	}
 	// GET /machine describes the main machine (L3-002 §11.2): what is placed there.
-	m.MemoryReservedBytes = int64(domain.ReservedByMachine(all)[api.MainMachine]) << 20
+	m.MemoryReservedBytes = int64(domain.ReservedByMachine(all, s.Store.MainID())[s.Store.MainID()]) << 20
 	for _, r := range all {
-		if r.Phase != api.PhaseDeleting && r.MachineID() == api.MainMachine {
+		if r.Phase != api.PhaseDeleting && r.MachineOn(s.Store.MainID()) == s.Store.MainID() {
 			m.ReservedCPUs += domain.CPUsReserved(r)
 		}
 	}

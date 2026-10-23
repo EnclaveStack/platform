@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enclavestack/platform/internal/testenv"
 	"github.com/enclavestack/platform/pkg/api"
 )
 
@@ -39,12 +40,12 @@ func TestMachinesFromTheCLI(t *testing.T) {
 	// --machine places, and ls says where (CLI-48).
 	h.ok("db", "create", "orders", "--machine", "rack-1", "--wait")
 	h.ok("cache", "create", "sessions", "--machine-label", "disk=ssd", "--wait")
-	h.ok("app", "create", "web", "--image", "nginx", "--port", "80", "--machine", "main", "--wait")
+	h.ok("app", "create", "web", "--image", "nginx", "--port", "80", "--machine", testenv.MainName(), "--wait")
 	if a.Driver.EnsureCalls("orders") == 0 || a.Driver.EnsureCalls("sessions") == 0 || a.Driver.EnsureCalls("web") != 0 {
 		t.Errorf("rack-1 ran orders %d, sessions %d, web %d times", a.Driver.EnsureCalls("orders"), a.Driver.EnsureCalls("sessions"), a.Driver.EnsureCalls("web"))
 	}
 	r := h.ok("ls")
-	if !strings.Contains(r.out, "MACHINE") || !regexp.MustCompile(`orders\s+\S+\s+rack-1`).MatchString(r.out) || !regexp.MustCompile(`web\s+\S+\s+main`).MatchString(r.out) {
+	if !strings.Contains(r.out, "MACHINE") || !regexp.MustCompile(`orders\s+\S+\s+rack-1`).MatchString(r.out) || !regexp.MustCompile(`web\s+\S+\s+`+regexp.QuoteMeta(testenv.MainName())).MatchString(r.out) {
 		t.Errorf("ls: %s", r.out)
 	}
 	if r := h.ok("ls", "--machine", "rack-1"); !strings.Contains(r.out, "orders") || !strings.Contains(r.out, "sessions") || strings.Contains(r.out, "web") {

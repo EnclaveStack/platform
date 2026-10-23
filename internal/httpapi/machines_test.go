@@ -33,7 +33,7 @@ func TestMachinesJoinGoOfflineComeBackAndAreRemoved(t *testing.T) {
 	ctx := context.Background()
 
 	list, err := admin.ListMachines(ctx)
-	if err != nil || len(list) != 1 || list[0].Name != api.MainMachine || !list[0].Main || list[0].Title != "Test machine" || list[0].State != api.MachineOnline {
+	if err != nil || len(list) != 1 || list[0].Name != testenv.MainName() || !list[0].Main || list[0].Title != "Test machine" || list[0].State != api.MachineOnline {
 		t.Fatalf("before any machine: %+v %v", list, err)
 	}
 
@@ -89,7 +89,7 @@ func TestMachinesJoinGoOfflineComeBackAndAreRemoved(t *testing.T) {
 	}
 
 	// Removing: never the main machine; refused while something runs there (MCH-09).
-	err = admin.RemoveMachine(ctx, api.MainMachine, false)
+	err = admin.RemoveMachine(ctx, testenv.MainName(), false)
 	mustCode(t, err, api.CodeActionNotSupported, "removing the main machine")
 	if _, err := admin.UpdateMachineByName(ctx, "rack-1", api.UpdateMachine{Schedulable: ptr(true)}); err != nil {
 		t.Fatal(err)
@@ -146,11 +146,11 @@ func TestPlacementRunsEachResourceOnItsMachine(t *testing.T) {
 	}
 
 	// Pinned to a machine, or to labels.
-	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: api.MainMachine}})
+	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if web = testenv.WaitReady(t, admin, web.ID); where(web) != api.MainMachine || env.Fake.EnsureCalls("web") == 0 {
+	if web = testenv.WaitReady(t, admin, web.ID); where(web) != testenv.MainName() || env.Fake.EnsureCalls("web") == 0 {
 		t.Errorf("web on %q", where(web))
 	}
 	cache, err := admin.CreateResource(ctx, api.KindCache, "sessions", api.CacheSpec{Placed: api.Placed{MachineLabels: map[string]string{"disk": "ssd"}}})
@@ -234,7 +234,7 @@ func TestTheMeshGivesEachMachineItsPeersPoolsAndStandIns(t *testing.T) {
 	ctx := context.Background()
 
 	// One machine: no mesh at all (PLC-08).
-	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: api.MainMachine}})
+	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestTheMeshGivesEachMachineItsPeersPoolsAndStandIns(t *testing.T) {
 		}
 		return false
 	})
-	if mc, _ := admin.GetMachineByName(ctx, "rack-1"); len(mc.Links) != 1 || !mc.Links[0].Connected || mc.Links[0].Machine != api.MainMachine {
+	if mc, _ := admin.GetMachineByName(ctx, "rack-1"); len(mc.Links) != 1 || !mc.Links[0].Connected || mc.Links[0].Machine != testenv.MainName() {
 		t.Errorf("rack-1's links: %+v", mc.Links)
 	}
 
@@ -345,7 +345,7 @@ func TestAnOfflineMachinesAppsStartElsewhereAndItsDataWaits(t *testing.T) {
 	testenv.Eventually(t, 10*time.Second, "web on the main machine", func() bool {
 		r, _ := admin.GetResource(ctx, web.ID)
 		m, _ := r.Outputs["machine"].(string)
-		return m == api.MainMachine && r.Status.Phase == api.PhaseReady
+		return m == testenv.MainName() && r.Status.Phase == api.PhaseReady
 	})
 	if env.Fake.EnsureCalls("web") == 0 {
 		t.Error("web never ran on the main machine")
@@ -380,7 +380,7 @@ func TestAnOfflineMachinesAppsStartElsewhereAndItsDataWaits(t *testing.T) {
 	if ev, _ := admin.MachineEvents(ctx, "rack-1"); !hasEvent(ev, "swept") {
 		t.Errorf("no swept event: %+v", ev)
 	}
-	if where(web.ID) != api.MainMachine {
+	if where(web.ID) != testenv.MainName() {
 		t.Errorf("web went back: %q", where(web.ID))
 	}
 }
@@ -420,7 +420,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	db = testenv.WaitReady(t, admin, db.ID)
 	ip := db.Outputs["privateIp"]
 	rack.Driver.SetData(db.ID, "rows: 3")
-	db = move(db.ID, api.MainMachine)
+	db = move(db.ID, testenv.MainName())
 	if env.Fake.Data(db.ID) != "rows: 3" || db.Outputs["privateIp"] != ip {
 		t.Errorf("after the move: data %q, address %v (was %v)", env.Fake.Data(db.ID), db.Outputs["privateIp"], ip)
 	}
@@ -433,7 +433,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	}
 
 	// An app: a deploy on the new machine, then the old one goes (MOVE-01).
-	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: api.MainMachine}})
+	web, err := admin.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80, Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	}
 
 	// A volume moves with its files, and the app that mounts it follows (MOVE-03).
-	vol, err := admin.CreateResource(ctx, api.KindVolume, "uploads", api.VolumeSpec{Type: api.VolumeFilesystem, Placed: api.Placed{Machine: api.MainMachine}})
+	vol, err := admin.CreateResource(ctx, api.KindVolume, "uploads", api.VolumeSpec{Type: api.VolumeFilesystem, Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 		t.Fatal(err)
 	}
 	testenv.WaitReady(t, admin, blog.ID)
-	if where(blog.ID) != api.MainMachine {
+	if where(blog.ID) != testenv.MainName() {
 		t.Fatalf("blog didn't follow its volume: %q", where(blog.ID))
 	}
 	env.Fake.WriteFile(vol.ID, "a.txt", "hello")
@@ -471,7 +471,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	})
 
 	// A VM: shut down, its root disk copied, started there (MOVE-04).
-	vm, err := admin.CreateResource(ctx, api.KindVM, "box", api.VMSpec{Image: "debian-12", SSHKeys: []string{testSSHKey}, Placed: api.Placed{Machine: api.MainMachine}})
+	vm, err := admin.CreateResource(ctx, api.KindVM, "box", api.VMSpec{Image: "debian-12", SSHKeys: []string{testSSHKey}, Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,17 +486,17 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	}
 
 	// Refusals (L3-002 §11.4).
-	if _, err := admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Schedulable: ptr(false)}); err != nil {
+	if _, err := admin.UpdateMachineByName(ctx, testenv.MainName(), api.UpdateMachine{Schedulable: ptr(false)}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = admin.UpdateResource(ctx, web.ID, map[string]any{"machine": api.MainMachine}, nil)
+	_, err = admin.UpdateResource(ctx, web.ID, map[string]any{"machine": testenv.MainName()}, nil)
 	mustCode(t, err, api.CodeValidationFailed, "a move to a machine that isn't schedulable")
-	if _, err := admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Schedulable: ptr(true)}); err != nil {
+	if _, err := admin.UpdateMachineByName(ctx, testenv.MainName(), api.UpdateMachine{Schedulable: ptr(true)}); err != nil {
 		t.Fatal(err)
 	}
 
 	// A move that fails leaves it where it was, running (MOVE-06): rack-1's engine is down for the copy.
-	cache, err := admin.CreateResource(ctx, api.KindCache, "sessions", api.CacheSpec{Placed: api.Placed{Machine: api.MainMachine}})
+	cache, err := admin.CreateResource(ctx, api.KindCache, "sessions", api.CacheSpec{Placed: api.Placed{Machine: testenv.MainName()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +509,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 		ev, _ := admin.Events(ctx, cache.ID, 20)
 		return hasEvent(ev, "move_failed")
 	})
-	if !env.Fake.Running(cache.ID) || where(cache.ID) != api.MainMachine {
+	if !env.Fake.Running(cache.ID) || where(cache.ID) != testenv.MainName() {
 		t.Errorf("after a failed move: running on main %v, machine %q", env.Fake.Running(cache.ID), where(cache.ID))
 	}
 	rack.Driver.SetAvailable(true)
@@ -518,7 +518,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	// Data can't leave a machine that is offline (FAIL-03).
 	rack.Stop()
 	env.WaitMachine(t, admin, "rack-1", api.MachineOffline)
-	_, err = admin.UpdateResource(ctx, cache.ID, map[string]any{"machine": api.MainMachine}, nil)
+	_, err = admin.UpdateResource(ctx, cache.ID, map[string]any{"machine": testenv.MainName()}, nil)
 	mustCode(t, err, api.CodeMachineOffline, "moving data off an offline machine")
 	rack.Start()
 	env.WaitMachine(t, admin, "rack-1", api.MachineOnline)
@@ -538,7 +538,7 @@ func TestResourcesMoveWithTheirData(t *testing.T) {
 	if err != nil || !slices.Contains(dr.Moving, "app/free") || !slices.Contains(dr.Pinned, "app/web") {
 		t.Fatalf("drain: %+v %v", dr, err)
 	}
-	testenv.Eventually(t, 10*time.Second, "free off rack-1", func() bool { return where(free.ID) == api.MainMachine })
+	testenv.Eventually(t, 10*time.Second, "free off rack-1", func() bool { return where(free.ID) == testenv.MainName() })
 	if m, _ := admin.GetMachineByName(ctx, "rack-1"); m.Schedulable {
 		t.Error("a drained machine is still schedulable")
 	}
@@ -576,11 +576,11 @@ func TestTheMainMachineIsRenamedByItsTitleAndNothingElseChanges(t *testing.T) {
 	rack := env.AddAgent(t, admin, "rack-1", nil)
 	_ = rack
 
-	before, err := admin.GetMachineByName(ctx, api.MainMachine)
+	before, err := admin.GetMachineByName(ctx, testenv.MainName())
 	if err != nil || before.Title != "Test machine" {
 		t.Fatalf("before: %+v %v", before, err)
 	}
-	got, err := admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("  Home lab  ")})
+	got, err := admin.UpdateMachineByName(ctx, testenv.MainName(), api.UpdateMachine{Title: ptr("  Home lab  ")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,14 +594,14 @@ func TestTheMainMachineIsRenamedByItsTitleAndNothingElseChanges(t *testing.T) {
 		t.Errorf("the session says %q", s.MachineName)
 	}
 
-	_, err = admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("   ")})
+	_, err = admin.UpdateMachineByName(ctx, testenv.MainName(), api.UpdateMachine{Title: ptr("   ")})
 	mustCode(t, err, api.CodeValidationFailed, "a blank display name")
 	_, err = admin.UpdateMachineByName(ctx, "rack-1", api.UpdateMachine{Title: ptr("Rack")})
 	mustCode(t, err, api.CodeValidationFailed, "a display name on a machine that has none")
 
 	// Anyone but a machine admin is refused.
 	viewer, _ := env.Token(t, api.ScopeRead)
-	_, err = viewer.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("Mine")})
+	_, err = viewer.UpdateMachineByName(ctx, testenv.MainName(), api.UpdateMachine{Title: ptr("Mine")})
 	mustCode(t, err, api.CodeForbidden, "a viewer renaming the machine")
 }
 

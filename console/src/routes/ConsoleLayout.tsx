@@ -5,7 +5,6 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
-import { RULES } from '../api/generated';
 import { useSession } from '../auth/session';
 import { SectionIcon } from '../components/SectionIcon';
 import { formatBytes, percentOf } from '../lib/format';
@@ -107,7 +106,7 @@ function ConsoleShell() {
   // Where you are, every step but the last a link (CON-63).
   const crumbs: ReactNode[] = [];
   const machineName = m?.name ?? 'This machine';
-  const machineTo = `/machines/${encodeURIComponent(RULES.mainMachine)}`; // this machine's own page
+  const machineTo = m?.handle ? `/machines/${encodeURIComponent(m.handle)}` : '/machines'; // this machine's own page
   const [, first = '', second] = location.pathname.split('/');
   const section = sectionBySlug(first);
   if (section) {

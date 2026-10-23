@@ -121,7 +121,6 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
     const found: FieldErrors = { ...validateLabels(l, 'labels') };
     const bad = validateName(name.trim());
     if (bad) found.name = bad;
-    else if (name.trim() === RULES.mainMachine) found.name = "main is the main machine's name. Choose another.";
     setErrors(found);
     if (Object.keys(found).length) return;
     setBusy(true);

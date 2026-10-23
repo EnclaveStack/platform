@@ -153,3 +153,10 @@ func Eventually(t testing.TB, timeout time.Duration, what string, cond func() bo
 func (e *Env) ExpireTokenForTest(id string) error {
 	return e.Store.ExpireTokenForTest(context.Background(), id)
 }
+
+// MainName is the name the server gives the main machine on this computer (MCH-01): what tests pass as
+// --machine or a placement to mean "here".
+func MainName() string {
+	host, _ := os.Hostname()
+	return api.MachineHandleFromHostname(host)
+}

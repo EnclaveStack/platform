@@ -988,8 +988,10 @@ components:
       properties: { machineId: { type: string }, name: { type: string }, certificate: { type: string }, ca: { type: string }, server: { type: string } }
     Machine:
       type: object
-      required: [name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
+      required: [id, handle, name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
       properties:
+        id: { type: string, description: The main machine's ID (mch_…), made at first start }
+        handle: { type: string, description: The name commands use for the main machine, made from the computer's own name }
         name: { type: string }
         hostname: { type: string }
         version: { type: string }

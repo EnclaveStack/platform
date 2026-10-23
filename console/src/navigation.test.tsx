@@ -1,6 +1,7 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isNavPage, NAV_GROUPS, SECTIONS } from './lib/sections';
+import { MAIN } from './api/mock-machines';
 import { renderConsole, signIn } from './test-console';
 
 // Console v4 navigation (L2-001 CON-61, CON-63, CON-64; L2.5-002 §16) through real routes on the mock adapter.
@@ -69,7 +70,7 @@ describe('full pages and breadcrumbs (CON-63, CON-64)', () => {
     await user.click(await screen.findByRole('link', { name: /All caches/ }));
     expect(router.state.location.pathname).toBe('/caches');
     await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'This Mac' }));
-    expect(router.state.location.pathname).toBe('/machines/main');
+    expect(router.state.location.pathname).toBe(`/machines/${MAIN.name}`);
     expect(await screen.findByRole('heading', { name: 'This Mac', level: 1 })).toBeInTheDocument();
   });
 
@@ -77,17 +78,17 @@ describe('full pages and breadcrumbs (CON-63, CON-64)', () => {
     const { user, router } = renderConsole('/caches');
     await signIn(user);
     await user.click(await screen.findByRole('link', { name: /open its page/ }));
-    expect(router.state.location.pathname).toBe('/machines/main');
+    expect(router.state.location.pathname).toBe(`/machines/${MAIN.name}`);
   });
 
   it('opens a machine on its own page, with the breadcrumb back to Machines', async () => {
     const { user, router } = renderConsole('/machines');
     await signIn(user);
     const list = await screen.findByRole('region', { name: 'Machines list' });
-    await user.click(await within(list).findByRole('link', { name: /^main/ }));
-    // Named by the machine's own name; "main" is only what commands call it.
+    await user.click(await within(list).findByRole('link', { name: new RegExp(`^${MAIN.name}`) }));
+    // Titled by the machine's own name; the short name is what commands call it.
     expect(await screen.findByRole('heading', { name: 'This Mac', level: 1 })).toBeInTheDocument();
-    expect(screen.getByText(/called main in commands/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`called ${MAIN.name} in commands`))).toBeInTheDocument();
     await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Machines' }));
     expect(router.state.location.pathname).toBe('/machines');
   });

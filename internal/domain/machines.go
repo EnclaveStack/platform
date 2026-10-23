@@ -114,7 +114,7 @@ func Placed(k api.Kind) bool { return slices.Contains(api.PlacedKinds, k) }
 
 // ReservedByMachine sums what resources reserve on each machine (CP-16), in MiB, with the broker on the
 // main machine when any queue or topic exists. Resources being deleted and not yet placed reserve nothing.
-func ReservedByMachine(all []*Resource) map[string]int {
+func ReservedByMachine(all []*Resource, mainID string) map[string]int {
 	out := map[string]int{}
 	broker := false
 	for _, r := range all {
@@ -125,10 +125,10 @@ func ReservedByMachine(all []*Resource) map[string]int {
 		if Placed(r.Kind) && r.Machine == "" {
 			continue
 		}
-		out[r.MachineID()] += MemoryReservedMiB(r)
+		out[r.MachineOn(mainID)] += MemoryReservedMiB(r)
 	}
 	if broker { // one broker serves every queue and topic (ADR-029)
-		out[api.MainMachine] += BrokerMemoryMiB
+		out[mainID] += BrokerMemoryMiB
 	}
 	return out
 }

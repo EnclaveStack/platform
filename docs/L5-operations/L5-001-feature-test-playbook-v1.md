@@ -6,7 +6,7 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v24 |
+| Version | v25 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-23 |
 | Owner | Soupler |
@@ -389,7 +389,7 @@ The second machine in these walks is either a real Linux computer on the same ne
   6. A domain on the main machine routes to an app on rack-1 over HTTPS.
   7. Create ten apps without `--machine`: they spread by free memory; an app with `--machine-label disk=ssd` lands on rack-1.
   8. `iperf3` between an app on each machine: record the throughput and added latency (`L5-003`).
-- **Error paths**: `--machine nowhere` → `422`; an app mounting a volume on rack-1 with `--machine main` → `422`; a machine without room → the resource waits with "No machine has … MiB free".
+- **Error paths**: `--machine nowhere` → `422`; an app mounting a volume on rack-1 with `--machine <the main machine's name>` → `422`; a machine without room → the resource waits with "No machine has … MiB free".
 - **Automated checks**: `go test ./internal/engine/cluster/... ./internal/reconciler -run 'Placement|Mesh'`; `make engine-docker` (`TestMeshBetweenTwoEngines`, with a Docker-in-Docker engine); `make e2e-machines`.
 
 ### Feature: Offline machines and moving — L2-010 FAIL-01 – FAIL-06, MOVE-01 – MOVE-07, MCH-08, ADR-046, ADR-047
@@ -479,3 +479,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v22 | 2026-10-22 | Soupler | §2f: `make server-in-docker` for Docker Desktop; the WordPress walk names `blog-content` and changes memory, not a folder size |
 | v23 | 2026-10-22 | Soupler | §2g console v4 walk-throughs (planned): navigation and full pages, overview, section summaries and guides, calmer screen and motion |
 | v24 | 2026-10-23 | Soupler | §2g built: the automated checks named |
+| v25 | 2026-10-23 | Soupler | Placement error path no longer uses the machine name `main` |

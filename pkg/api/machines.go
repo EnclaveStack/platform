@@ -26,9 +26,6 @@ var PlacedKinds = []Kind{KindApp, KindDatabase, KindCache, KindJob, KindLoadBala
 // when they move (FAIL-03, MOVE-02 – MOVE-04).
 var DataKinds = []Kind{KindDatabase, KindCache, KindSearch, KindEmail, KindVolume, KindVM}
 
-// MainMachine is the main machine's ID and name (MCH-01).
-const MainMachine = "main"
-
 // Machine states (L3-002 §11.2).
 const (
 	MachineWaiting = "waiting"
@@ -218,11 +215,7 @@ type DrainResult struct {
 
 // ValidateAddMachine checks POST /machines.
 func ValidateAddMachine(m AddMachine) []FieldError {
-	errs := ValidateName(m.Name)
-	if m.Name == MainMachine {
-		errs = append(errs, FieldError{Field: "name", Code: FieldNotAllowed, Message: "main is the main machine's name. Choose another."})
-	}
-	return append(errs, ValidateLabels(m.Labels, "labels")...)
+	return append(ValidateName(m.Name), ValidateLabels(m.Labels, "labels")...)
 }
 
 // ValidateJoin checks POST /machines/join.
@@ -286,4 +279,35 @@ func MachineNameFromHostname(hostname string) string {
 		return "This computer"
 	}
 	return h
+}
+
+// MachineHandleFromHostname turns a computer's own name into the name commands use for the main machine
+// (MCH-01): the first label of its host name, lowercase letters, digits and hyphens, starting with a letter,
+// within the resource name rules; "computer" when nothing usable is left.
+func MachineHandleFromHostname(hostname string) string {
+	h := strings.ToLower(strings.TrimSpace(hostname))
+	if i := strings.IndexByte(h, '.'); i >= 0 {
+		h = h[:i]
+	}
+	var b strings.Builder
+	for _, r := range h {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
+			b.WriteByte('-') // anything else separates words
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > NameMaxLen {
+		out = strings.TrimRight(out[:NameMaxLen], "-")
+	}
+	if out == "" || out[0] < 'a' || out[0] > 'z' {
+		out = strings.TrimLeft("m-"+out, "-")
+		out = strings.TrimRight(out, "-")
+	}
+	if ValidateName(out) != nil {
+		return "computer"
+	}
+	return out
 }

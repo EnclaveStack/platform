@@ -152,7 +152,7 @@ func TypeScript() string {
 		q(api.SecretStoreProviders), api.StoreRefreshMin, api.StoreRefreshMax, api.StoreRefreshDefault, q(api.VaultMountDefault), q(api.InfisicalSiteDefault))
 	w("  secretKeyMax: %d,\n  secretFieldMax: %d,\n", api.SecretKeyMaxLen, api.SecretFieldMaxLen)
 	// v0.8 (L3-002 §11.9).
-	w("  mainMachine: %s,\n  machineStates: %s,\n  placedKinds: %s,\n  dataKinds: %s,\n", q(api.MainMachine), q(api.MachineStates), q(api.PlacedKinds), q(api.DataKinds))
+	w("  machineStates: %s,\n  placedKinds: %s,\n  dataKinds: %s,\n", q(api.MachineStates), q(api.PlacedKinds), q(api.DataKinds))
 	w("  machineRef: %s,\n  machineRefPrefix: %s,\n", q(api.MachineRef), q(api.MachineRefPrefix))
 	w("  machineLabelsMax: %d,\n  labelKeyPattern: %s,\n  labelValuePattern: %s,\n  agentPortDefault: %d,\n  tunnelPortDefault: %d,\n",
 		api.MachineLabelsMax, q(api.LabelKeyPatternSource), q(api.LabelValuePatternSource), api.AgentPortDefault, api.TunnelPortDefault)

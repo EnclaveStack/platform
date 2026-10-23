@@ -69,7 +69,10 @@ func TestMachineRequests(t *testing.T) {
 	if errs := ValidateAddMachine(AddMachine{Name: "rack-1", Labels: map[string]string{"disk": "ssd"}}); len(errs) != 0 {
 		t.Errorf("valid machine refused: %v", errs)
 	}
-	if codes(ValidateAddMachine(AddMachine{Name: MainMachine}))["name"] != FieldNotAllowed {
+	if len(ValidateAddMachine(AddMachine{Name: "main"})) != 0 {
+		t.Error("main is an ordinary name now")
+	}
+	if codes(ValidateAddMachine(AddMachine{Name: "Bad Name"}))["name"] != FieldInvalidFormat {
 		t.Error("a machine named main accepted")
 	}
 	ok := JoinRequest{Code: "C", CSR: "pem", Advertise: "192.168.1.20", AgentPort: 7071, TunnelPort: 51820}
@@ -110,5 +113,23 @@ func TestMachineDisplayName(t *testing.T) {
 		if got := len(ValidateMachineTitle(title)) == 0; got != ok {
 			t.Errorf("ValidateMachineTitle(%q) valid = %v, want %v", title, got, ok)
 		}
+	}
+}
+
+func TestMachineHandleFromHostname(t *testing.T) {
+	for host, want := range map[string]string{
+		"sunnys-mbp.local": "sunnys-mbp", "Sunny's MacBook Pro": "sunny-s-macbook-pro", "RACK_01": "rack-01", "9lives": "m-9lives",
+		"": "computer", "...": "computer", "--": "computer", "ab": "computer",
+	} {
+		if got := MachineHandleFromHostname(host); got != want {
+			t.Errorf("MachineHandleFromHostname(%q) = %q, want %q", host, got, want)
+		}
+		if got := MachineHandleFromHostname(host); ValidateName(got) != nil {
+			t.Errorf("%q gives %q, which is not a valid name", host, got)
+		}
+	}
+	long := MachineHandleFromHostname("a-very-long-computer-name-that-goes-on-and-on-and-on-forever")
+	if len(long) > NameMaxLen || ValidateName(long) != nil {
+		t.Errorf("a long name gave %q", long)
 	}
 }

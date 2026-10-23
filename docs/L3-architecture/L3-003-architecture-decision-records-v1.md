@@ -6,9 +6,9 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v22 |
+| Version | v15 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-23 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -701,14 +701,14 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 ## ADR-044 — Placement: one machine per resource, kept in the store; an engine router
 - **Status**: Accepted (DAR-039) — planned for v0.8, `L2-010` PLC-01 – PLC-08
 - **Decision**:
-  - **Store.** A `machines` table holds each machine. The main machine is the row `main`, made by the migration with the machine name. `resources` gains `machine_id` (default `main`), so every existing row is on the main machine.
+  - **Store.** A `machines` table holds each machine. The main machine is the row with `is_main = 1`: its ID (`mch_…`) and name (the computer's name, numbered if taken) are made when the server first starts, never fixed words. `resources` gains `machine_id`, so every existing row is on the main machine.
   - **Spec.** App, database, cache, job, load balancer, VM, volume, search and email specs gain `machine` and `machineLabels`. Placement is the reconciler's: a resource with no machine is placed by `domain.ChooseMachine` before its first ensure, in a transaction that counts every resource's reservation per machine (CP-16 per machine). It considers online, schedulable machines of the same minor version, with the labels and the support the kind needs, and the machine of the volumes it uses (PLC-04). The resource is placed on the one with the most free memory, the main machine on a tie. If none fits, the resource waits with the reason and tries again every 30 seconds.
-  - **Pinned kinds.** Buckets, queues, topics, domains, CDNs, transcoders, zones, records and the system containers stay on `main`. Secrets, networks, firewalls, backups, snapshots and the v0.7 kinds have no runtime of their own and keep `main`.
+  - **Pinned kinds.** Buckets, queues, topics, domains, CDNs, transcoders, zones, records and the system containers stay on the main machine. Secrets, networks, firewalls, backups, snapshots and the v0.7 kinds have no runtime of their own and keep the main machine.
   - **Engine router.** `internal/engine/cluster.Router` implements `engine.Driver` and `engine.Hypervisor`. It routes each call by the machine of the resource it names: in process for `main`, `agent.Remote` for the others. Calls naming no resource go to the machine they concern. The edge, broker, object store, certificates, transcoding and project store access go to `main`. Networks go to every online machine. A job run goes to its job's machine, a build to its app's machine, a dump to its database's machine. A call to an offline machine fails at once with `ErrMachineOffline`, which the reconciler treats like `ErrUnavailable`, with the machine in the message. The reconciler, services and monitor keep their single `Driver` and `Hypervisor`, so archtest still forbids services the state-changing calls.
   - **Outputs.** Every placed resource reports `machine` (its name). Published ports bind on that machine's publish address, and `host` is the machine's advertised address.
 - **Consequences**:
   - `domain.Resource` gains `Machine` (an ID); the router reads it, so nothing below the reconciler changes signature.
-  - With one machine, the router sends everything to `main` and every output keeps its value (PLC-08).
+  - With one machine, the router sends everything to the main machine and every output keeps its value (PLC-08).
 
 ## ADR-045 — Networks across machines: a mesh container per machine, stand-ins, address pools
 - **Status**: Accepted (DAR-035, DAR-036; spiked 2026-10-22) — planned for v0.8, `L2-010` XNET-01 – XNET-08
@@ -800,3 +800,4 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v20 | 2026-10-22 | Soupler | ADR-040 as implemented: inclusive reads, skip counts, rotation gaps |
 | v21 | 2026-10-22 | Soupler | ADR-042 – ADR-048 for v0.8: agent over mutual TLS, machine identity and join codes, placement and the engine router, networks across machines (mesh, stand-ins, address pools; spiked), offline machines, moving, catalogue and stacks (planned) |
 | v22 | 2026-10-22 | Soupler | Token prefix `es_pat_` (was `hc_pat_` after the rename) |
+| v15 | 2026-10-23 | Soupler | ADR-042 – ADR-044: the main machine has a generated ID and a computer-derived name; no `main` row or alias |

@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
+	"github.com/enclavestack/platform/internal/testenv"
 	"github.com/enclavestack/platform/pkg/api"
 )
 
@@ -69,7 +70,7 @@ data "enclave_machines" "all" { depends_on = [enclave_database.orders] }
 					resource.TestCheckResourceAttr("enclave_database.orders", "machine", "rack-1"),
 					resource.TestCheckResourceAttr("enclave_cache.sessions", "machine", "rack-1"),
 					resource.TestCheckResourceAttr("data.enclave_machines.all", "machines.#", "2"),
-					resource.TestCheckResourceAttr("data.enclave_machines.all", "machines.0.name", "main"),
+					resource.TestCheckResourceAttr("data.enclave_machines.all", "machines.0.name", testenv.MainName()),
 					resource.TestCheckResourceAttr("data.enclave_machines.all", "machines.1.resources", "2"),
 					func(s *terraform.State) error {
 						dbID = s.RootModule().Resources["enclave_database.orders"].Primary.ID
@@ -78,16 +79,16 @@ data "enclave_machines" "all" { depends_on = [enclave_database.orders] }
 				),
 			},
 			{
-				// Changing machine moves the database in place: the same ID, now on main (TF-43).
-				Config: db(`"main"`),
+				// Changing machine moves the database in place: the same ID, now on the main machine (TF-43).
+				Config: db(`"` + testenv.MainName() + `"`),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("enclave_database.orders", "machine", "main"),
+					resource.TestCheckResourceAttr("enclave_database.orders", "machine", testenv.MainName()),
 					func(s *terraform.State) error {
 						if id := s.RootModule().Resources["enclave_database.orders"].Primary.ID; id != dbID {
 							return fmt.Errorf("replaced: %s → %s", dbID, id)
 						}
 						r, err := c.GetResource(context.Background(), dbID)
-						if err != nil || r.Outputs["machine"] != "main" {
+						if err != nil || r.Outputs["machine"] != testenv.MainName() {
 							return fmt.Errorf("on %v: %v", r.Outputs["machine"], err)
 						}
 						return nil
@@ -110,13 +111,13 @@ resource "enclave_cache" "sessions" {
 }
 resource "enclave_database" "orders" {
   name    = "orders"
-  machine = "main"
+  machine = "` + testenv.MainName() + `"
 }`,
 				ExpectError: regexp.MustCompile(`(?s)still runs.*cache/sessions`),
 			},
 			{
 				// Back to the whole configuration, so the cache is destroyed before its machine.
-				Config: db(`"main"`),
+				Config: db(`"` + testenv.MainName() + `"`),
 				Check:  resource.TestCheckResourceAttr("enclave_machine.rack", "state", api.MachineOnline),
 			},
 		},

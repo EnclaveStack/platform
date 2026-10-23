@@ -645,6 +645,9 @@ export interface CreatedToken {
 }
 
 export interface Machine {
+  /** The main machine's ID (mch_…) and the name commands use for it (MCH-01). */
+  id: string;
+  handle: string;
   name: string;
   hostname: string;
   version: string;

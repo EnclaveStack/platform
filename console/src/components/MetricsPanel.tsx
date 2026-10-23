@@ -1,7 +1,7 @@
 import { Alert, Button, Card, EmptyState, Field, Grid, Icons, Inline, LineChart, SegmentedTabs, Select, Skeleton, Stack, TabPanel, Text, type ChartSeries } from '@enclavestack/ui';
 import { useState } from 'react';
 import { useApi } from '../api/context';
-import { MACHINE_METRICS, RULES, type MetricUnit } from '../api/generated';
+import { MACHINE_METRICS, type MetricUnit } from '../api/generated';
 import type { DashboardSpec, MetricData, Resource } from '../api/types';
 import { formatMetric, metricInfo, metricOf, metricsOf, parseRef, RANGES, type RangeId } from '../lib/operate';
 import { useLoad } from '../lib/useLoad';
@@ -87,17 +87,19 @@ export function MachineDashboard({ initialRange = '1h' }: { initialRange?: Range
   const api = useApi();
   const [range, setRange] = useState<RangeId>(initialRange);
   // v0.8 (CON-58): one machine's series at a time; disk metrics are the main machine's only.
-  const [machine, setMachine] = useState<string>(RULES.mainMachine);
+  const [picked, setPicked] = useState<string | null>(null); // null: this machine, the main one
   const machines = useLoad('dashboard-machines', () => api.listMachines());
+  const mainName = machines.data?.find((m) => m.main)?.name;
+  const machine = picked ?? mainName ?? '';
   const { from, to } = rangeWindow(range);
-  const data = useLoad(`metrics:machine:${machine}:${range}`, () => api.getMachineMetricsOf(machine, [], from, to));
+  const data = useLoad(`metrics:machine:${picked ?? 'main'}:${range}`, () => (picked ? api.getMachineMetricsOf(picked, [], from, to) : api.getMachineMetrics([], from, to)));
   usePolling(true, REFRESH_MS, data.reload);
   const title = (m: string) => MACHINE_METRICS.find((x) => x.name === m)?.title ?? m;
   return (
     <Stack gap={4}>
       {(machines.data?.length ?? 0) > 1 && (
-        <Field id="dash-machine" label="Machine" hint={machine === RULES.mainMachine ? undefined : 'Disk charts are the main machine’s only.'}>
-          <Select id="dash-machine" value={machine} onChange={(e) => setMachine(e.target.value)}>
+        <Field id="dash-machine" label="Machine" hint={picked === null || picked === mainName ? undefined : 'Disk charts are the main machine’s only.'}>
+          <Select id="dash-machine" value={machine} onChange={(e) => setPicked(e.target.value === mainName ? null : e.target.value)}>
             {machines.data?.map((m) => <option key={m.id} value={m.name}>{m.main ? `${m.name} (${m.title})` : m.name}</option>)}
           </Select>
         </Field>

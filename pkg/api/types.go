@@ -583,6 +583,9 @@ func (m MachineSettings) MarshalJSON() ([]byte, error) {
 
 // Machine describes the host.
 type Machine struct {
+	// ID and Handle are the main machine's own: its ID (mch_…) and the name commands use (MCH-01).
+	ID                  string  `json:"id"`
+	Handle              string  `json:"handle"`
 	Name                string  `json:"name"`
 	Hostname            string  `json:"hostname"`
 	Version             string  `json:"version"`

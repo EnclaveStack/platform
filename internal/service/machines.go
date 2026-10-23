@@ -101,10 +101,10 @@ func (s *Machines) summarizer(ctx context.Context, p Principal) (func(store.Mach
 	if err != nil {
 		return nil, err
 	}
-	reserved := domain.ReservedByMachine(resources)
+	reserved := domain.ReservedByMachine(resources, s.Store.MainID())
 	title, _ := s.Store.GetSetting(ctx, settingMachineName)
 	return func(m store.Machine) api.MachineSummary {
-		sum := api.MachineSummary{ID: m.ID, Name: m.Name, Title: m.Name, Main: m.ID == api.MainMachine, State: m.State, Since: m.StateSince,
+		sum := api.MachineSummary{ID: m.ID, Name: m.Name, Title: m.Name, Main: m.ID == s.Store.MainID(), State: m.State, Since: m.StateSince,
 			Labels: m.Labels, Schedulable: m.Schedulable, OS: m.Info.OS, Arch: m.Info.Arch, AgentVersion: m.Info.AgentVersion,
 			Engine: m.Info.Engine, CPUs: m.Info.CPUs, MemoryTotalBytes: m.Info.MemoryTotalBytes, MemoryReservedBytes: int64(reserved[m.ID]) << 20,
 			VMs: m.Info.VMs, LastSeenAt: m.LastSeenAt, Resources: counts[m.ID], Links: []api.MachineLink{}}
@@ -245,7 +245,7 @@ func (s *Machines) Update(ctx context.Context, p Principal, name string, req api
 	var title string
 	if req.Title != nil {
 		// Another machine is shown by its name; the main one has a display name of its own (MCH-10).
-		if m.ID != api.MainMachine {
+		if m.ID != s.Store.MainID() {
 			return api.MachineSummary{}, api.Validation([]api.FieldError{{Field: "title", Code: api.FieldNotAllowed,
 				Message: m.Name + " is shown by its name. Only the main machine has a display name of its own."}})
 		}
@@ -286,7 +286,7 @@ func (s *Machines) Remove(ctx context.Context, p Principal, name string, force b
 	if err != nil {
 		return err
 	}
-	if m.ID == api.MainMachine {
+	if m.ID == s.Store.MainID() {
 		return api.NewError(api.CodeActionNotSupported, "The main machine runs EnclaveStack itself and can't be removed.")
 	}
 	var failed []*domain.Resource
@@ -349,7 +349,7 @@ func (s *Machines) Drain(ctx context.Context, p Principal, name string) (api.Dra
 	if err != nil {
 		return api.DrainResult{}, err
 	}
-	if m.ID == api.MainMachine {
+	if m.ID == s.Store.MainID() {
 		return api.DrainResult{}, api.NewError(api.CodeActionNotSupported, "The main machine keeps EnclaveStack's own services and can't be drained.")
 	}
 	out := api.DrainResult{Moving: []string{}, Pinned: []string{}}
@@ -581,8 +581,8 @@ func (s *Resources) checkMove(ctx context.Context, q *store.Queries, r *domain.R
 			return field(to.Name + " runs another version of EnclaveStack. Upgrade it first.")
 		}
 	}
-	if api.IsDataKind(r.Kind) && s.MachineOnline != nil && !s.MachineOnline(r.MachineID()) {
-		from, _ := q.GetMachine(ctx, r.MachineID())
+	if api.IsDataKind(r.Kind) && s.MachineOnline != nil && !s.MachineOnline(r.MachineOn(s.Store.MainID())) {
+		from, _ := q.GetMachine(ctx, r.MachineOn(s.Store.MainID()))
 		return api.NewError(api.CodeMachineOffline, fmt.Sprintf("%s is offline, so the data of %s can't be read. Restore a backup to a new %s instead.", from.Name, r.Name, r.Kind))
 	}
 	if mounts := api.MountedVolumes(after); len(mounts) > 0 {

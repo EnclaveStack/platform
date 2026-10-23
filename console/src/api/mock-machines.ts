@@ -123,9 +123,12 @@ export function parseTemplate(body: string): CatalogueEntry | FieldError[] {
     parameters: [], members: kinds.map(([, kind, local]) => member(kind as Kind, local ?? '')), outputs: [] };
 }
 
+/** The demo's main machine: an ID made at first start and a name from the computer's own (MCH-01). */
+export const MAIN = { id: 'mch_mainmachine0000', name: 'this-mac' } as const;
+
 /** The main machine, as GET /machines lists it. */
 export function mainMachine(title: string, reservedBytes: number, resources: number): MachineSummary {
-  return { id: RULES.mainMachine, name: RULES.mainMachine, title, main: true, state: 'online', since: new Date(Date.now() - 3 * 86_400_000).toISOString(), labels: {},
+  return { id: MAIN.id, name: MAIN.name, title, main: true, state: 'online', since: new Date(Date.now() - 3 * 86_400_000).toISOString(), labels: {},
     schedulable: true, address: null, os: 'darwin', arch: 'arm64', agentVersion: '0.8.0-mock', engine: { driver: 'mock', available: true, version: 'mock', message: '' },
     cpus: 8, memoryTotalBytes: 16 * GiB, memoryReservedBytes: reservedBytes, vms: { available: true, message: 'VMs can run: QEMU 11.1 with HVF.' }, lastSeenAt: new Date().toISOString(),
     resources, versionMismatch: false, links: [], message: '' };
@@ -158,5 +161,5 @@ export function choose(p: Placed, machines: MachineSummary[], needBytes: number)
   const room = fit.filter((m) => m.memoryTotalBytes - m.memoryReservedBytes >= needBytes);
   if (!room.length) return { reason: `No machine has ${Math.round(needBytes / 2 ** 20)} MiB free.` };
   room.sort((a, b) => (b.memoryTotalBytes - b.memoryReservedBytes) - (a.memoryTotalBytes - a.memoryReservedBytes) || Number(b.main) - Number(a.main));
-  return { machine: room[0]?.name ?? RULES.mainMachine };
+  return { machine: room[0]?.name ?? MAIN.name };
 }

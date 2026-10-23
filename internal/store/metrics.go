@@ -14,9 +14,10 @@ import (
 // MachineSeries is the resource ID of the main machine's own series; MachineSeriesOf names another's.
 const MachineSeries = "machine"
 
-// MachineSeriesOf is the resource ID of a machine's series (v0.8: one per machine).
-func MachineSeriesOf(machineID string) string {
-	if machineID == "" || machineID == "main" {
+// MachineSeriesOf is the resource ID of a machine's series (v0.8: one per machine); mainID is the main
+// machine's, whose series keeps the plain name.
+func MachineSeriesOf(machineID, mainID string) string {
+	if machineID == "" || machineID == mainID {
 		return MachineSeries
 	}
 	return MachineSeries + ":" + machineID
