@@ -155,6 +155,7 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	job := newJob(t, c, "minutely", api.JobSpec{Schedule: "* * * * *", TimeZone: "Asia/Kolkata", Image: "busybox", Command: []string{"sleep 0.5"}})
 
 	// Due a moment ago: one scheduled run, and the next run moves into the future.
+	awayFromMinuteEdge(t)
 	due := time.Now().Add(-time.Second).Truncate(time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &due); err != nil {
 		t.Fatal(err)
@@ -173,6 +174,7 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	}
 
 	// Ten minutes of downtime: one skipped record counting the missed runs, then a single catch-up run.
+	awayFromMinuteEdge(t)
 	past := time.Now().Add(-10 * time.Minute).Truncate(time.Minute)
 	if err := env.Store.SetNextRun(ctx, job.ID, &past); err != nil {
 		t.Fatal(err)
@@ -206,6 +208,7 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 	// Overlap forbid: an occurrence due while a run is going is recorded as skipped.
 	upd, _ := c.UpdateResource(ctx, job.ID, map[string]any{"command": []string{"sleep 3"}}, nil)
 	waitReadyWithin(t, c, upd.ID, 10*time.Second)
+	awayFromMinuteEdge(t)
 	long, err := c.RunNow(ctx, job.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -219,6 +222,17 @@ func TestScheduledRunsCatchUpOnceAndRespectOverlap(t *testing.T) {
 		return len(l.Items) == 1 && l.Items[0].Status == api.RunSkipped && strings.Contains(l.Items[0].Message, "overlap")
 	})
 	waitRun(t, c, job.ID, long.ID)
+}
+
+// awayFromMinuteEdge waits until the clock is between seconds 2 and 30 of a minute. The job above runs every
+// minute and each phase counts its runs, so a phase that starts in the first second (the previous minute is
+// then missed, and caught up) or crosses into the next minute (one more run) sees the wrong number: about one
+// CI run in fifteen did, depending only on when the test happened to start.
+func awayFromMinuteEdge(t *testing.T) {
+	t.Helper()
+	for s := time.Now().Second(); s < 2 || s > 30; s = time.Now().Second() {
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func TestARunLeftRunningIsAdoptedAndStartedOnce(t *testing.T) {
