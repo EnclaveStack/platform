@@ -36,6 +36,7 @@ All notable changes to `platform` are recorded here. Every change — code, docs
   - Nothing was released under the old names, so there is no migration.
 
 ### Fixed
+- Go tests: the mesh test waits for rack-1's link to show connected instead of checking once. The link connects one mesh pass after the stand-ins appear, because the first pass learns the main machine's tunnel key and only the next hands it to the other machine; a loaded CI runner had not run that pass yet.
 - **A restore's safety backup no longer overwrites itself (2026-10-23).** The scheduler adopted the safety backup's run while the restore was still executing it, so under load a second dump, taken after the restore, replaced the safety object with the restored data. The restore now claims its run first. The fake database driver also read a running flag outside its lock (a data race). This was the intermittent `TestBackupsStreamToABucketRetainAndRestore` failure on CI; it reproduced 12 times in 120 runs under CPU contention and 0 in 120 after the fix.
 - Engine E2E: the drift step of the rolling-deploy test turns off Docker's restart policy before stopping the container and waits (up to 10 s) for the stop to show, because Docker finishes it a moment after the call returns; its failure message reports restart count and exit details.
 - Go tests: the queue, topic and broker tests wait up to 30 s (was 10 s) for a resource to become ready, which a loaded CI runner needs.

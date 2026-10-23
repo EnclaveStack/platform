@@ -283,9 +283,12 @@ func TestTheMeshGivesEachMachineItsPeersPoolsAndStandIns(t *testing.T) {
 		}
 		return false
 	})
-	if mc, _ := admin.GetMachineByName(ctx, "rack-1"); len(mc.Links) != 1 || !mc.Links[0].Connected || mc.Links[0].Machine != testenv.MainName() {
-		t.Errorf("rack-1's links: %+v", mc.Links)
-	}
+	// The link is connected one mesh pass later than the stand-ins: the first pass learns the main machine's
+	// tunnel key, and only the next one hands it to rack-1, whose handshake is then recognised (XNET-06).
+	testenv.Eventually(t, 10*time.Second, "rack-1's link to the main machine connected", func() bool {
+		mc, _ := admin.GetMachineByName(ctx, "rack-1")
+		return len(mc.Links) == 1 && mc.Links[0].Connected && mc.Links[0].Machine == testenv.MainName()
+	})
 
 	// rack-1 offline: the main machine drops its peer and stand-ins.
 	rack.Stop()
