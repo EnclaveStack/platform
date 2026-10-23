@@ -34,7 +34,7 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 | L2-007-v0-5-vms-and-volumes-prd-v1 | v0.5 "VMs and Volumes" PRD | Draft | v2 | Soupler | 2026-10-21 |
 | L2-008-v0-6-data-and-messaging-prd-v1 | v0.6 "Data and Messaging" PRD | Draft | v2 | Soupler | 2026-10-22 |
 | L2-009-v0-7-operate-prd-v1 | v0.7 "Operate" PRD | Draft | v5 | Soupler | 2026-10-22 |
-| L2-010-v0-8-many-machines-prd-v1 | v0.8 "Many Machines" PRD | Draft | v2 | Soupler | 2026-10-22 |
+| L2-010-v0-8-many-machines-prd-v1 | v0.8 "Many Machines" PRD | Draft | v3 | Soupler | 2026-10-23 |
 
 ## Version history
 

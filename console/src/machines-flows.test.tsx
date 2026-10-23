@@ -37,6 +37,37 @@ describe('many machines in the console', () => {
     await waitFor(() => expect(within(machines).getAllByText('Online')).toHaveLength(2), { timeout: 7000 });
   }, 15000);
 
+  it('shows the machine ID in grey and lets an admin rename the main machine without changing its ID (MCH-10)', async () => {
+    const { user, api } = renderConsole('/machines/main');
+    await signIn(user);
+    const header = await screen.findByRole('group', { name: 'Summary' });
+    expect(within(header).getByTitle("The machine's ID")).toHaveTextContent('main');
+    await user.click(within(header).getByRole('button', { name: 'Rename' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Rename machine' });
+    const field = within(drawer).getByLabelText('Display name');
+    expect(field).toHaveValue('This Mac');
+    await user.clear(field);
+    await user.click(within(drawer).getByRole('button', { name: 'Save' }));
+    expect(await within(drawer).findByText('Use 1–64 characters.')).toBeInTheDocument();
+    await user.type(field, 'Home lab');
+    await user.click(within(drawer).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('heading', { name: 'Home lab', level: 1 })).toBeInTheDocument();
+    const main = await api.getMachineByName('main');
+    expect([main.title, main.id, main.name]).toEqual(['Home lab', 'main', 'main']);
+    // The sidebar and the breadcrumb follow the new name.
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Home lab')).toBeInTheDocument(), { timeout: 4000 });
+  });
+
+  it('offers no rename on a machine that has no display name of its own', async () => {
+    const { user, api } = renderConsole('/machines');
+    await signIn(user);
+    await api.addMachine('rack-1', {});
+    await user.click(await screen.findByRole('link', { name: 'rack-1' }));
+    const header = await screen.findByRole('group', { name: 'Summary' });
+    expect(within(header).queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument();
+    await expect(api.updateMachineByName('rack-1', { title: 'Rack' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
   it('places a new database on a chosen machine and moves it (CON-56, CON-57)', async () => {
     const { user, api } = renderConsole('/databases', { machines: [{ name: 'rack-1', labels: { disk: 'ssd' } }] });
     await signIn(user);

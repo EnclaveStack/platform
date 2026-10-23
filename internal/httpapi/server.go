@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -205,7 +206,8 @@ func (s *Server) getSetup(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{Required: required})
+	host, _ := os.Hostname()
+	writeJSON(w, http.StatusOK, api.SetupStatus{Required: required, SuggestedMachineName: api.MachineNameFromHostname(host)})
 }
 
 func (s *Server) postSetup(w http.ResponseWriter, r *http.Request) {

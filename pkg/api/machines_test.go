@@ -94,3 +94,21 @@ func TestMachineRequests(t *testing.T) {
 		t.Error("HasLabels")
 	}
 }
+
+func TestMachineDisplayName(t *testing.T) {
+	for host, want := range map[string]string{
+		"sunnys-mbp.local": "sunnys-mbp", "Sunny's MacBook Pro": "Sunny's MacBook Pro", "rack-1": "rack-1", "  ": "This computer", "": "This computer", ".local": "This computer",
+	} {
+		if got := MachineNameFromHostname(host); got != want {
+			t.Errorf("MachineNameFromHostname(%q) = %q, want %q", host, got, want)
+		}
+	}
+	if got := MachineNameFromHostname(string(make([]rune, 65))); got != "This computer" {
+		t.Errorf("a host name over the limit gave %q", got)
+	}
+	for title, ok := range map[string]bool{"Home lab": true, "x": true, "": false, "   ": false} {
+		if got := len(ValidateMachineTitle(title)) == 0; got != ok {
+			t.Errorf("ValidateMachineTitle(%q) valid = %v, want %v", title, got, ok)
+		}
+	}
+}

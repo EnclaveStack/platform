@@ -6,9 +6,9 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v21 |
+| Version | v22 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-23 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -74,7 +74,7 @@ Field-level `details[].code`: `REQUIRED`, `INVALID_FORMAT`, `TOO_SHORT`, `TOO_LO
 
 | Method + path | Request | Success | Notes |
 |---|---|---|---|
-| `GET /api/v1/setup` | — | `200 {"required": bool}` | Public |
+| `GET /api/v1/setup` | — | `200 {"required": bool, "suggestedMachineName": string}` | Public; `suggestedMachineName` is the computer's own name, for the setup form to start with (MCH-10) |
 | `POST /api/v1/setup` | `{setupCode, machineName, email, password}` | `201 Session` + cookie | Public; only while required |
 | `POST /api/v1/session` | `{email, password}` | `200 Session` + cookie | Public; throttled |
 | `GET /api/v1/session` | — | `200 Session` | Works for cookie and token |
@@ -158,7 +158,7 @@ Defined once in `pkg/api/validation.go` and exported to the console's generated 
 | `bucket.spec.versioning` | boolean, default false |
 | `secret.spec.value` | Required on create; 1–65536 bytes |
 | Token `name` | 1–64 chars; `expiresInDays` 1–365 |
-| Setup | `machineName` 1–64 chars; `email` contains `@`, ≤ 254 chars; `password` 12–256 chars |
+| Setup | `machineName` 1–64 chars (the display name); `email` contains `@`, ≤ 254 chars; `password` 12–256 chars |
 
 ## 5 · Status transitions
 
@@ -947,7 +947,7 @@ interface DrainResult { moving: string[]; pinned: string[] }   // "kind/name" (w
 | `GET /machines` | any signed-in | → `200 MachineList`; resource counts only cover projects the caller can see |
 | `POST /machines` | machine admin | `AddMachine` → `201 AddedMachine` (state `waiting`) |
 | `GET /machines/{name}` | any signed-in | → `200 MachineSummary` |
-| `PATCH /machines/{name}` | machine admin | `UpdateMachine` → `200 MachineSummary` |
+| `PATCH /machines/{name}` | machine admin | `UpdateMachine` (`labels?`, `schedulable?`, `title?`) → `200 MachineSummary`. `title` is the display name (MCH-10): 1–64 characters after trimming, only the main machine has one (another machine is shown by its name → `422 NOT_ALLOWED`); the ID and name don't change |
 | `POST /machines/{name}/join-code` | machine admin | → `200 AddedMachine` with a new code; only while `waiting` → else `409 ACTION_NOT_SUPPORTED` |
 | `POST /machines/{name}/drain` | machine admin | → `202 DrainResult`; the main machine → `409 ACTION_NOT_SUPPORTED` |
 | `DELETE /machines/{name}?force=true` | machine admin | → `204`; anything placed there → `409 MACHINE_NOT_EMPTY` listing it; `force` on an online machine → `409 MACHINE_ONLINE`; `main` → `409 ACTION_NOT_SUPPORTED` |
@@ -1120,3 +1120,4 @@ Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'n
 | v19 | 2026-10-22 | Soupler | §10.3: invites and resets by email: `MachineSettings.inviteEmail` (absent keeps, null clears), `Machine.inviteEmail`, `Invitation.emailed` / `emailError` |
 | v20 | 2026-10-22 | Soupler | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
 | v21 | 2026-10-22 | Soupler | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |
+| v22 | 2026-10-23 | Soupler | MCH-10: `GET /setup` returns `suggestedMachineName`; `PATCH /machines/{name}` takes `title` (the display name, main machine only, MCH-10). The main machine's ID and name scheme (MCH-01) is specified in L2-010 and not yet built |

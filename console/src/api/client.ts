@@ -22,6 +22,7 @@ import type {
   LogLine,
   Machine,
   MachineSettings,
+  SetupStatus,
   MessageList,
   MetricData,
   NotificationRecord,
@@ -48,7 +49,7 @@ import type {
  * `useApi()` and never call fetch themselves. Two adapters implement it: `http` (L3-002) and `mock`.
  */
 export interface EnclaveApi {
-  getSetupRequired(): Promise<boolean>;
+  getSetupStatus(): Promise<SetupStatus>;
   setup(input: SetupInput): Promise<Session>;
   signIn(email: string, password: string): Promise<Session>;
   getSession(): Promise<Session | null>;

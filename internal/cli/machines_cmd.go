@@ -108,12 +108,13 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 	}
 	var newLabels []string
 	var schedulable bool
+	var title string
 	update := &cobra.Command{
-		Use: "update NAME [--label k=v]… [--schedulable=false]", Short: "Change a machine's labels, or whether it takes new resources (machine admins)", Args: cobra.ExactArgs(1),
+		Use: "update NAME [--label k=v]… [--schedulable=false] [--title TEXT]", Short: "Change a machine's labels, whether it takes new resources, or the main machine's display name (machine admins)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ch := cmd.Flags().Changed
-			if !ch("label") && !ch("schedulable") {
-				return usagef("pass --label or --schedulable")
+			if !ch("label") && !ch("schedulable") && !ch("title") {
+				return usagef("pass --label, --schedulable or --title")
 			}
 			req := api.UpdateMachine{}
 			if ch("label") {
@@ -125,6 +126,9 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 			}
 			if ch("schedulable") {
 				req.Schedulable = &schedulable
+			}
+			if ch("title") {
+				req.Title = &title
 			}
 			c, err := a.client()
 			if err != nil {
@@ -143,6 +147,7 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 	}
 	update.Flags().StringArrayVar(&newLabels, "label", nil, "the machine's labels, replacing the old ones, as key=value (repeat)")
 	update.Flags().BoolVar(&schedulable, "schedulable", true, "whether new resources may be placed here")
+	update.Flags().StringVar(&title, "title", "", "the main machine's display name (1–64 characters)")
 	joinCode := &cobra.Command{
 		Use: "join-code NAME", Short: "Make a new join code for a machine still waiting for its agent", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

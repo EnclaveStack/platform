@@ -450,7 +450,8 @@ test('projects keep names apart; the switcher scopes lists and creates (CON-45)'
   await panel.getByLabel('Description').fill('the shop');
   await panel.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('cell', { name: 'shop', exact: true })).toBeVisible();
-  await page.getByLabel('Project', { exact: true }).selectOption('shop');
+  await page.getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('option', { name: 'shop', exact: true }).click();
   await sidebar().getByRole('link', { name: /^Secrets/ }).click();
   await expect(page).toHaveURL(/\?project=shop/);
   await page.getByRole('button', { name: 'New secret' }).first().click();
@@ -463,7 +464,8 @@ test('projects keep names apart; the switcher scopes lists and creates (CON-45)'
   // The same name lives in default and in shop (ADR-035).
   const items = (await (await page.request.get('/api/v1/resources?kind=secret&name=stripe-key')).json()).items as { project: string }[];
   expect(items.map((r) => r.project).sort()).toEqual(['default', 'shop']);
-  await page.getByLabel('Project', { exact: true }).selectOption('');
+  await page.getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('option', { name: 'All projects', exact: true }).click();
 });
 
 test('monitoring: metrics of an app, the machine dashboard, a channel and an alert (CON-49 – CON-51)', async () => {

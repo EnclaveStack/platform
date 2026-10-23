@@ -11,6 +11,8 @@ describe('console', () => {
   it('first-run setup needs the code, then lands in the console (CON-02)', async () => {
     const { user, router } = renderConsole('/apps', { setupRequired: true });
     expect(await screen.findByRole('heading', { name: 'First-run setup' })).toBeInTheDocument();
+    // The machine name starts as the computer's own name (MCH-10).
+    expect(await screen.findByLabelText('Machine name')).toHaveValue('This Mac');
     await user.type(screen.getByLabelText('Setup code'), 'WRONG-CODE');
     await user.type(screen.getByLabelText('Admin email'), 'me@example.com');
     await user.type(screen.getByLabelText('Password'), 'long-enough-pw');

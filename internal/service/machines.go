@@ -102,7 +102,7 @@ func (s *Machines) summarizer(ctx context.Context, p Principal) (func(store.Mach
 		return nil, err
 	}
 	reserved := domain.ReservedByMachine(resources)
-	title, _ := s.Store.GetSetting(ctx, "machine_name")
+	title, _ := s.Store.GetSetting(ctx, settingMachineName)
 	return func(m store.Machine) api.MachineSummary {
 		sum := api.MachineSummary{ID: m.ID, Name: m.Name, Title: m.Name, Main: m.ID == api.MainMachine, State: m.State, Since: m.StateSince,
 			Labels: m.Labels, Schedulable: m.Schedulable, OS: m.Info.OS, Arch: m.Info.Arch, AgentVersion: m.Info.AgentVersion,
@@ -220,6 +220,12 @@ func (s *Machines) Update(ctx context.Context, p Principal, name string, req api
 	if errs := api.ValidateLabels(req.Labels, "labels"); len(errs) > 0 {
 		return api.MachineSummary{}, api.Validation(errs)
 	}
+	if req.Title != nil {
+		*req.Title = strings.TrimSpace(*req.Title)
+		if errs := api.ValidateMachineTitle(*req.Title); len(errs) > 0 {
+			return api.MachineSummary{}, api.Validation(errs)
+		}
+	}
 	m, err := s.Store.GetMachineByName(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return api.MachineSummary{}, machineNotFound(name)
@@ -236,10 +242,25 @@ func (s *Machines) Update(ctx context.Context, p Principal, name string, req api
 		m.Schedulable = *req.Schedulable
 		changes = append(changes, map[bool]string{true: "schedulable", false: "not schedulable"}[m.Schedulable])
 	}
+	var title string
+	if req.Title != nil {
+		// Another machine is shown by its name; the main one has a display name of its own (MCH-10).
+		if m.ID != api.MainMachine {
+			return api.MachineSummary{}, api.Validation([]api.FieldError{{Field: "title", Code: api.FieldNotAllowed,
+				Message: m.Name + " is shown by its name. Only the main machine has a display name of its own."}})
+		}
+		title = *req.Title
+		changes = append(changes, fmt.Sprintf("display name %q", title))
+	}
 	now := s.Now()
 	err = s.Store.WithTx(ctx, func(q *store.Queries) error {
 		if err := q.SaveMachine(ctx, m); err != nil {
 			return err
+		}
+		if title != "" {
+			if err := q.SetSetting(ctx, settingMachineName, title); err != nil {
+				return err
+			}
 		}
 		if len(changes) == 0 {
 			return nil

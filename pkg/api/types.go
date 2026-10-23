@@ -462,6 +462,8 @@ type Session struct {
 // SetupStatus is the body of GET /setup.
 type SetupStatus struct {
 	Required bool `json:"required"`
+	// SuggestedMachineName is the computer's own name, for the setup form to start with (MCH-10).
+	SuggestedMachineName string `json:"suggestedMachineName"`
 }
 
 // SetupRequest is the body of POST /setup.

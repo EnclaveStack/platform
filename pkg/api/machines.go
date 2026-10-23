@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // v0.8: many machines (L2-010, L3-002 §11).
@@ -184,6 +185,8 @@ type UpdateMachine struct {
 	// Labels replace the machine's when not null; {} clears them.
 	Labels      map[string]string `json:"labels"`
 	Schedulable *bool             `json:"schedulable,omitempty"`
+	// Title is the display name people read (MCH-10). Only the main machine has one of its own; absent keeps it.
+	Title *string `json:"title,omitempty"`
 }
 
 // JoinRequest is the body of POST /machines/join, sent by `enclave agent join` (ADR-043).
@@ -262,4 +265,25 @@ func MountedVolumes(spec any) []string {
 		out[i] = m.Volume
 	}
 	return out
+}
+
+// ValidateMachineTitle checks a display name: 1–MachineNameMaxLen characters once trimmed.
+func ValidateMachineTitle(title string) []FieldError {
+	if n := utf8.RuneCountInString(strings.TrimSpace(title)); n < 1 || n > MachineNameMaxLen {
+		return []FieldError{{Field: "title", Code: FieldOutOfRange, Message: "Use 1–64 characters."}}
+	}
+	return nil
+}
+
+// MachineNameFromHostname turns a computer's own name into the display name setup suggests: the first label
+// of its host name ("sunnys-mbp.local" → "sunnys-mbp"), or "This computer" when it has none (MCH-10).
+func MachineNameFromHostname(hostname string) string {
+	h := strings.TrimSpace(hostname)
+	if i := strings.IndexByte(h, '.'); i >= 0 {
+		h = h[:i]
+	}
+	if h == "" || utf8.RuneCountInString(h) > MachineNameMaxLen {
+		return "This computer"
+	}
+	return h
 }

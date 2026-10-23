@@ -149,6 +149,36 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
   );
 }
 
+/** The main machine's display name: the ID and the name used in commands stay (MCH-10). */
+function RenameForm({ initial, onSave }: { initial: string; onSave: (title: string) => Promise<void> }) {
+  const [title, setTitle] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const length = [...title.trim()].length;
+    if (length < 1 || length > RULES.machineNameMax) return setError('Use 1–64 characters.');
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(title.trim());
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Form onSubmit={submit} noValidate>
+      <Field id="m-title" label="Display name" hint="What people see. Commands still use the machine's name and ID." error={error ?? undefined}>
+        <Input id="m-title" value={title} onChange={(e) => setTitle(e.target.value)} autoComplete="off" aria-invalid={Boolean(error)} autoFocus />
+      </Field>
+      <Button type="submit" variant="dark" size="lg" block disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
+    </Form>
+  );
+}
+
 /** The join command, shown once (MCH-03). */
 function JoinCard({ added, onDone }: { added: AddedMachine; onDone: () => void }) {
   return (
@@ -177,6 +207,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
   const [busy, setBusy] = useState(false);
   const [editingLabels, setEditingLabels] = useState<KV[] | null>(null);
   const [labelErrors, setLabelErrors] = useState<FieldErrors>({});
+  const [renaming, setRenaming] = useState(false);
   const [draining, setDraining] = useState(false);
   const [drained, setDrained] = useState<DrainResult | null>(null);
   const [removing, setRemoving] = useState<'ask' | 'force' | null>(null);
@@ -248,7 +279,12 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
         label="Summary"
         back={back}
         title={x.main ? x.title : x.name}
-        status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
+        status={(
+          <>
+            <Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>
+            <Text size="xs" tone="subtle" mono title="The machine's ID">{x.id}</Text>
+          </>
+        )}
         lede={`${x.main ? `The main machine, called ${x.name} in commands` : 'A machine'} · since ${new Date(x.since).toLocaleString()} · last heard ${x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : '—'}`}
         meta={(!x.schedulable || x.versionMismatch) && (
           <>
@@ -258,6 +294,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
         )}
         actions={admin && (
               <Inline gap={2} wrap>
+                {x.main && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setRenaming(true)}>Rename</Button>}
                 {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
                 <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
                   {x.schedulable ? 'Not schedulable' : 'Schedulable'}
@@ -353,6 +390,16 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
           )}
         </Card>
       </Stack>
+      {renaming && (
+        <Drawer title="Rename machine" onClose={() => setRenaming(false)}>
+          <RenameForm initial={x.title} onSave={async (title) => {
+            await api.updateMachineByName(name, { title });
+            toast(`Renamed to ${title}`);
+            setRenaming(false);
+            refresh();
+          }} />
+        </Drawer>
+      )}
       {draining && (
         <ConfirmDialog title={`Drain ${name}?`} confirmLabel="Drain" busy={busy} onCancel={() => setDraining(false)} onConfirm={() => void drain()}
           body={<p>{name} takes nothing new, and everything not pinned to it moves to other machines. Data moves stop while their data copies.</p>} />

@@ -568,3 +568,47 @@ func waitMemory(t *testing.T, c *client.Client, name string, bytes int64) {
 		t.Fatalf("%s's memory went back to %d", name, m.MemoryTotalBytes)
 	}
 }
+
+func TestTheMainMachineIsRenamedByItsTitleAndNothingElseChanges(t *testing.T) {
+	env := testenv.Start(t)
+	admin := env.Setup(t)
+	ctx := context.Background()
+	rack := env.AddAgent(t, admin, "rack-1", nil)
+	_ = rack
+
+	before, err := admin.GetMachineByName(ctx, api.MainMachine)
+	if err != nil || before.Title != "Test machine" {
+		t.Fatalf("before: %+v %v", before, err)
+	}
+	got, err := admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("  Home lab  ")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Home lab" || got.ID != before.ID || got.Name != before.Name {
+		t.Errorf("after a rename: title %q, id %q, name %q (was %q, %q)", got.Title, got.ID, got.Name, before.ID, before.Name)
+	}
+	if m, _ := admin.Machine(ctx); m.Name != "Home lab" {
+		t.Errorf("the machine's own name is %q, want the new title", m.Name)
+	}
+	if s, _ := admin.Session(ctx); s.MachineName != "Home lab" {
+		t.Errorf("the session says %q", s.MachineName)
+	}
+
+	_, err = admin.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("   ")})
+	mustCode(t, err, api.CodeValidationFailed, "a blank display name")
+	_, err = admin.UpdateMachineByName(ctx, "rack-1", api.UpdateMachine{Title: ptr("Rack")})
+	mustCode(t, err, api.CodeValidationFailed, "a display name on a machine that has none")
+
+	// Anyone but a machine admin is refused.
+	viewer, _ := env.Token(t, api.ScopeRead)
+	_, err = viewer.UpdateMachineByName(ctx, api.MainMachine, api.UpdateMachine{Title: ptr("Mine")})
+	mustCode(t, err, api.CodeForbidden, "a viewer renaming the machine")
+}
+
+func TestSetupSuggestsTheComputersName(t *testing.T) {
+	env := testenv.Start(t)
+	st, err := client.New(env.URL, "").GetSetup(context.Background())
+	if err != nil || !st.Required || strings.TrimSpace(st.SuggestedMachineName) == "" {
+		t.Errorf("setup status %+v, %v", st, err)
+	}
+}

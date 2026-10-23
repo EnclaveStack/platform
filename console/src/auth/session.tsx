@@ -4,7 +4,7 @@ import type { Session, SetupInput } from '../api/types';
 
 type SessionState =
   | { status: 'loading' }
-  | { status: 'signed-out'; setupRequired: boolean }
+  | { status: 'signed-out'; setupRequired: boolean; suggestedMachineName?: string }
   | { status: 'signed-in'; session: Session };
 
 interface SessionContextValue {
@@ -28,7 +28,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const session = await api.getSession();
       if (!live) return;
       if (session) setState({ status: 'signed-in', session });
-      else setState({ status: 'signed-out', setupRequired: await api.getSetupRequired() });
+      else {
+        const setup = await api.getSetupStatus();
+        setState({ status: 'signed-out', setupRequired: setup.required, suggestedMachineName: setup.suggestedMachineName });
+      }
     })().catch(() => live && setState({ status: 'signed-out', setupRequired: false }));
     return () => {
       live = false;

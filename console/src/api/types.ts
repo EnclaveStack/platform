@@ -574,6 +574,14 @@ export interface AddedMachine {
 export interface UpdateMachineInput {
   labels?: Record<string, string>;
   schedulable?: boolean;
+  /** The display name; only the main machine has one of its own (MCH-10). */
+  title?: string;
+}
+
+/** GET /setup: whether first-run setup is needed, and the computer's own name to start the form with. */
+export interface SetupStatus {
+  required: boolean;
+  suggestedMachineName: string;
 }
 
 /** "kind/name", with "project/" outside default. */

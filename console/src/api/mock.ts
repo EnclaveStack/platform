@@ -1071,7 +1071,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   }
 
   const api: EnclaveApi = {
-    getSetupRequired: () => wait(admin === null),
+    getSetupStatus: () => wait({ required: admin === null, suggestedMachineName: DEMO_ADMIN.machineName }),
     setup: (input) => {
       if (admin) return fail(err('SETUP_COMPLETE', 'This machine is already set up. Sign in instead.', 409));
       if (input.setupCode.replace(/[\s-]/g, '').toUpperCase() !== DEMO_SETUP_CODE.replace(/-/g, '')) {
@@ -1870,7 +1870,14 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const m = name === RULES.mainMachine ? mainSettings : machines.find((x) => x.name === name);
       if (!m) return machineNotFound(name);
       const details = Object.entries(validateLabels(input.labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }));
+      const title = input.title?.trim();
+      if (title !== undefined && (title.length < 1 || [...title].length > RULES.machineNameMax)) details.push({ field: 'title', code: 'OUT_OF_RANGE' as const, message: 'Use 1–64 characters.' });
+      else if (title !== undefined && name !== RULES.mainMachine) details.push({ field: 'title', code: 'NOT_ALLOWED' as const, message: `${name} is shown by its name. Only the main machine has a display name of its own.` });
       if (details.length) return validationFailed(details);
+      if (title && admin) {
+        admin = { ...admin, machineName: title };
+        save();
+      }
       if (input.labels) m.labels = { ...input.labels };
       if (input.schedulable !== undefined && input.schedulable !== m.schedulable) {
         m.schedulable = input.schedulable;
