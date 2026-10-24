@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -44,12 +45,16 @@ func waitingAgent(t *testing.T, code string) (string, chan error, string) {
 }
 
 // joinClient posts as the control plane would, recording the certificate's key it saw.
+// Handshakes may run side by side (a retried connection), so the record is guarded.
 func joinClient(seen *[]byte) *http.Client {
+	var mu sync.Mutex
 	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, //nolint:gosec // as the control plane: the proof checks it
 		VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
 			c, err := x509.ParseCertificate(raw[0])
 			if err == nil {
+				mu.Lock()
 				*seen = c.RawSubjectPublicKeyInfo
+				mu.Unlock()
 			}
 			return err
 		}}}}

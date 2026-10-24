@@ -53,7 +53,7 @@ func TestConnectorsAreHardenedNamedAndHashed(t *testing.T) {
 	if cu := cases["custom"]; cu.Env["ENCLAVE_UPSTREAM"] != "http://es-system-edge:11000" || cu.Env["K"] != "v" {
 		t.Errorf("custom: %+v", cu.Env)
 	}
-	if Quick(id, 11000).Hash != Quick(id, 11000).Hash || Quick(id, 11000).Hash == Quick(id, 11001).Hash {
+	if a, b := Quick(id, 11000), Quick(id, 11000); a.Hash != b.Hash || a.Hash == Quick(id, 11001).Hash {
 		t.Error("the hash names the configuration")
 	}
 }

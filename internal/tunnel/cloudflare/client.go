@@ -26,9 +26,9 @@ const CallTimeout = 15 * time.Second
 // Error classes the reconciler maps to retry behaviour (TUN-09).
 var (
 	// ErrPermission: the token is rejected or lacks a permission; the message names it.
-	ErrPermission = errors.New("Cloudflare refused the token")
+	ErrPermission = errors.New("the token was refused")
 	// ErrInvalid: Cloudflare refused the request itself.
-	ErrInvalid = errors.New("Cloudflare refused the request")
+	ErrInvalid = errors.New("the request was refused")
 	// ErrNotFound: what was asked for isn't there (a tunnel deleted at Cloudflare).
 	ErrNotFound = errors.New("not found at Cloudflare")
 )

@@ -160,7 +160,7 @@ func WaitForMain(ctx context.Context, o EdgeJoinOptions) (Identity, error) {
 	w := &edgeWaiter{key: EdgeJoinKey(o.Code), csr: string(csrPEM), spki: spki, port: port, tunnelPort: o.TunnelPort, done: make(chan EdgeAccept, 1), failed: make(chan error, 1), log: o.Log}
 	srv := &http.Server{Handler: w, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	defer srv.Close() // the handler flushes its last reply before it says the wait is over
 	if o.Ready != nil {
 		o.Ready <- ln.Addr().String()
 	}
@@ -234,12 +234,14 @@ func (w *edgeWaiter) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 			http.Error(rw, "wrong proof", http.StatusUnauthorized)
 			if w.failures >= EdgeJoinMaxFailures {
 				w.finished = true
+				flush(rw) // the listener closes as soon as the wait ends
 				w.failed <- errors.New("five join attempts with the wrong code: stopped listening. Check the code, then run the command again")
 			}
 			return
 		}
 		w.finished = true
 		rw.WriteHeader(http.StatusNoContent)
+		flush(rw)
 		w.done <- acc
 	default:
 		http.Error(rw, "unknown step", http.StatusBadRequest)
@@ -265,4 +267,11 @@ func temporaryCertificate() (tls.Certificate, []byte, error) {
 		return tls.Certificate{}, nil, err
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, spki, nil
+}
+
+// flush sends what a handler wrote now, before the server is closed under it.
+func flush(rw http.ResponseWriter) {
+	if f, ok := rw.(http.Flusher); ok {
+		f.Flush()
+	}
 }
