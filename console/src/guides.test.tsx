@@ -109,6 +109,21 @@ describe('section summaries and guide pages (CON-66, CON-67)', () => {
     expect(router.state.location.pathname).toBe('/guide/backups');
   });
 
+  it('links each guide to its full guide on the website, in a new tab', async () => {
+    const { user } = renderConsole('/guide/buckets');
+    await signIn(user);
+    const link = await screen.findByRole('link', { name: /Full buckets guide on enclavestack\.soupler\.com/ });
+    expect(link).toHaveAttribute('href', 'https://enclavestack.soupler.com/services/buckets/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('sends a DNS record’s guide to the zones page on the website', async () => {
+    const { user } = renderConsole('/guide/records');
+    await signIn(user);
+    expect(await screen.findByRole('link', { name: /Full DNS guide/ })).toHaveAttribute('href', 'https://enclavestack.soupler.com/services/zones/');
+  });
+
   it('links an empty section to its guide', async () => {
     const { user } = renderConsole('/queues');
     await signIn(user);

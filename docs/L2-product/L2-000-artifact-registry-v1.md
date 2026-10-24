@@ -25,7 +25,7 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v19 | Soupler | 2026-10-24 |
+| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v20 | Soupler | 2026-10-24 |
 | L2-002-cli-prd-v1 | Command-Line Interface PRD | Draft | v22 | Soupler | 2026-10-24 |
 | L2-003-opentofu-provider-prd-v1 | OpenTofu Provider PRD | Draft | v18 | Soupler | 2026-10-24 |
 | L2-004-control-plane-resource-lifecycle-prd-v1 | Control Plane and Resource Lifecycle PRD | Draft | v3 | Soupler | 2026-10-21 |

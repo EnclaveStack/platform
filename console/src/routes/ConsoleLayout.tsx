@@ -1,6 +1,6 @@
 import {
   Avatar, Banner, Brand, Breadcrumbs, crumbLinkClass, Finder, FinderButton, Icons, IconButton, Inline, machineLinkClass, MenuSelect, MeterCard, NavGroup, NavItemContent, navItemClass,
-  NavList, ProgressBar, Shell, Sidebar, SidebarFoot, Stack, Status, Text, ToastProvider, Topbar, UserRow,
+  NavList, ProgressBar, Shell, Sidebar, SidebarFoot, SidebarHead, Stack, Status, Text, ToastProvider, Topbar, UserRow,
 } from '@enclavestack/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
@@ -131,10 +131,10 @@ function ConsoleShell() {
 
   const sidebar = (
     <Sidebar label="Console navigation" open={menuOpen}>
-      <Inline justify="between">
+      <SidebarHead>
         <Brand />
         <IconButton size="sm" variant="ghost" label={rail ? 'Expand the sidebar' : 'Fold the sidebar to icons'} icon={rail ? <Icons.PanelLeftOpen /> : <Icons.PanelLeftClose />} onClick={toggleRail} />
-      </Inline>
+      </SidebarHead>
       <MenuSelect label="Project" value={project} onChange={choose} icon={<Icons.FolderKanban />}
         options={[{ value: '', label: 'All projects' }, ...projectNames.map((n) => ({ value: n, label: n }))]} />
       <Link to={machineTo} className={machineLinkClass} aria-label={`${m?.name ?? 'This machine'}, open its page`} onClick={close}>
