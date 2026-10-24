@@ -6,9 +6,9 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v26 |
+| Version | v27 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -1340,6 +1340,27 @@ On the tunnel: "Tunnel created at Cloudflare (ID …)", "Joined the tailnet as g
 | `POST /agent/v1/join` | the control plane, on a waiting edge agent's temporary listener (each check round until it joins) | `{ nonce }` → `{ csr, facts, agentNonce, mac }`; then `{ certificate, ca, machineId, server, mac }` → `204`; a wrong MAC → `401`, five → the agent stops listening (ADR-052) |
 | `POST /agent/v1/driver/{EnsureConnector,RemoveConnector,ConnectorState,ConnectorExec,ConnectorFetch}` | the control plane, on a joined agent | the connector whole → its state, output and exit code, or body; errors keep their class |
 
+## 17 · Connections (2026-10-25, `L2-015`)
+
+A connection is a catalogue entry of the category `connections`: a stack of secrets that holds an outside service's address and keys. It creates no other resource and runs nothing.
+
+```ts
+interface CatalogueEntry { /* earlier fields */ category: 'apps' | 'public-access' | 'connections'; signup?: string }
+```
+
+- **Category**: `connections` joins `api.CatalogueCategories` (after `public-access`); a template of one's own may use it (CNX-07). `make contracts` carries it to the console.
+- **Outputs** (CNX-05, all templates): an output whose text uses `${param:<p>}` for a `secret` parameter that has no secret (not given on create, and not kept from earlier on update) is left out of the stack's `outputs.outputs`. `GET /catalogue` still lists every output name.
+- **The Supabase entry** (`internal/catalogue/builtin/supabase.yaml`, CNX-02 – CNX-04):
+
+| Parameter | Type | Required | Becomes |
+|---|---|---|---|
+| `project` | hostname | yes | the secret member `url`, value `https://${param:project}` → `<stack>-url` |
+| `anonKey` | secret | yes | `<stack>-anonkey` |
+| `serviceKey` | secret | no | `<stack>-servicekey` |
+| `dbUrl` | secret | no | `<stack>-dburl` |
+
+  Outputs, each the name of the secret to put in an app's `secretEnv`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1370,3 +1391,4 @@ On the tunnel: "Tunnel created at Cloudflare (ID …)", "Joined the tailnet as g
 | v24 | 2026-10-24 | Soupler | §13 transcoder renditions, HLS ladder, notify and tags: fields, output keys, the message, validation, references, engine (L2-012) |
 | v25 | 2026-10-24 | Soupler | §14 bucket object routes, rules and events; §15 detail explanations (L2-013) |
 | v26 | 2026-10-24 | Soupler | §16 public access, as built: the tunnel kind, public domains and the gate, edge machines, outputs, gate routes, validation, references, events, engine and agent calls, the edge join (L2-014) |
+| v27 | 2026-10-25 | Soupler | §17 connections: the `connections` category, outputs that skip empty secret parameters, the Supabase entry (L2-015) |

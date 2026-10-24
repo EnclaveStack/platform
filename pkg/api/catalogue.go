@@ -13,14 +13,16 @@ const (
 	ParamHostname = "hostname"
 )
 
-// Catalogue categories: products to install, and ways in from the internet (L2-014 TUN-15).
+// Catalogue categories: products to install, ways in from the internet (L2-014 TUN-15), and outside services
+// apps use (L2-015 CNX-01).
 const (
 	CategoryApps         = "apps"
 	CategoryPublicAccess = "public-access"
+	CategoryConnections  = "connections"
 )
 
 // CatalogueCategories lists the categories, in the order the console shows them.
-var CatalogueCategories = []string{CategoryApps, CategoryPublicAccess}
+var CatalogueCategories = []string{CategoryApps, CategoryPublicAccess, CategoryConnections}
 
 // ParameterTypes lists the parameter types.
 var ParameterTypes = []string{ParamString, ParamNumber, ParamBoolean, ParamSecret, ParamHostname}

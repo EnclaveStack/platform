@@ -174,6 +174,28 @@ describe('the catalogue and stacks in the console', () => {
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   }, 15000);
 
+  it('installs a Supabase connection from the Connections group and shows which secret each variable uses (CON-81)', async () => {
+    const { user, api } = renderConsole('/catalogue');
+    await signIn(user);
+    const group = await screen.findByRole('region', { name: 'Connections' });
+    const card = within(group).getByRole('heading', { name: 'Supabase' }).closest('article') as HTMLElement;
+    expect(within(card).getByRole('link', { name: /Sign up/ })).toHaveAttribute('href', 'https://supabase.com/dashboard/sign-up');
+    await user.click(within(card).getByRole('button', { name: 'Install' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Install Supabase' });
+    await user.type(within(drawer).getByLabelText('Name'), 'supa');
+    await user.type(within(drawer).getByLabelText('Project address'), 'abcd.supabase.co');
+    await user.type(within(drawer).getByLabelText('anon key'), 'anon-value');
+    expect(within(drawer).getByLabelText('anon key')).toHaveAttribute('type', 'password');
+    await user.click(within(drawer).getByRole('button', { name: 'Install Supabase' }));
+    expect(await screen.findByRole('heading', { name: 'supa' })).toBeInTheDocument();
+    await until(async () => (await api.listResources('stack')).some((r) => r.status.phase === 'ready'));
+    const outputs = (await screen.findByRole('heading', { name: 'Outputs' })).closest('section') as HTMLElement;
+    expect(within(outputs).getByText('SUPABASE_URL')).toBeInTheDocument();
+    expect(within(outputs).getByText('supa-anonkey')).toBeInTheDocument();
+    expect(within(outputs).queryByText('SUPABASE_SERVICE_ROLE_KEY')).not.toBeInTheDocument();
+    expect(screen.queryByText('anon-value')).not.toBeInTheDocument();
+  }, 15000);
+
   it('edits a stack\'s parameters and deletes it with its members (CON-60)', async () => {
     const { user, api, router } = renderConsole('/stacks');
     await signIn(user);

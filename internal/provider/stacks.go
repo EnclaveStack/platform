@@ -400,7 +400,7 @@ func (d *catalogueData) Schema(_ context.Context, _ datasource.SchemaRequest, re
 				"name": dschema.StringAttribute{Computed: true}, "title": dschema.StringAttribute{Computed: true},
 				"description": dschema.StringAttribute{Computed: true}, "version": dschema.StringAttribute{Computed: true},
 				"built_in": dschema.BoolAttribute{Computed: true},
-				"category": dschema.StringAttribute{Computed: true, Description: "apps or public-access (ways in from the internet)."},
+				"category": dschema.StringAttribute{Computed: true, Description: "apps, public-access (ways in from the internet) or connections (outside services apps use)."},
 				"signup":   dschema.StringAttribute{Computed: true, Description: "Where to make the account a public-access entry needs; null when none."},
 				"parameters": dschema.ListNestedAttribute{Computed: true, NestedObject: dschema.NestedAttributeObject{Attributes: map[string]dschema.Attribute{
 					"name": dschema.StringAttribute{Computed: true}, "title": dschema.StringAttribute{Computed: true},

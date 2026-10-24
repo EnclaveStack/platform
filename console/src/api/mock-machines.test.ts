@@ -78,6 +78,7 @@ describe('mock api, v0.8', () => {
     const catalogue = await api.listCatalogue();
     expect(catalogue.filter((e) => e.category === 'apps').map((e) => e.name)).toEqual(['ghost', 'gitea', 'n8n', 'plausible', 'uptime-kuma', 'wordpress']);
     expect(catalogue.filter((e) => e.category === 'public-access').map((e) => e.name)).toEqual(['cloudflare-tunnel', 'custom-tunnel', 'ngrok', 'own-server', 'quick-link', 'tailscale']);
+    expect(catalogue.filter((e) => e.category === 'connections').map((e) => e.name)).toEqual(['supabase']);
     expect((await fails(api.createResource('stack', 'pub', { template: 'ghost' } as StackSpec)))?.details[0]?.field).toBe('spec.parameters.domain');
     await api.createResource('database', 'taken-db', { engine: 'postgres', version: '16' });
     expect((await fails(api.createResource('stack', 'taken', { template: 'wordpress' } as StackSpec)))?.code).toBe('NAME_TAKEN');
@@ -97,6 +98,20 @@ describe('mock api, v0.8', () => {
     await api.deleteResource(st.id);
     await vi.advanceTimersByTimeAsync(200);
     expect((await api.listResources()).filter((r) => r.name.startsWith('blog'))).toEqual([]);
+  });
+
+  it('installs a Supabase connection as secrets, with outputs only for the keys given (L2-015 CNX-02 – CNX-05)', async () => {
+    const api = await signedIn();
+    expect((await fails(api.createResource('stack', 'supa', { template: 'supabase', parameters: { project: 'abcd.supabase.co' } } as StackSpec)))?.details[0]?.field)
+      .toBe('spec.secretParameters.anonKey');
+    const st = await api.createResource('stack', 'supa', { template: 'supabase', parameters: { project: 'abcd.supabase.co' }, secretParameters: { anonKey: 'anon-value' } } as StackSpec);
+    await vi.advanceTimersByTimeAsync(1000);
+    const ready = await api.getResource(st.id);
+    expect(ready.status.phase).toBe('ready');
+    expect((ready.outputs.members as unknown as StackMember[]).map((m) => `${m.kind}/${m.name}`).sort()).toEqual(['secret/supa-anonkey', 'secret/supa-url']);
+    expect(ready.outputs.outputs).toEqual({ SUPABASE_URL: 'supa-url', SUPABASE_ANON_KEY: 'supa-anonkey' });
+    expect(JSON.stringify(ready)).not.toContain('anon-value');
+    expect((await api.listResources('app')).length).toBe(0); // a connection runs nothing
   });
 
   it('keeps its own templates by version and refuses removing one in use (L3-002 §11.5)', async () => {

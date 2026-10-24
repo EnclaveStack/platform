@@ -536,7 +536,8 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         }
       }
       if (i === r.status.steps.length) {
-        r.outputs = within(r.project, () => withPrivate(r, outputs(r)));
+        // A stack keeps the template, version and outputs it was rendered with (L3-002 §11.7).
+        r.outputs = r.kind === 'stack' ? r.outputs : within(r.project, () => withPrivate(r, outputs(r)));
         if (target) r.outputs.machine = target;
         if (movingFrom) addEvent(s, 'moved', `Moved to ${target ?? ''} in ${Math.round((stepMs * r.status.steps.length) / 1000)} s; unavailable for ${Math.round(stepMs / 1000)} s.`);
         r.status = { ...r.status, phase: 'ready', observedGeneration: r.generation, lastTransitionAt: now() };

@@ -952,7 +952,7 @@ components:
         name: { type: string }
         title: { type: string }
         description: { type: string }
-        category: { type: string, enum: [apps, public-access] }
+        category: { type: string, enum: [apps, public-access, connections] }
         signup: { type: string, description: "where to make the account a way in needs" }
         version: { type: string }
         versions: { type: array, items: { type: string } }

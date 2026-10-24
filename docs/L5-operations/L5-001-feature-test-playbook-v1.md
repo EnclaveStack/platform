@@ -6,9 +6,9 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v30 |
+| Version | v31 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -513,6 +513,15 @@ Run the live checks with a phone on **mobile data** (not the home Wi-Fi), so the
 - **Automated stand-in**: `make e2e-machines EDGE=1` runs this walk with a Docker-in-Docker edge machine and Pebble as the CA (the join from the main side, the relay, the certificate through it, the visitor's address, nothing on the edge machine, removal refused); run it before the live walk.
 - **Surfaces**: the console, CLI and OpenTofu each add the edge machine, create the relay tunnel and the public domain, and show them.
 
+## 2i · Connections walk-throughs (`L2-015`)
+
+### Feature: A Supabase connection — L2-015 CNX-01 – CNX-07, CON-81, CLI-50, CLI-52, TF-44, TF-45
+- **Golden path (live, free Supabase project)**: **Catalogue › Connections › Supabase › Install**, name `supa`, the project address and anon key from the Supabase dashboard → the stack is ready with secrets `supa-url` and `supa-anonkey`, and **Outputs** shows `SUPABASE_URL · supa-url` and `SUPABASE_ANON_KEY · supa-anonkey` only. An app `api` (`curlimages/curl:8.11.1`, command `sh -c 'curl -s -o /dev/null -w "%{http_code}\n" "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY"; sleep 3600'`) with those two secret variables → its log shows `200`.
+- **Keys**: add the `service_role` key on **Edit parameters** → `supa-servicekey` and its output appear and the anon key is unchanged; rotate it at Supabase, paste the new one, restart `api` → it still answers `200`. No key value is in the console, `enclave stack get supa -o json`, events or `enclave logs`.
+- **CLI and OpenTofu**: `enclave catalogue ls` shows `supabase` under `connections`; `enclave stack create supa2 --template supabase --param project=abcd.supabase.co --secret-param anonKey=…` and an `enclave_stack` with `template = "supabase"` and `secret_parameters` make the same secrets; `enclave stack get` prints the outputs.
+- **Error paths**: no anon key → `422` naming `spec.secretParameters.anonKey`; `https://abcd.supabase.co` as the address → `422` (a host name); deleting the stack while `api` uses `supa-url` → `409 RESOURCE_IN_USE`; after `api` is gone, deleting it removes every `supa-*` secret.
+- **Automated**: `internal/catalogue` (`TestSupabaseConnection`, `TestOutputsSkipEmptySecretParameters`), `internal/httpapi` (`TestASupabaseConnection`), the console's `mock-machines.test.ts` and `machines-flows.test.tsx`.
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -551,3 +560,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v28 | 2026-10-24 | Soupler | Bucket objects and readable details: golden path, errors, details (L2-013) |
 | v29 | 2026-10-24 | Soupler | §2g: the rail keeps every control inside it and opens again; guides link to the website's full guide |
 | v30 | 2026-10-24 | Soupler | §2h public access walk-throughs: quick links and the gate, Cloudflare tunnels and public domains, edge machines and relays, each with live checks from a phone on mobile data (L2-014) |
+| v31 | 2026-10-25 | Soupler | §2i connections: the Supabase connection walk-through (L2-015) |

@@ -13,15 +13,18 @@ import { useLoad } from '../lib/useLoad';
 
 // The catalogue (CON-59, L2.5-002 §15): built-in entries and the machine's own templates as cards;
 // Install creates a stack. Public access entries are ways in from the internet (CON-80, L2.5-002 §21): their
-// Install opens the new tunnel form with that way in chosen, and Sign up links to the service.
+// Install opens the new tunnel form with that way in chosen, and Sign up links to the service. Connections hold an
+// outside service's address and keys as secrets (CON-81, L2.5-002 §22).
 
 const GROUPS = [
   { id: 'apps', title: 'Apps', lede: 'Ready-made products, installed as one stack: an app with its database, storage and domain.' },
   { id: 'public-app', title: 'Public access · An address for one app', lede: 'Reach one app from any device, without opening your router.' },
   { id: 'public-domain', title: 'Public access · Your own domain', lede: 'Serve your domains, like stage.example.com, from this machine.' },
+  { id: 'connections', title: 'Connections', lede: 'Services your apps use elsewhere, like a hosted Supabase project: their address and keys kept as secrets, ready to attach to any app.' },
 ] as const;
 
 const groupOf = (e: CatalogueEntry): (typeof GROUPS)[number]['id'] => {
+  if (e.category === 'connections') return 'connections';
   if (e.category !== 'public-access') return 'apps';
   const way = WAYS_IN.find((w) => w.entry === e.name);
   return way?.family === 'domain' ? 'public-domain' : 'public-app';
@@ -62,13 +65,13 @@ export function CataloguePage() {
 
   return (
     <Page>
-      <PageHead title="Catalogue" lede="Ready-made products installed as one stack, and the ways people on the internet reach your apps. Change or delete a stack and its parts follow." />
+      <PageHead title="Catalogue" lede="Ready-made products installed as one stack, the ways people on the internet reach your apps, and connections to services elsewhere. Change or delete a stack and its parts follow." />
       {admin && (
         <div><Button icon={<Icons.Upload />} onClick={() => setAdding(true)}>Add template</Button></div>
       )}
       {entries.error && <Alert>{entries.error.message}</Alert>}
       {entries.loading && !entries.data && <Grid min="md">{[0, 1, 2].map((i) => <Skeleton key={i} shape="card" />)}</Grid>}
-      {GROUPS.filter((g) => !only || (only === 'public-access' ? g.id !== 'apps' : g.id === only)).map((g) => {
+      {GROUPS.filter((g) => !only || (only === 'public-access' ? g.id.startsWith('public-') : g.id === only)).map((g) => {
         const list = (entries.data ?? []).filter((e) => groupOf(e) === g.id);
         if (!list.length) return null;
         return (

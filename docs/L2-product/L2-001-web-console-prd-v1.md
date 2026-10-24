@@ -6,9 +6,9 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v20 |
+| Version | v21 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -128,6 +128,7 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | CON-78 | Machines has **Add an edge machine**: name and public address, then the join command with Copy and the ports to open; an edge machine's page shows its relays and no placement actions (`L2-014` EDG-*) | Must |
 | CON-79 | The gate's sign-in page, password prompt and "This environment is private" page (`L2-014` GATE-*, `L2.5-002` §21) | Must |
 | CON-80 | The catalogue's **Public access** category with one entry per way in, and **Make public** on an app's page with its public addresses (`L2-014` TUN-15, TUN-16) | Must |
+| CON-81 | The catalogue's **Connections** group: outside services apps use, starting with the Supabase card (Sign up, Install). Installing one opens the stack form; the stack's page lists, under **Outputs**, the secret each variable uses (`L2-015` CNX-01 – CNX-05) | Must |
 
 ## Version history
 
@@ -153,3 +154,4 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | v18 | 2026-10-24 | Soupler | CON-74 bucket objects tab, CON-75 readable details (L2-013) |
 | v19 | 2026-10-24 | Soupler | CON-61: folded, the rail keeps every control inside it and its expand button in view; CON-67: each guide links to its full guide on the website |
 | v20 | 2026-10-24 | Soupler | CON-76 – CON-80: tunnels, public access on domains, edge machines, the gate's pages, Public access in the catalogue and Make public (L2-014) |
+| v21 | 2026-10-25 | Soupler | CON-81: the catalogue's Connections group and the Supabase connection (L2-015) |

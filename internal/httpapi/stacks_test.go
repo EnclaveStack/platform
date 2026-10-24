@@ -31,13 +31,13 @@ func TestAWordPressStackFromTheCatalogue(t *testing.T) {
 	admin := env.Setup(t)
 	ctx := context.Background()
 
-	// Six apps and six ways in from the internet (L2-014 TUN-15).
+	// Six apps, six ways in from the internet (L2-014 TUN-15) and one connection (L2-015 CNX-02).
 	entries, err := admin.Catalogue(ctx)
 	byCategory := map[string]int{}
 	for _, e := range entries {
 		byCategory[e.Category]++
 	}
-	if err != nil || byCategory[api.CategoryApps] != 6 || byCategory[api.CategoryPublicAccess] != 6 {
+	if err != nil || byCategory[api.CategoryApps] != 6 || byCategory[api.CategoryPublicAccess] != 6 || byCategory[api.CategoryConnections] != 1 {
 		t.Fatalf("catalogue: %v %v", byCategory, err)
 	}
 	wp, err := admin.CatalogueEntry(ctx, "wordpress", "")
@@ -221,4 +221,73 @@ func TestOwnTemplatesAndSecretsWithPasswords(t *testing.T) {
 		t.Fatal(err)
 	}
 	testenv.WaitReady(t, admin, inline.ID)
+}
+
+// A Supabase connection: secrets only, outputs for the keys given, keys kept on update, and an app that
+// uses one of its secrets holds the stack (L2-015 CNX-01 – CNX-06).
+func TestASupabaseConnection(t *testing.T) {
+	env := testenv.Start(t)
+	admin := env.Setup(t)
+	ctx := context.Background()
+
+	e, err := admin.CatalogueEntry(ctx, "supabase", "")
+	if err != nil || e.Category != api.CategoryConnections || e.Signup == "" {
+		t.Fatalf("supabase: %+v %v", e, err)
+	}
+	_, err = admin.CreateResource(ctx, api.KindStack, "supa", api.StackSpec{Template: "supabase", Parameters: map[string]any{"project": "abcd.supabase.co"}})
+	mustCode(t, err, api.CodeValidationFailed, "no anon key")
+
+	st, err := admin.CreateResource(ctx, api.KindStack, "supa", api.StackSpec{Template: "supabase",
+		Parameters: map[string]any{"project": "abcd.supabase.co"}, SecretParameters: map[string]string{"anonKey": "anon-value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st = testenv.WaitReady(t, admin, st.ID)
+	if got := members(st); len(got) != 2 || got["secret/supa-url"] == "" || got["secret/supa-anonkey"] == "" {
+		t.Errorf("members %v", got)
+	}
+	outs, _ := st.Outputs[api.OutputStackOutputs].(map[string]any)
+	if len(outs) != 2 || outs["SUPABASE_URL"] != "supa-url" || outs["SUPABASE_ANON_KEY"] != "supa-anonkey" {
+		t.Errorf("outputs %v", outs)
+	}
+	if raw, _ := json.Marshal(st); strings.Contains(string(raw), "anon-value") {
+		t.Errorf("the key is in the response: %s", raw)
+	}
+
+	// A new key adds its secret and output; the anon key stays (CNX-06).
+	if _, err := admin.UpdateResource(ctx, st.ID, map[string]any{"secretParameters": map[string]string{"serviceKey": "service-value"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 10*time.Second, "the service key's secret and output", func() bool {
+		r, _ := admin.GetResource(ctx, st.ID)
+		o, _ := r.Outputs[api.OutputStackOutputs].(map[string]any)
+		m := members(r)
+		return r.Status.Phase == api.PhaseReady && o["SUPABASE_SERVICE_ROLE_KEY"] == "supa-servicekey" && o["SUPABASE_ANON_KEY"] == "supa-anonkey" &&
+			m["secret/supa-servicekey"] != "" && m["secret/supa-anonkey"] != ""
+	})
+
+	// An app uses the secrets the way the outputs say; it holds the stack until it lets go.
+	app, err := admin.CreateResource(ctx, api.KindApp, "api", api.AppSpec{Image: "nginx:1.27", Port: 80,
+		SecretEnv: map[string]string{"SUPABASE_URL": "supa-url", "SUPABASE_SERVICE_ROLE_KEY": "supa-servicekey"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testenv.WaitReady(t, admin, app.ID)
+	_, err = admin.DeleteResource(ctx, st.ID, nil)
+	mustCode(t, err, api.CodeResourceInUse, "deleting a connection an app uses")
+	if _, err := admin.DeleteResource(ctx, app.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 10*time.Second, "the app gone", func() bool {
+		_, err := admin.GetResource(ctx, app.ID)
+		return client.Code(err) == api.CodeNotFound
+	})
+	if _, err := admin.DeleteResource(ctx, st.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	testenv.Eventually(t, 10*time.Second, "the connection and its secrets gone", func() bool {
+		_, e1 := admin.FindResource(ctx, api.KindSecret, "supa-url")
+		_, e2 := admin.FindResource(ctx, api.KindSecret, "supa-servicekey")
+		return client.Code(e1) == api.CodeNotFound && client.Code(e2) == api.CodeNotFound
+	})
 }

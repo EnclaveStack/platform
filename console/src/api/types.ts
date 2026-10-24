@@ -614,7 +614,7 @@ export interface TemplateMember {
   optional: boolean;
 }
 
-export type CatalogueCategory = 'apps' | 'public-access';
+export type CatalogueCategory = 'apps' | 'public-access' | 'connections';
 
 export interface CatalogueEntry {
   name: string;
@@ -623,7 +623,7 @@ export interface CatalogueEntry {
   version: string;
   versions: string[];
   builtIn: boolean;
-  /** apps, or public-access: a way in from the internet (L2-014 TUN-15). */
+  /** apps; public-access, a way in from the internet (L2-014 TUN-15); or connections, an outside service apps use (L2-015 CNX-01). */
   category: CatalogueCategory;
   /** Where to make the account a way in needs. */
   signup?: string;

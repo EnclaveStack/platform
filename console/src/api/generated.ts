@@ -356,7 +356,7 @@ export const RULES = {
   upstreamEnv: "ENCLAVE_UPSTREAM",
   userHeader: "X-Enclave-User",
   machineRoles: ["worker","edge"],
-  catalogueCategories: ["apps","public-access"],
+  catalogueCategories: ["apps","public-access","connections"],
 } as const;
 
 export const ROLES = ["viewer","editor","admin"] as const;
