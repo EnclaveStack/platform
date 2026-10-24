@@ -1,17 +1,18 @@
 import { Bullets, buttonClass, CodeBlock, GuidePart, Icons, Inline, Page, PageHeader, Stack, Steps, Text } from '@enclavestack/ui';
 import { Link, Navigate, useParams } from 'react-router';
-import { GUIDES } from '../lib/guides';
+import { GUIDES, websiteGuideUrl } from '../lib/guides';
 import { inSentence, sectionBySlug } from '../lib/sections';
 import { usePageTitle } from '../lib/shell';
 
-// A section's guide (CON-67, L2.5-002 §16): five colour-coded parts, then related guides.
+// A section's guide (CON-67, L2.5-002 §16): five colour-coded parts, related guides, then the full guide on the website.
 
 export function GuidePage() {
   const { section: slug } = useParams();
   const section = sectionBySlug(slug === 'records' ? 'zones' : slug);
-  const guide = section && section.slug !== 'records' ? GUIDES[section.slug] : undefined;
+  const key = section && section.slug !== 'records' ? section.slug : undefined;
+  const guide = key ? GUIDES[key] : undefined;
   usePageTitle(section ? 'Guide' : undefined);
-  if (!section || !guide) return <Navigate to="/" replace />;
+  if (!section || !key || !guide) return <Navigate to="/" replace />;
 
   return (
     <Page>
@@ -46,6 +47,13 @@ export function GuidePage() {
               const s = sectionBySlug(r);
               return s ? <Link key={r} to={`/guide/${r}`} className={buttonClass({ size: 'sm' })}>{s.label}</Link> : null;
             })}
+          </Inline>
+        </Stack>
+        <Stack gap={2}>
+          <Text weight="semibold">Want more detail?</Text>
+          <Text tone="muted">The full guide on the EnclaveStack website covers every setting, the API and OpenTofu, with more examples. It describes the latest release.</Text>
+          <Inline gap={2} wrap>
+            <a href={websiteGuideUrl(key)} target="_blank" rel="noreferrer" className={buttonClass({ size: 'sm' })}><Icons.ExternalLink /> Full {inSentence(section.label)} guide on enclavestack.soupler.com</a>
           </Inline>
         </Stack>
       </Stack>

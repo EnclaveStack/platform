@@ -733,3 +733,11 @@ export const GUIDES: Record<Exclude<SectionSlug, 'records'>, Guide> = {
     related: ['buckets', 'monitoring', 'secrets'],
   },
 };
+
+/** The EnclaveStack website, whose service pages go deeper than these guides: every setting, the API and OpenTofu. */
+export const WEBSITE = 'https://enclavestack.soupler.com';
+
+/** A section's full guide on the website. Its service pages use the console's section slugs. */
+export function websiteGuideUrl(slug: keyof typeof GUIDES): string {
+  return `${WEBSITE}/services/${slug}/`;
+}

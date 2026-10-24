@@ -19,7 +19,7 @@ export function Brand() {
   return (
     <span className="es-brand">
       <LogoMark />
-      EnclaveStack
+      <span className="es-brand-word">EnclaveStack</span>
     </span>
   );
 }
@@ -40,6 +40,14 @@ export function Shell({ sidebar, children, menuOpen, onCloseMenu, rail = false }
 
 export function Sidebar({ label, open, children }: { label: string; open: boolean; children: ReactNode }) {
   return <aside className="es-sidebar" data-open={open} aria-label={label}>{children}</aside>;
+}
+
+/**
+ * The sidebar's top row: the brand and the button that folds the sidebar. In the rail the wordmark hides and
+ * the button sits under the mark, so it stays inside the narrow sidebar and the rail can always be opened again.
+ */
+export function SidebarHead({ children }: { children: ReactNode }) {
+  return <div className="es-sidebar-head">{children}</div>;
 }
 
 export function SidebarSection({ heading, children }: { heading?: string; children: ReactNode }) {

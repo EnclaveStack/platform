@@ -6,7 +6,7 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v28 |
+| Version | v29 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -422,12 +422,12 @@ Run against `make demo` (fake engine, sample data) in Chrome, light and dark, at
 ### Feature: Navigation, page header and full pages — L2-001 CON-61, CON-63, CON-64; L2.5-002 §16
 - **Steps and expected results**:
   1. The sidebar shows Overview, then Compute, Data, Networking, Messaging and media, Security, Install, Operate, Settings with the sections of `L2.5-002` §16 and their counts. Closing Data and reloading keeps it closed; opening a Data page opens it.
-  2. Fold the sidebar to the rail: icons only, a tooltip names each; reload keeps the rail.
+  2. Fold the sidebar to the rail: icons only, a tooltip names each; no button or link sticks out of the rail, and the expand button sits under the logo; reload keeps the rail; expand restores the full sidebar.
   3. Open Apps: a full-width table with name, state, key fact, project (All projects) and last change. Click `api`: its page opens at `/apps/<id>` with the breadcrumb `demo › All projects › Apps › api`; clicking **Apps** in the breadcrumb or **Back** returns to the list; clicking the machine opens Machines.
   4. New app → the side panel; on Create the new app's page opens.
   5. At 390 px the sidebar is a sheet from the menu button; the list is cards.
 - **Error paths**: an unknown id (`/apps/app_nope`) shows "That resource doesn't exist" with a link back to Apps; a list that fails to load shows the message and Retry.
-- **Automated checks**: `pnpm --filter @enclavestack/console test` (navigation groups, links in the breadcrumb, full-page routes); `pnpm --filter @enclavestack/console e2e`.
+- **Automated checks**: `pnpm --filter @enclavestack/console test` (navigation groups, links in the breadcrumb, full-page routes); `pnpm --filter @enclavestack/console e2e` ("the sidebar folds to a rail with every control inside it, and opens again").
 
 ### Feature: Overview — CON-65
 - **Steps and expected results**:
@@ -440,8 +440,9 @@ Run against `make demo` (fake engine, sample data) in Chrome, light and dark, at
 - **Steps and expected results**:
   1. Every section's header has its one-line blurb, **Guide**, and stat tiles; an empty section explains itself and links its guide.
   2. Each guide has the five parts in order with their colours and headings, a CLI command that runs as written against `make demo`, and no comparison with another company's product.
-  3. Find (⌘K) → "data" lists Databases, its guide and resources named like it; Enter opens the first.
-- **Automated checks**: `console/src/guides.test.tsx` (every section has a complete guide, no comparisons with other companies' products, Find, section summaries, the guide page); every guide command was run against `make demo` on 2026-10-23 and works as written (zones and secret stores need a real account at their provider).
+  3. At the end of a guide, **Full <section> guide on enclavestack.soupler.com** opens that service's page on the website in a new tab; the DNS records guide opens the zones page.
+  4. Find (⌘K) → "data" lists Databases, its guide and resources named like it; Enter opens the first.
+- **Automated checks**: `console/src/guides.test.tsx` (every section has a complete guide, no comparisons with other companies' products, Find, section summaries, the guide page, the website link); every guide command was run against `make demo` on 2026-10-23 and works as written (zones and secret stores need a real account at their provider).
 
 ### Feature: Calmer screen, hints and motion — CON-68, CON-69
 - **Steps and expected results**: list and detail pages show status as a dot and a word; no circled nav icons; with "Reduce motion" on in the OS nothing animates; every form field has a hint.
@@ -509,3 +510,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v26 | 2026-10-24 | Soupler | Per-app bucket access: golden path, change, removal, jobs, error paths, secrets, surfaces (L2-011) |
 | v27 | 2026-10-24 | Soupler | Transcoder renditions, ladder, notify and tags: golden path, keyframes, scaling, failure, delivery, errors, surfaces (L2-012) |
 | v28 | 2026-10-24 | Soupler | Bucket objects and readable details: golden path, errors, details (L2-013) |
+| v29 | 2026-10-24 | Soupler | §2g: the rail keeps every control inside it and opens again; guides link to the website's full guide |

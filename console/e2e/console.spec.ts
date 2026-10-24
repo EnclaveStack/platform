@@ -43,6 +43,25 @@ test('first-run setup with the printed code', async () => {
   await expect(page.getByText('No apps yet.')).toBeVisible();
 });
 
+test('the sidebar folds to a rail with every control inside it, and opens again (CON-61)', async () => {
+  const box = (await sidebar().boundingBox())!;
+  await sidebar().getByRole('button', { name: 'Fold the sidebar to icons' }).click();
+  await expect.poll(async () => (await sidebar().boundingBox())!.width).toBeLessThan(100); // the width animates
+  const rail = (await sidebar().boundingBox())!;
+  const expand = sidebar().getByRole('button', { name: 'Expand the sidebar' });
+  await expect(expand).toBeVisible();
+  // Nothing sticks out of the rail: every button and link sits within its width.
+  for (const control of await sidebar().locator('button:visible, a:visible').all()) {
+    const b = (await control.boundingBox())!;
+    expect(b.x, await control.getAttribute('aria-label') ?? await control.innerText()).toBeGreaterThanOrEqual(rail.x - 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(rail.x + rail.width + 1);
+  }
+  await expand.click();
+  await expect.poll(async () => (await sidebar().boundingBox())!.width).toBe(box.width);
+  await expect(sidebar().getByText('EnclaveStack', { exact: true })).toBeVisible();
+  await expect(sidebar().getByRole('button', { name: 'Fold the sidebar to icons' })).toBeVisible();
+});
+
 test('create every kind from the console', async () => {
   await create('secret', async (p) => {
     await p.getByLabel('Name', { exact: true }).fill('stripe-key');
