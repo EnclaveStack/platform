@@ -382,7 +382,13 @@ func (s *Resources) resolveRefs(ctx context.Context, q *store.Queries, r *domain
 			return nil, err
 		}
 		zone, err := s.domainZoneRef(ctx, q, project, sp)
-		return append(refs, zone...), err
+		if err != nil {
+			return nil, err
+		}
+		public, err := s.publicDomainRefs(ctx, q, project, sp)
+		return append(append(refs, zone...), public...), err
+	case api.TunnelSpec:
+		return s.tunnelRefs(ctx, q, r, sp)
 	case api.AppSpec:
 		if err := s.checkDomainPorts(ctx, q, r, sp); err != nil {
 			return nil, err

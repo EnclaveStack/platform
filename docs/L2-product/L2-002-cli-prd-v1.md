@@ -6,7 +6,7 @@
 | Document ID | L2-002-cli-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v21 |
+| Version | v22 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -96,6 +96,9 @@ enclave secret get stripe-key --reveal  enclave machine
 | CLI-53 | `app create`, `app update`, `job create` and `job update` take `--bucket NAME:read` or `--bucket NAME:readwrite` (repeatable); on update the list replaces the old one and `--bucket ""` removes all. `get` shows the access (`L2-011`) | Must |
 | CLI-54 | `transcoder create` and `update` take `--rendition NAME:CONTAINER:WxH:KBPS[:AUDIO_KBPS[:GOP_SECONDS]]`, `--hls-rung NAME:WxH:KBPS` with `--hls-name`, `--hls-segment`, `--hls-gop`, `--hls-audio`, and `--notify-webhook`, `--notify-secret`, `--notify-topic`; `--no-hls` removes the ladder; on update a repeated flag replaces its list, `""` clears it (`--preset`, `--rendition`, `--notify-webhook`, `--notify-topic`), and a ladder or notify setting not given is kept (`L2-012`) | Must |
 | CLI-55 | `bucket objects`, `bucket upload` (`--tag`), `bucket download`, `bucket delete-object` (`L2-013`) | Must |
+| CLI-56 | `tunnel create NAME` with `--provider quick --app A`; `--provider tailscale --credentials S --app A [--mode private\|public] [--hostname H]`; `--provider ngrok --credentials S --app A [--domain D]`; `--provider custom --app A --image I [--command C]… [--env K=V]… [--secret-env K=SECRET]… [--url U]`; `--provider cloudflare --credentials S --account-id ID`; `--provider relay --machine M`; app links take `[--port P] [--gate …] [--gate-password-secret S] [--gate-open-path P]…`; `tunnel update NAME` (gate, port, Tailscale mode, custom settings, credentials), `tunnel ls` (with each address), `get` (with the URL), `delete`; `catalogue ls` shows each entry's category and `catalogue show` its sign-up page; an entry installs as a stack (`stack create --template quick-link`) or as its tunnel (`L2-014`) | Must |
+| CLI-57 | `domain create` and `domain update` take `--tunnel T` (`""` makes it local again), `--gate signin\|password\|none` (`none` asks to confirm unless `--yes`), `--gate-password-secret S`, `--gate-open-path P` and `--access-email E` / `--access-email-domain D` (repeatable) (`L2-014`) | Must |
+| CLI-58 | `machine add NAME --edge --address A [--agent-port P]` prints the join command and the ports to open; `agent join --edge --code C [--listen :7071]` waits for the main machine (`L2-014` EDG-02) | Must |
 
 ## Version history
 
@@ -122,3 +125,4 @@ enclave secret get stripe-key --reveal  enclave machine
 | v19 | 2026-10-24 | Soupler | CLI-54: transcoder renditions, ladder and notify flags (L2-012) |
 | v20 | 2026-10-24 | Soupler | CLI-54 wording matches the built flags |
 | v21 | 2026-10-24 | Soupler | CLI-55: bucket object commands (L2-013) |
+| v22 | 2026-10-24 | Soupler | CLI-56 – CLI-58: tunnels, public access flags on domains, edge machines (L2-014) |

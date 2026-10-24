@@ -6,7 +6,7 @@
 | Document ID | L2-003-opentofu-provider-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v17 |
+| Version | v18 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -109,6 +109,9 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | TF-48 | `enclave_app` and `enclave_job` take `bucket_access = [{ bucket = "media", access = "read" }]`; `bucket_credentials_secret` is computed (`L2-011`) | Must |
 | TF-49 | `enclave_transcoder` takes `renditions`, `hls` (with `rungs`) and `notify`; `presets` becomes optional (`L2-012`) | Must |
 | TF-50 | Resource `enclave_bucket_object` (`bucket`, `key`, `source` or `content`, `tags`, `source_hash`; computed `size`, `content_type`; import `<bucket>/<key>`) (`L2-013`) | Must |
+| TF-51 | Resource `enclave_tunnel` (`tunnel_provider` — `provider` is reserved in OpenTofu —, `credentials_secret`, `account_id`, `machine`, `app`, `port`, `gate = { mode, password_secret, open_paths }`, `mode`, `hostname`, `domain`, `image`, `command`, `env`, `secret_env`, `connector_url`; computed `url`, `tunnel_id`, `public_address`, `gate_mode`) (`L2-014`) | Must |
+| TF-52 | `enclave_domain` takes `tunnel`, `gate = { mode, password_secret, open_paths }` and `cloudflare_access = { emails, email_domains }`; computed `public` and `dns_record = { type, name, value, state }` (`L2-014`) | Must |
+| TF-53 | `enclave_machine` takes `role = "edge"`, `address` and `agent_port`; `schedulable` is `false` for an edge machine; computed `join_command` (sensitive) (`L2-014` EDG-02) | Must |
 
 ## Version history
 
@@ -131,3 +134,4 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | v15 | 2026-10-24 | Soupler | TF-48: bucket_access on enclave_app and enclave_job (L2-011) |
 | v16 | 2026-10-24 | Soupler | TF-49: renditions, hls and notify on enclave_transcoder (L2-012) |
 | v17 | 2026-10-24 | Soupler | TF-50: enclave_bucket_object (L2-013) |
+| v18 | 2026-10-24 | Soupler | TF-51 – TF-53: enclave_tunnel, public access on enclave_domain, edge machines (L2-014) |

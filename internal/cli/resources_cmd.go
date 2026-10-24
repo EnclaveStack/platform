@@ -27,6 +27,7 @@ var kindAliases = map[string]api.Kind{
 	"bucket": api.KindBucket, "buckets": api.KindBucket,
 	"secret": api.KindSecret, "secrets": api.KindSecret,
 	"domain": api.KindDomain, "domains": api.KindDomain,
+	"tunnel": api.KindTunnel, "tunnels": api.KindTunnel,
 	"job": api.KindJob, "jobs": api.KindJob,
 	"backup": api.KindBackup, "backups": api.KindBackup,
 	"network": api.KindNetwork, "networks": api.KindNetwork, "net": api.KindNetwork,
@@ -223,6 +224,15 @@ func (a *app) listWhere(ctx context.Context, o client.ListOptions) error {
 func endpoint(r api.Resource) string {
 	if e, ok := r.Outputs["endpoint"]; ok {
 		return fmt.Sprint(e)
+	}
+	// A tunnel's public address, or a relay's edge machine (CLI-56); a domain tunnel otherwise shows none.
+	if r.Kind == api.KindTunnel {
+		for _, k := range []string{"url", "publicAddress"} {
+			if v, ok := r.Outputs[k].(string); ok && v != "" {
+				return v
+			}
+		}
+		return "—"
 	}
 	if h, ok := r.Outputs["host"]; ok {
 		return fmt.Sprintf("%v:%v", h, r.Outputs["port"])
@@ -596,13 +606,18 @@ func (a *app) domainCmd() *cobra.Command {
 	var hostname, target, tls, zone string
 	var port int
 	var noRedirect, wait bool
+	var cpub publicDomainFlags
 	create := &cobra.Command{
 		Use: "create NAME", Short: "Serve an app on a hostname with automatic HTTPS", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec := api.DomainSpec{Hostname: hostname, App: target, Port: port, TLS: tls, Zone: zone}
+			spec := api.DomainSpec{Hostname: hostname, App: target, Port: port, TLS: tls, Zone: zone, Tunnel: cpub.tunnel}
 			if noRedirect {
 				f := false
 				spec.RedirectHTTP = &f
+			}
+			var err error
+			if spec.Gate, spec.CloudflareAccess, err = a.publicDomain(cmd, &cpub); err != nil {
+				return err
 			}
 			return a.create(cmd.Context(), api.KindDomain, args[0], spec, wait)
 		},
@@ -614,11 +629,13 @@ func (a *app) domainCmd() *cobra.Command {
 	create.Flags().BoolVar(&noRedirect, "no-redirect", false, "serve plain HTTP too instead of redirecting it to HTTPS")
 	create.Flags().StringVar(&zone, "zone", "", "get the certificate through this zone's DNS (DNS-01); allows a wildcard hostname like '*.example.com'")
 	create.Flags().BoolVar(&wait, "wait", false, "wait until the route and certificate are ready")
+	cpub.register(create)
 	_ = create.MarkFlagRequired("hostname")
 	_ = create.MarkFlagRequired("app")
 	var uapp, utls, uzone string
 	var uport int
 	var uredirect, uwait bool
+	var upub publicDomainFlags
 	update := &cobra.Command{
 		Use: "update NAME", Short: "Change a domain's app, port or TLS (the hostname can't change)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -639,6 +656,19 @@ func (a *app) domainCmd() *cobra.Command {
 			if ch("zone") {
 				patch["zone"] = nilIfEmpty(uzone)
 			}
+			if ch("tunnel") {
+				patch["tunnel"] = nilIfEmpty(upub.tunnel)
+			}
+			g, access, err := a.publicDomain(cmd, &upub)
+			if err != nil {
+				return err
+			}
+			if upub.gate.changed(cmd) {
+				patch["gate"] = g
+			}
+			if ch("access-email") || ch("access-email-domain") {
+				patch["cloudflareAccess"] = access // nil (no addresses): Cloudflare Access off
+			}
 			return a.update(cmd.Context(), api.KindDomain, args[0], patch, uwait)
 		},
 	}
@@ -648,6 +678,7 @@ func (a *app) domainCmd() *cobra.Command {
 	update.Flags().BoolVar(&uredirect, "redirect", true, "redirect plain HTTP to HTTPS")
 	update.Flags().StringVar(&uzone, "zone", "", "zone to get the certificate through (empty: back to HTTP-01)")
 	update.Flags().BoolVar(&uwait, "wait", false, "wait until ready")
+	upub.register(update)
 	ca := &cobra.Command{
 		Use: "ca", Short: "Print the EnclaveStack root certificate, to trust internal-TLS domains", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

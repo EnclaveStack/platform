@@ -10,17 +10,25 @@ import (
 
 // Every built-in renders, and every member it renders is a valid API spec (CAT-02, CAT-08).
 func TestEveryBuiltinRendersValidSpecs(t *testing.T) {
-	if len(Builtins()) != 6 {
+	if len(Builtins()) != 12 {
 		t.Fatalf("%d built-ins", len(Builtins()))
 	}
+	// What an installer would give the Public access entries' required parameters (L2-014 TUN-15).
+	given := map[string]any{"app": "web", "machine": "vps1", "image": "ghcr.io/acme/tunnel:1", "accountId": "0123456789abcdef0123456789abcdef"}
 	for _, tpl := range Builtins() {
 		params := map[string]any{}
+		secrets := map[string]string{}
 		for _, p := range tpl.Parameters {
-			if p.Type == api.ParamHostname {
+			switch {
+			case p.Type == api.ParamHostname:
 				params[p.Name] = tpl.Name + ".example.com"
+			case p.Type == api.ParamSecret:
+				secrets[p.Name] = "token-value"
+			case p.Required:
+				params[p.Name] = given[p.Name]
 			}
 		}
-		r, err := tpl.Render("site", "shop", params, nil)
+		r, err := tpl.Render("site", "shop", params, secrets)
 		if err != nil {
 			t.Errorf("%s: %v", tpl.Name, err)
 			continue
@@ -202,7 +210,31 @@ func TestBuiltinsAreByName(t *testing.T) {
 	for _, b := range Builtins() {
 		names = append(names, b.Name)
 	}
-	if strings.Join(names, ",") != "ghost,gitea,n8n,plausible,uptime-kuma,wordpress" {
+	if strings.Join(names, ",") != "cloudflare-tunnel,custom-tunnel,ghost,gitea,n8n,ngrok,own-server,plausible,quick-link,tailscale,uptime-kuma,wordpress" {
 		t.Errorf("%v", names)
+	}
+}
+
+// The ways in are their own category, each saying what it needs (L2-014 TUN-15).
+func TestPublicAccessCategory(t *testing.T) {
+	var ways []string
+	for _, b := range Builtins() {
+		e := b.Entry(true, []string{b.Version})
+		switch e.Category {
+		case api.CategoryPublicAccess:
+			ways = append(ways, e.Name)
+			if len(e.Members) != 1 || e.Members[0].Kind != api.KindTunnel || e.Description == "" {
+				t.Errorf("%s: %+v", e.Name, e)
+			}
+		case api.CategoryApps:
+		default:
+			t.Errorf("%s: category %q", e.Name, e.Category)
+		}
+	}
+	if strings.Join(ways, ",") != "cloudflare-tunnel,custom-tunnel,ngrok,own-server,quick-link,tailscale" {
+		t.Errorf("public access entries %v", ways)
+	}
+	if _, err := Parse([]byte("name: x-y\ntitle: X\nversion: 1.0.0\ncategory: games\nresources: [{kind: secret, name: a, generate: 16}]\n")); err == nil {
+		t.Error("an unknown category must be refused")
 	}
 }

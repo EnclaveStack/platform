@@ -28,6 +28,7 @@ import {
   type SearchSpec,
   type TopicSpec,
   type TranscoderSpec,
+  type TunnelSpec,
   type VMSpec,
   type VolumeSpec,
   type ZoneSpec,
@@ -68,7 +69,7 @@ import {
 } from './types';
 import { can, roleIn } from '../lib/roles';
 import { nextRuns } from '../lib/schedule';
-import { normalizePrefix, validateEmail, validateLabels, validateName, validateObjectKey, validateObjectTags, validateSpec } from '../lib/validation';
+import { normalizePrefix, validateEmail, validateHostname, validateLabels, validateName, validateObjectKey, validateObjectTags, validateSpec } from '../lib/validation';
 import { runFolder, transcodeFiles } from '../lib/transcode';
 import { formatBytes } from '../lib/format';
 
@@ -344,8 +345,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         }
         if (settings.publicAddress) out.publicAddress = settings.publicAddress;
         if (d.zone) out.certificateIssuer = "Let's Encrypt (mock, DNS-01)";
+        if (d.tunnel) return { ...out, ...publicDomainOutputs(d) };
         return out;
       }
+      case 'tunnel':
+        return tunnelOutputs(r as Resource<'tunnel'>);
       case 'network': {
         const n = r.spec as NetworkSpec;
         const [base] = n.cidr.split('/');
@@ -395,6 +399,46 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       }
     }
     return {};
+  }
+
+  /** A tunnel's outputs once connected (L3-002 §16.3); a quick link's address changes on every restart. */
+  function tunnelOutputs(r: Resource<'tunnel'>): Resource['outputs'] {
+    const t = r.spec;
+    const word = (n: number) => ['amber', 'river', 'quiet', 'falcon', 'maple', 'orbit', 'cedar', 'harbor'][(r.name.length + n + r.generation) % 8] ?? 'link';
+    const gate = t.gate?.mode ?? (t.provider === 'tailscale' && (t.mode ?? 'private') === 'private' ? 'none' : 'signin');
+    const linked: Resource['outputs'] = { connection: 'connected', gate };
+    switch (t.provider) {
+      case 'quick':
+        return { ...linked, connections: 4, url: `https://${word(1)}-${word(2)}-${word(3)}-${r.id.slice(-4)}.trycloudflare.com` };
+      case 'tailscale': {
+        const device = t.hostname || `${r.project}-${t.app ?? ''}`;
+        return { ...linked, connections: 1, url: `https://${device}.tail1234.ts.net`, device, funnel: t.mode === 'public' };
+      }
+      case 'ngrok':
+        return { ...linked, connections: 1, url: `https://${t.domain || `${r.id.slice(-8)}.ngrok-free.app`}` };
+      case 'custom':
+        return { ...linked, connections: 1, ...(t.url ? { url: t.url } : {}) };
+      case 'cloudflare':
+        return { connection: 'connected', connections: 4, tunnelId: `5f0c${r.id.slice(-8)}-7a1e-4c2b-9d3f-0e6b2a1c8d4e` };
+      case 'relay': {
+        const edge = machines.find((m) => m.name === t.machine);
+        return { connection: edge?.state === 'online' ? 'connected' : 'reconnecting', connections: edge?.state === 'online' ? 1 : 0, publicAddress: edge?.address ?? '' };
+      }
+    }
+    return {};
+  }
+
+  /** A public domain's outputs (PUB-01 – PUB-08): through Cloudflare the record is a proxied CNAME and Cloudflare serves the certificate. */
+  function publicDomainOutputs(d: DomainSpec): Resource['outputs'] {
+    const tunnel = byName('tunnel', d.tunnel ?? '')?.r as Resource<'tunnel'> | undefined;
+    const cloudflare = tunnel?.spec.provider === 'cloudflare';
+    const record = cloudflare
+      ? { type: 'CNAME', name: d.hostname, value: `${String(tunnel?.outputs.tunnelId ?? '')}.cfargotunnel.com`, state: 'created' }
+      : { type: 'A', name: d.hostname, value: String(tunnel?.outputs.publicAddress ?? ''), state: d.zone ? 'created' : 'manual' };
+    const out: Record<string, unknown> = { public: true, tunnel: d.tunnel ?? '', url: `https://${d.hostname}`, gate: d.gate?.mode ?? 'signin', dnsRecord: record, tunnelState: 'connected' };
+    if (cloudflare) Object.assign(out, { certificateState: 'edge', certificateIssuer: 'Cloudflare', certificateExpiresAt: undefined });
+    if (cloudflare && d.cloudflareAccess) out.accessApplicationId = `acc-${d.hostname.split('.')[0] ?? ''}`;
+    return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as Resource['outputs'];
   }
 
   /** What uses a volume: apps and jobs that mount it, the VM it is attached to (L3-002 §8.5). */
@@ -605,11 +649,16 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         return spec.type === 'disk' ? { sizeGiB: RULES.volumeSizeDefault, ...spec } : spec;
       case 'snapshot':
         return { ...spec, source: String(spec.source ?? '').trim() };
+      case 'tunnel': {
+        const t = spec as unknown as TunnelSpec;
+        return { ...spec, ...(t.provider === 'tailscale' ? { mode: t.mode ?? 'private' } : {}), ...(t.hostname ? { hostname: t.hostname.trim().toLowerCase() } : {}),
+          ...(t.domain ? { domain: t.domain.trim().toLowerCase().replace(/\.$/, '') } : {}), ...(t.accountId ? { accountId: t.accountId.trim().toLowerCase() } : {}) };
+      }
     }
     return normalizeOperate(kind, spec) ?? spec;
   }
 
-  function checkSpec(kind: Kind, spec: Record<string, unknown>): FieldError[] {
+  function checkSpec(kind: Kind, spec: Record<string, unknown>, editingName?: string): FieldError[] {
     const details: FieldError[] = Object.entries(validateSpec(kind, spec)).map(([field, message]) => ({ field, code: 'INVALID_FORMAT', message }));
     const machine = (spec as Placed).machine;
     if ((RULES.placedKinds as readonly Kind[]).includes(kind) && typeof machine === 'string' && machine && !machineList().some((m) => m.name === machine)) details.push({ field: 'spec.machine', code: 'NOT_FOUND', message: `There's no machine named ${machine}.` });
@@ -770,6 +819,30 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     }
     if (kind === 'secret' && (spec as { source?: SecretSource }).source) exists('secretstore', (spec as { source: SecretSource }).source.store, 'spec.source.store');
     if (kind === 'domain' && (spec as unknown as DomainSpec).zone) exists('zone', (spec as unknown as DomainSpec).zone, 'spec.zone');
+    if (kind === 'tunnel') {
+      // Public access references (L3-002 §16.6).
+      const t = spec as unknown as TunnelSpec;
+      if (t.credentialsSecret) exists('secret', t.credentialsSecret, 'spec.credentialsSecret');
+      if (t.app) exists('app', t.app, 'spec.app');
+      if (t.gate?.passwordSecret) exists('secret', t.gate.passwordSecret, 'spec.gate.passwordSecret');
+      for (const [k, name] of Object.entries(t.secretEnv ?? {})) exists('secret', name, `spec.secretEnv.${k}`);
+      if (t.provider === 'relay' && t.machine) {
+        const m = machines.find((x) => x.name === t.machine);
+        if (!m) details.push({ field: 'spec.machine', code: 'NOT_FOUND', message: `There's no machine named ${t.machine}.` });
+        else if (m.role !== 'edge') details.push({ field: 'spec.machine', code: 'NOT_ALLOWED', message: `${t.machine} isn't an edge machine. Add one with Machines › Add an edge machine.` });
+        else if ([...store.values()].some((o) => o.r.kind === 'tunnel' && o.r.status.phase !== 'deleting' && o.r.name !== editingName && (o.r.spec as TunnelSpec).machine === t.machine)) {
+          details.push({ field: 'spec.machine', code: 'NOT_ALLOWED', message: `${t.machine} already runs a relay.` });
+        }
+      }
+    }
+    if (kind === 'domain' && (spec as unknown as DomainSpec).tunnel) {
+      const d = spec as unknown as DomainSpec;
+      const t = exists('tunnel', d.tunnel, 'spec.tunnel')?.r as Resource<'tunnel'> | undefined;
+      if (t && (RULES.appLinkProviders as readonly string[]).includes(t.spec.provider)) details.push({ field: 'spec.tunnel', code: 'NOT_ALLOWED', message: `${t.name} is an address for one app. A domain goes through a cloudflare or relay tunnel.` });
+      if (t?.spec.provider === 'cloudflare' && !d.zone) details.push({ field: 'spec.zone', code: 'REQUIRED', message: 'Through a Cloudflare tunnel, choose the zone at Cloudflare that holds this hostname.' });
+      if (t && t.spec.provider !== 'cloudflare' && d.cloudflareAccess) details.push({ field: 'spec.cloudflareAccess', code: 'NOT_ALLOWED', message: 'Cloudflare Access needs a Cloudflare tunnel.' });
+      if (d.gate?.passwordSecret) exists('secret', d.gate.passwordSecret, 'spec.gate.passwordSecret');
+    }
     if (kind === 'domain') {
       const d = spec as unknown as DomainSpec;
       const app = byName('app', d.app);
@@ -853,8 +926,14 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
           return r.kind === 'zone' && (o.r.spec as RecordSpec).zone === r.name;
         case 'zone':
           return r.kind === 'secret' && (o.r.spec as ZoneSpec).credentialsSecret === r.name;
-        case 'domain':
-          return r.kind === 'zone' && (o.r.spec as DomainSpec).zone === r.name;
+        case 'domain': {
+          const d = o.r.spec as DomainSpec;
+          return (r.kind === 'zone' && d.zone === r.name) || (r.kind === 'tunnel' && d.tunnel === r.name) || (r.kind === 'secret' && d.gate?.passwordSecret === r.name);
+        }
+        case 'tunnel': {
+          const t = o.r.spec as TunnelSpec;
+          return (r.kind === 'app' && t.app === r.name) || (r.kind === 'secret' && (t.credentialsSecret === r.name || t.gate?.passwordSecret === r.name || Object.values(t.secretEnv ?? {}).includes(r.name)));
+        }
         case 'queue':
           return r.kind === 'queue' && (o.r.spec as QueueSpec).deadLetterQueue === r.name;
         case 'topic':
@@ -1376,7 +1455,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (kind === 'stack') return createStack(name, spec as StackSpec);
       const full = normalize(kind, spec as unknown as Record<string, unknown>);
       const nameErr = validateName(name);
-      const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []), ...checkSpec(kind, full)];
+      const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []), ...checkSpec(kind, full, name)];
       if (details.length) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, details));
       const taken = (k: Kind, n: string) => err('NAME_TAKEN', `A ${k} named ${n} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A ${k} named ${n} already exists.` }]);
       if (byName(kind, name)) return fail(taken(kind, name));
@@ -1450,7 +1529,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         const routed = domainsOf(r.name).find((d) => !(d.r.spec as DomainSpec).port);
         if (routed) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, [{ field: 'spec.port', code: 'REQUIRED', message: `The domain ${routed.r.name} routes to this app's port. Keep a port, or set one on the domain first.` }]));
       }
-      const details = checkSpec(r.kind, full);
+      const details = checkSpec(r.kind, full, r.name);
       if (details.length) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, details));
       let refused = '';
       if (r.kind === 'secret' && full.source) {
@@ -1943,15 +2022,21 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const m = machineList().find((x) => x.name === name);
       return guard() ?? (m ? wait(clone(m)) : machineNotFound(name));
     },
-    addMachine: (name, labels = {}) => {
+    addMachine: (name, labels = {}, edge) => {
       const blocked = guard() ?? adminOnly('add machines');
       if (blocked) return blocked;
       const nameErr = validateName(name);
-      const details = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
+      const details: FieldError[] = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
         ...Object.entries(validateLabels(labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }))];
+      if (edge && (validateHostname(edge.address.trim().toLowerCase()) && !/^\d{1,3}(\.\d{1,3}){3}$/.test(edge.address.trim()))) {
+        details.push({ field: 'address', code: 'INVALID_FORMAT', message: "Give the edge machine's public IPv4 address or host name." });
+      }
+      if (edge?.agentPort !== undefined && (edge.agentPort < RULES.portMin || edge.agentPort > RULES.portMax)) details.push({ field: 'agentPort', code: 'OUT_OF_RANGE', message: 'Use a port from 1 to 65535.' });
       if (details.length) return validationFailed(details);
       if (machineList().some((m) => m.name === name)) return fail(err('NAME_TAKEN', `A machine named ${name} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A machine named ${name} already exists.` }]));
       seedMachine(name, labels, 'waiting');
+      const added = machines.find((m) => m.name === name);
+      if (edge && added) Object.assign(added, { role: 'edge', address: edge.address.trim(), schedulable: false });
       machineEvent(name, 'added', 'Added; waiting for its agent.');
       const joinAfter = options.joinAfterMs ?? stepMs * 5;
       if (joinAfter > 0) {
@@ -1959,8 +2044,8 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
           const i = machines.findIndex((m) => m.name === name && m.state === 'waiting');
           const m = machines[i];
           if (!m) return;
-          machines[i] = joined(m, `10.0.0.${10 + i}`);
-          machineEvent(name, 'joined', `Joined from 10.0.0.${10 + i}.`);
+          machines[i] = m.role === 'edge' ? { ...joined(m, m.address ?? ''), role: 'edge', schedulable: false } : joined(m, `10.0.0.${10 + i}`);
+          machineEvent(name, 'joined', m.role === 'edge' ? `Joined: this machine reached ${m.address ?? ''}.` : `Joined from 10.0.0.${10 + i}.`);
         }, joinAfter);
       }
       return api.newJoinCode(name);
@@ -1980,6 +2065,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         save();
       }
       if (input.labels) m.labels = { ...input.labels };
+      if (input.schedulable && 'role' in m && m.role === 'edge') return validationFailed([{ field: 'schedulable', code: 'NOT_ALLOWED', message: 'An edge machine only relays visitors; nothing is placed on it.' }]);
       if (input.schedulable !== undefined && input.schedulable !== m.schedulable) {
         m.schedulable = input.schedulable;
         machineEvent(name, input.schedulable ? 'schedulable' : 'not_schedulable', input.schedulable ? 'Schedulable again.' : 'Not schedulable: nothing new is placed here.');
@@ -1994,6 +2080,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const m = machines[i];
       if (!m) return machineNotFound(name);
       if (force && m.state === 'online') return fail(err('MACHINE_ONLINE', `${name} is online. Move what runs there, then remove it without force.`, 409));
+      const relays = [...store.values()].filter((o) => o.r.kind === 'tunnel' && o.r.status.phase !== 'deleting' && (o.r.spec as TunnelSpec).machine === name);
+      if (relays.length) {
+        return fail(err('MACHINE_NOT_EMPTY', `${name} still runs ${relays.length} relay${relays.length === 1 ? '' : 's'}. Delete ${relays.length === 1 ? 'it' : 'them'} first.`, 409,
+          relays.map((o) => ({ field: `tunnel/${o.r.name}`, code: 'NOT_ALLOWED' as const, message: `Runs on ${name}.` }))));
+      }
       const there = [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.outputs.machine === name);
       if (there.length && !force) {
         return fail(err('MACHINE_NOT_EMPTY', `${name} still runs ${there.length} resources. Move or delete them first.`, 409,
@@ -2014,7 +2105,8 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (!m) return machineNotFound(name);
       if (m.state !== 'waiting') return fail(err('ACTION_NOT_SUPPORTED', `${name} has joined already; a join code is only for a machine waiting for its agent.`, 409));
       const code = Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 6).toUpperCase()).join('-');
-      return wait({ machine: clone(m), joinCode: code, joinCommand: `enclave agent join http://${window.location.host} --code ${code}`, expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+      const joinCommand = m.role === 'edge' ? `enclave agent join --edge --code ${code}` : `enclave agent join http://${window.location.host} --code ${code}`;
+      return wait({ machine: clone(m), joinCode: code, joinCommand, expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
     },
     drainMachine: (name) => {
       const blocked = guard() ?? adminOnly('drain machines');

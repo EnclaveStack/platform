@@ -68,7 +68,11 @@ type record struct {
 	Content string `json:"content"`
 	TTL     int    `json:"ttl"`
 	Comment string `json:"comment,omitempty"`
+	Proxied bool   `json:"proxied"`
 }
+
+// proxiedTTL is the TTL Cloudflare gives proxied records ("automatic").
+const proxiedTTL = 1
 
 func (p *Provider) call(ctx context.Context, method, path string, body any, out any) (*envelope, error) {
 	var rd io.Reader
@@ -183,7 +187,7 @@ func (p *Provider) Get(ctx context.Context, fqdn, typ string) (*dns.Record, erro
 	if err != nil || len(recs) == 0 {
 		return nil, err
 	}
-	out := &dns.Record{FQDN: fqdn, Type: typ, TTL: recs[0].TTL}
+	out := &dns.Record{FQDN: fqdn, Type: typ, TTL: recs[0].TTL, Proxied: recs[0].Proxied}
 	// The record is someone's only when every value carries the same owner comment.
 	owner, same := "", true
 	for i, r := range recs {
@@ -213,6 +217,9 @@ func (p *Provider) Set(ctx context.Context, rec dns.Record, owner string) error 
 	}
 	want := dns.Normalize(rec.Type, rec.Values)
 	comment := dns.OwnerComment(owner)
+	if rec.Proxied {
+		rec.TTL = proxiedTTL
+	}
 	have := map[string]bool{}
 	for _, e := range existing {
 		v := dns.Normalize(rec.Type, []string{e.Content})[0]
@@ -223,8 +230,8 @@ func (p *Provider) Set(ctx context.Context, rec dns.Record, owner string) error 
 			continue
 		}
 		have[v] = true
-		if e.TTL != rec.TTL || e.Comment != comment {
-			body := record{Type: rec.Type, Name: rec.FQDN, Content: e.Content, TTL: rec.TTL, Comment: comment}
+		if e.TTL != rec.TTL || e.Comment != comment || e.Proxied != rec.Proxied {
+			body := record{Type: rec.Type, Name: rec.FQDN, Content: e.Content, TTL: rec.TTL, Comment: comment, Proxied: rec.Proxied}
 			if _, err := p.call(ctx, http.MethodPut, "/zones/"+zid+"/dns_records/"+e.ID, body, nil); err != nil {
 				return err
 			}
@@ -234,7 +241,7 @@ func (p *Provider) Set(ctx context.Context, rec dns.Record, owner string) error 
 		if have[v] {
 			continue
 		}
-		body := record{Type: rec.Type, Name: rec.FQDN, Content: v, TTL: rec.TTL, Comment: comment}
+		body := record{Type: rec.Type, Name: rec.FQDN, Content: v, TTL: rec.TTL, Comment: comment, Proxied: rec.Proxied}
 		if _, err := p.call(ctx, http.MethodPost, "/zones/"+zid+"/dns_records", body, nil); err != nil {
 			return err
 		}

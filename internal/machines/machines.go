@@ -308,6 +308,7 @@ func (m *Manager) CheckAll(ctx context.Context) {
 		}
 		return
 	}
+	m.joinEdges(ctx, all) // edge machines are joined from here (ADR-052)
 	var wg sync.WaitGroup
 	for _, mc := range all {
 		if mc.ID == m.Store.MainID() || mc.State == api.MachineWaiting {
@@ -475,7 +476,8 @@ func (m *Manager) Candidates(ctx context.Context) ([]domain.Candidate, error) {
 	reserved := domain.ReservedByMachine(resources, m.Store.MainID())
 	out := make([]domain.Candidate, 0, len(all))
 	for _, mc := range all {
-		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Online: m.Online(mc.ID), Schedulable: mc.Schedulable,
+		// Nothing is ever placed on an edge machine (L2-014 EDG-03).
+		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Online: m.Online(mc.ID), Schedulable: mc.Schedulable && !mc.IsEdge(),
 			Labels: mc.Labels, VMs: mc.Info.VMs.Available, MemoryTotalMiB: int(mc.Info.MemoryTotalBytes >> 20), ReservedMiB: reserved[mc.ID],
 			VersionOK: mc.Info.AgentVersion == "" || SameMinor(mc.Info.AgentVersion, version.Version)}
 		if c.Main {
@@ -551,7 +553,8 @@ func (m *Manager) Members(ctx context.Context) ([]engine.MeshMember, error) {
 		if mc.State == api.MachineWaiting {
 			continue
 		}
-		mem := engine.MeshMember{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), PublicKey: mc.TunnelPublicKey, TunnelPort: mc.TunnelPort}
+		mem := engine.MeshMember{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Edge: mc.Role == api.MachineEdge,
+			PublicKey: mc.TunnelPublicKey, TunnelPort: mc.TunnelPort}
 		if mem.Main {
 			mem.TunnelPort = m.TunnelPort
 			if m.TunnelAddress != "" {

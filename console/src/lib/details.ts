@@ -21,6 +21,8 @@ export const OUTPUT_LABELS: Record<string, string> = {
   state: 'State', since: 'Since', lastEvaluatedAt: 'Last checked', lastDeliveryStatus: 'Last delivery', lastDeliveryAt: 'Last delivered',
   linesSent: 'Lines sent', bytesSent: 'Sent', lagSeconds: 'Behind by', lastSentAt: 'Last sent', lastError: 'Last error', checkedAt: 'Credentials checked',
   syncedSecrets: 'Secrets synced', syncedAt: 'Last synced', store: 'Store', key: 'Key', widgets: 'Widgets',
+  connection: 'Connection', connections: 'Connections', tunnelId: 'Tunnel ID', gate: 'Gate', device: 'Device name', funnel: 'Public with Funnel',
+  public: 'Public', tunnel: 'Tunnel', tunnelState: 'Tunnel connection', accessApplicationId: 'Access application',
 };
 
 /** Label → what it is and what to do with it. */
@@ -195,6 +197,26 @@ export const DETAIL_HELP: Record<string, string> = {
   System: 'Its operating system and processor.',
   Agent: 'The EnclaveStack version its agent runs.',
   'Machine engine': 'The container engine on it, and its version.',
+  Role: 'Worker machines run resources; an edge machine only relays visitors for relay tunnels.',
+  Relays: 'The relay tunnels that run on this edge machine.',
+  // Public access
+  'Way in': 'How visitors reach it from the internet.',
+  Connection: 'Whether its connector is connected now; reconnecting means it is trying again.',
+  Connections: 'How many connections the connector holds to the service.',
+  'Tunnel ID': 'The tunnel’s ID at Cloudflare.',
+  'Account ID': 'The Cloudflare account the tunnel is made in.',
+  'Edge machine': 'The server with a public address the relay runs on.',
+  'Who can open it': 'Private: only your tailnet’s devices. Public: anyone, behind the gate.',
+  'Device name': 'Its name in your tailnet.',
+  'Public with Funnel': 'Yes means anyone on the internet can open it; no means only your tailnet’s devices.',
+  Gate: 'Who may open it: people who sign in, a shared password, or everyone.',
+  'Open paths': 'Paths that skip the gate, for webhooks.',
+  Public: 'Whether it is served to the internet through a tunnel.',
+  Tunnel: 'The tunnel it is served through.',
+  'Tunnel connection': 'Whether the tunnel it goes through is connected now.',
+  'Cloudflare Access': 'The people Cloudflare checks with a one-time code before the gate.',
+  'Access application': 'The Cloudflare Access application that checks visitors first.',
+  'DNS record': 'The record that sends visitors to the tunnel, and whether EnclaveStack made it.',
   CPUs: 'Processor cores EnclaveStack may use.',
   VMs: 'Whether it can run virtual machines.',
 };

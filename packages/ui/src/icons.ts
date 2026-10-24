@@ -5,6 +5,7 @@ export {
   ArchiveRestore,
   ArrowRightLeft,
   BellRing,
+  Cable,
   Box,
   Boxes,
   Camera,

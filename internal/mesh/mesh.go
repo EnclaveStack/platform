@@ -50,6 +50,10 @@ type Peer struct {
 	PublicKey string   `json:"publicKey"`
 	Endpoint  string   `json:"endpoint"`
 	Addresses []string `json:"addresses"`
+	// Limited peers (edge machines, L2-014 EDG-04) may send only to Reach, TCP "address:port" pairs here;
+	// the rest of their traffic is dropped.
+	Limited bool     `json:"limited,omitempty"`
+	Reach   []string `json:"reach,omitempty"`
 }
 
 // Network is an EnclaveStack network this machine is on, by range; the helper finds its interface.
@@ -163,7 +167,7 @@ func apply() error {
 	if err := syncProxies(remote, cfg.Networks, ifaces); err != nil {
 		return err
 	}
-	rules, err := Rules(cfg.Networks, ifaces)
+	rules, err := Rules(cfg.Networks, ifaces, cfg.Peers)
 	if err != nil {
 		return err
 	}
@@ -251,7 +255,7 @@ func WireGuardConf(priv string, cfg Config) (string, error) {
 		if _, err := base64.StdEncoding.DecodeString(p.PublicKey); err != nil || len(p.PublicKey) != 44 {
 			return "", fmt.Errorf("a peer's public key %q isn't WireGuard's", p.PublicKey)
 		}
-		if _, _, err := net.SplitHostPort(p.Endpoint); err != nil {
+		if _, _, err := net.SplitHostPort(p.Endpoint); p.Endpoint != "" && err != nil {
 			return "", fmt.Errorf("a peer's endpoint %q isn't host:port", p.Endpoint)
 		}
 		allowed := make([]string, 0, len(p.Addresses))
@@ -262,7 +266,12 @@ func WireGuardConf(priv string, cfg Config) (string, error) {
 			}
 			allowed = append(allowed, ip.String()+"/32")
 		}
-		fmt.Fprintf(&b, "\n[Peer]\nPublicKey = %s\nEndpoint = %s\nPersistentKeepalive = 25\n", p.PublicKey, p.Endpoint)
+		fmt.Fprintf(&b, "\n[Peer]\nPublicKey = %s\n", p.PublicKey)
+		if p.Endpoint != "" {
+			// The side that knows where its peer is keeps the path open; a peer behind NAT has no endpoint here,
+			// and WireGuard learns where it is from its packets (L2-014 EDG-05).
+			fmt.Fprintf(&b, "Endpoint = %s\nPersistentKeepalive = 25\n", p.Endpoint)
+		}
 		if len(allowed) > 0 {
 			fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(allowed, ", "))
 		}
@@ -359,13 +368,40 @@ func syncProxies(remote []netip.Addr, nets []Network, ifaces map[string]string) 
 }
 
 // Rules is the mesh's nftables table: forwarding only between a network's interface and the tunnel, both
-// ends inside that network's range; TCP's MSS clamped to the path; everything else dropped.
-func Rules(nets []Network, ifaces map[string]string) (string, error) {
+// ends inside that network's range; a limited peer's new connections only to its Reach; TCP's MSS clamped
+// to the path; everything else dropped.
+func Rules(nets []Network, ifaces map[string]string, peers []Peer) (string, error) {
 	var b strings.Builder
 	b.WriteString("table inet es_mesh\ndelete table inet es_mesh\ntable inet es_mesh {\n")
 	b.WriteString("  chain forward {\n    type filter hook forward priority 0; policy drop;\n")
 	b.WriteString("    tcp flags syn tcp option maxseg size set rt mtu\n")
 	b.WriteString("    ct state established,related accept\n")
+	for _, p := range peers {
+		if !p.Limited || len(p.Addresses) == 0 {
+			continue // WireGuard takes nothing from a peer without addresses
+		}
+		from := make([]string, 0, len(p.Addresses))
+		for _, a := range p.Addresses {
+			ip, err := netip.ParseAddr(a)
+			if err != nil || !ip.Is4() {
+				return "", fmt.Errorf("a peer's address %q isn't IPv4", a)
+			}
+			from = append(from, ip.String())
+		}
+		reach := make([]string, 0, len(p.Reach))
+		for _, r := range p.Reach {
+			ap, err := netip.ParseAddrPort(r)
+			if err != nil || !ap.Addr().Is4() || ap.Port() == 0 {
+				return "", fmt.Errorf("%q isn't an IPv4 address and port", r)
+			}
+			reach = append(reach, ap.Addr().String()+" . "+strconv.Itoa(int(ap.Port())))
+		}
+		set := "{ " + strings.Join(from, ", ") + " }"
+		if len(reach) > 0 {
+			fmt.Fprintf(&b, "    iifname %q ip saddr %s ip daddr . tcp dport { %s } accept\n", Interface, set, strings.Join(reach, ", "))
+		}
+		fmt.Fprintf(&b, "    iifname %q ip saddr %s drop\n", Interface, set)
+	}
 	cidrs := make([]string, 0, len(nets))
 	for _, n := range nets {
 		cidrs = append(cidrs, n.CIDR)

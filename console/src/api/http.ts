@@ -218,7 +218,7 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
     listNotifications: async (id) => (await call<{ items: NotificationRecord[] }>({ method: 'GET', path: `/resources/${enc(id)}/notifications?limit=50` })).items,
     listMachines: async () => (await call<{ items: MachineSummary[] }>({ method: 'GET', path: '/machines' })).items,
     getMachineByName: (name) => call<MachineSummary>({ method: 'GET', path: `/machines/${enc(name)}` }),
-    addMachine: (name, labels) => call<AddedMachine>({ method: 'POST', path: '/machines', body: { name, ...(labels ? { labels } : {}) } }),
+    addMachine: (name, labels, edge) => call<AddedMachine>({ method: 'POST', path: '/machines', body: { name, ...(labels ? { labels } : {}), ...(edge ? { role: 'edge', ...edge } : {}) } }),
     updateMachineByName: (name, input) => call<MachineSummary>({ method: 'PATCH', path: `/machines/${enc(name)}`, body: input }),
     removeMachine: async (name, force = false) => {
       await call<unknown>({ method: 'DELETE', path: `/machines/${enc(name)}${force ? '?force=true' : ''}` });

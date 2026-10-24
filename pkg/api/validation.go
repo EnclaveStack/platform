@@ -101,7 +101,7 @@ var (
 const (
 	msgName = "Use 3–40 lowercase letters, numbers or hyphens, starting with a letter and not ending with a hyphen."
 	// KindChoiceMessage answers an unknown kind.
-	KindChoiceMessage = "Choose one of app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport or secretstore."
+	KindChoiceMessage = "Choose one of app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore or tunnel."
 )
 
 // ValidateName checks a resource name.
@@ -240,7 +240,13 @@ func normalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 		}
 		s.Hostname = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s.Hostname)), ".")
 		s = normalizeDomainTLS(s)
-		return s, validateDomain(s), nil
+		s.Tunnel = strings.TrimSpace(s.Tunnel)
+		if s.Gate != nil {
+			g := normalizeGate(*s.Gate)
+			s.Gate = &g
+		}
+		s.CloudflareAccess = normalizeAccess(s.CloudflareAccess)
+		return s, append(validateDomain(s), validateDomainAccess(s)...), nil
 	case KindJob:
 		var s JobSpec
 		if err := DecodeStrict(raw, &s); err != nil {
@@ -417,6 +423,13 @@ func normalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 		}
 		s = normalizeStack(s)
 		return s, validateStack(s), nil
+	case KindTunnel:
+		var s TunnelSpec
+		if err := DecodeStrict(raw, &s); err != nil {
+			return nil, nil, err
+		}
+		s = normalizeTunnel(s)
+		return s, validateTunnel(s), nil
 	case KindSecret:
 		var s SecretSpec
 		if err := DecodeStrict(raw, &s); err != nil {
@@ -962,6 +975,11 @@ func ImmutableViolations(kind Kind, before, after any) []FieldError {
 	case KindChannel:
 		if before.(ChannelSpec).Type != after.(ChannelSpec).Type {
 			return []FieldError{{Field: "spec.type", Code: FieldImmutable, Message: "A channel's type can't change. Create a new channel instead."}}
+		}
+	case KindTunnel:
+		b, a := before.(TunnelSpec), after.(TunnelSpec)
+		if b.Provider != a.Provider || b.Machine != a.Machine {
+			return []FieldError{{Field: "spec.provider", Code: FieldImmutable, Message: "A tunnel's way in and edge machine can't change. Create a new tunnel instead."}}
 		}
 	case KindSnapshot:
 		if before.(SnapshotSpec) != after.(SnapshotSpec) {

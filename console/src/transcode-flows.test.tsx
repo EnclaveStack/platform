@@ -127,7 +127,8 @@ describe('transcoder outputs in the console', () => {
     await api.createResource('bucket', 'media', {});
     const plain = await api.createResource('transcoder', 'plain', { input: { bucket: 'media', prefix: 'in/' }, output: { bucket: 'media', prefix: 'out/' }, hls: { rungs: [rung] } });
     const tagged = await api.createResource('transcoder', 'tagged', { input: { bucket: 'media', prefix: 'up/' }, output: { bucket: 'media', prefix: 'done/{meta:video-id}/' }, presets: ['mp3'] });
-    await waitFor(async () => expect((await api.getResource(plain.id)).status.phase).toBe('ready'), { timeout: 3000 });
+    // Both must be ready before a run: the second one is still provisioning on a slow machine.
+    for (const t of [plain, tagged]) await waitFor(async () => expect((await api.getResource(t.id)).status.phase).toBe('ready'), { timeout: 3000 });
     await api.transcode(plain.id, 'in/clip.mov');
     await api.transcode(tagged.id, 'up/clip.mov');
     await waitFor(async () => expect((await api.listRuns(tagged.id))[0]?.status).toBe('failed'), { timeout: 3000 });

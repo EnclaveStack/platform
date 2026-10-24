@@ -8,8 +8,10 @@ import { Link, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
 import { MANAGED } from '../api/generated';
 import { DETAIL_HELP, isCopyable, isMono, isSecretLabel, OUTPUT_LABELS, withHelp } from '../lib/details';
-import { ApiError, type AppSpec, type BackupSpec, type BucketSpec, type CacheSpec, type CDNSpec, type DatabaseSpec, type EmailSpec, type QueueSpec, type SearchSpec, type TopicSpec, type TranscoderSpec, type DomainSpec, type FirewallSpec, type JobSpec, type Kind, type LoadBalancerSpec, type NetworkSpec, type RecordSpec, type Resource, type Run, type SnapshotSpec, type VMSpec, type VolumeSpec, type ZoneSpec } from '../api/types';
+import { ApiError, type AppSpec, type BackupSpec, type BucketSpec, type CacheSpec, type CDNSpec, type DatabaseSpec, type EmailSpec, type QueueSpec, type SearchSpec, type TopicSpec, type TranscoderSpec, type DomainSpec, type FirewallSpec, type JobSpec, type Kind, type LoadBalancerSpec, type NetworkSpec, type RecordSpec, type Resource, type Run, type SnapshotSpec, type VMSpec, type VolumeSpec, type ZoneSpec, type GateMode, type TunnelSpec } from '../api/types';
 import { BucketAccessCard } from '../components/AccessFields';
+import { GATE_TITLE, gateOf, WAY_TITLE } from '../components/PublicAccessFields';
+import { connectionChip, MakePublic, PublicAddressesCard, PublicDomainCard, TunnelCards } from '../components/PublicAccessPanels';
 import { TranscodeOutputsCards } from '../components/TranscodeFields';
 import { BucketObjects } from '../components/BucketObjects';
 import { IMAGE_TITLES } from '../components/ComputeFields';
@@ -62,7 +64,9 @@ function outputText(k: string, v: unknown): string {
   if (k === 'usedBytes' || k === 'sizeBytes') return formatBytes(Number(v));
   if (k === 'sizeGiB') return `${String(v)} GiB`;
   if (k === 'takenAt') return new Date(String(v)).toLocaleString();
-  if (k === 'inUse') return v ? 'Yes' : 'No';
+  if (k === 'inUse' || k === 'funnel' || k === 'public') return v ? 'Yes' : 'No';
+  if (k === 'connection' || k === 'tunnelState') return v === 'connected' ? 'Connected' : v === 'reconnecting' ? 'Reconnecting' : String(v);
+  if (k === 'gate') return GATE_TITLE[v as GateMode] ?? String(v);
   if (k === 'attachedTo') return String(v) ? String(v).split(',').join(', ') : 'Nothing';
   if (k === 'cachedBytes' || k === 'bytesSent') return formatBytes(Number(v));
   if (k === 'state') return ({ ok: 'OK', firing: 'Firing', no_data: 'No data', disabled: 'Off' } as Record<string, string>)[String(v)] ?? String(v);
@@ -75,7 +79,7 @@ function outputText(k: string, v: unknown): string {
 }
 
 /** Outputs that are bookkeeping, not facts for people. */
-const HIDDEN_OUTPUTS = new Set(['latestRevision', 'pendingRestore', 'builtInputs', 'appliedTargets', 'backends', 'owned', 'linkPort', 'webPort']);
+const HIDDEN_OUTPUTS = new Set(['latestRevision', 'pendingRestore', 'builtInputs', 'appliedTargets', 'backends', 'owned', 'linkPort', 'webPort', 'dnsRecord', 'dnsRecordOwned', 'dnsZone']);
 
 const BUILD_LABEL: Record<string, string> = { succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped — nothing changed' };
 const DEPLOY_LABEL: Record<string, string> = { succeeded: 'Succeeded', failed: 'Failed — previous revision kept', in_progress: 'In progress' };
@@ -97,6 +101,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addingDomain, setAddingDomain] = useState(false);
+  const [makingPublic, setMakingPublic] = useState(false);
   const [addingBackup, setAddingBackup] = useState(false);
   const [addingRecord, setAddingRecord] = useState(false);
   const [spawning, setSpawning] = useState<Spawn | null>(null);
@@ -226,8 +231,10 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
         title={r.name}
         status={<StatusBadge phase={r.status.phase} />}
         lede={`${section.noun[0]?.toUpperCase() ?? ''}${section.noun.slice(1)} in project ${r.project} · changed ${formatAgo(r.updatedAt)}`}
-        meta={(r.ownerId !== null || r.stack || (typeof r.outputs.machine === 'string' && r.outputs.machine)) && (
+        meta={(r.ownerId !== null || r.stack || r.kind === 'tunnel' || (r.kind === 'domain' && (r.spec as DomainSpec).tunnel) || (typeof r.outputs.machine === 'string' && r.outputs.machine)) && (
           <>
+            {connectionChip(r)}
+            {r.kind === 'domain' && (r.spec as DomainSpec).tunnel && <Chip icon={<Icons.Cable />}>Public via {(r.spec as DomainSpec).tunnel}</Chip>}
             {r.ownerId !== null && <Chip>Managed by {r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : 'its database'}</Chip>}
             {r.stack && <StackChip id={r.stack} />}
             {typeof r.outputs.machine === 'string' && r.outputs.machine && (
@@ -275,6 +282,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
                 {r.outputs.type === 'disk' && <Button size="sm" icon={<Icons.Server />} disabled={busy} onClick={() => setSpawning({ kind: 'vm', title: 'Launch VM from snapshot', snapshot: r.name })}>Launch VM</Button>}
               </>
             )}
+            {r.kind === 'app' && r.status.phase !== 'deleting' && !r.stack && <Button size="sm" icon={<Icons.Cable />} disabled={busy || !(r.spec as AppSpec).port} title={(r.spec as AppSpec).port ? undefined : 'Give the app a port first.'} onClick={() => setMakingPublic(true)}>Make public</Button>}
             {r.kind === 'app' && r.status.phase !== 'deleting' && !r.stack && <Button size="sm" icon={<Icons.Globe />} disabled={busy} onClick={() => setAddingDomain(true)}>Add domain</Button>}
             {isPlaced(r.kind) && !managed && r.status.phase !== 'deleting' && !(r.kind === 'job' && (r.spec as JobSpec).app) && (
               <MoveButton r={r} disabled={busy} onMoved={() => { toast(`Moving ${r.name}`); detail.reload(); onChanged(); }} />
@@ -343,6 +351,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
           />}
         </Drawer>
       )}
+      {makingPublic && <MakePublic app={r} onClose={() => setMakingPublic(false)} />}
       {addingDomain && (
         <Drawer title="New domain" onClose={() => setAddingDomain(false)}>
           <ResourceForm
@@ -770,8 +779,22 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
     }
     case 'domain': {
       const d = r.spec as DomainSpec;
-      facts.unshift(['Hostname', d.hostname], ['App', d.port ? `${d.app} : ${d.port}` : d.app], ['HTTPS', TLS_LABEL[d.tls ?? 'auto'] ?? String(d.tls)]);
-      if (d.tls !== 'off') facts.push(['HTTP', d.redirectHttp === false ? 'Served as well' : 'Redirects to HTTPS']);
+      facts.unshift(['Hostname', d.hostname], ['App', d.port ? `${d.app} : ${d.port}` : d.app]);
+      if (!d.tunnel) facts.splice(2, 0, ['HTTPS', TLS_LABEL[d.tls ?? 'auto'] ?? String(d.tls)]);
+      if (d.tls !== 'off' && !d.tunnel) facts.push(['HTTP', d.redirectHttp === false ? 'Served as well' : 'Redirects to HTTPS']);
+      break;
+    }
+    case 'tunnel': {
+      // Public access (CON-76): the way in, what it reaches, and for a relay its edge machine.
+      const t = r.spec as TunnelSpec;
+      facts.unshift(['Way in', WAY_TITLE[t.provider]]);
+      if (t.app) facts.splice(1, 0, ['App', t.port ? `${t.app} : ${t.port}` : t.app]);
+      if (t.provider === 'tailscale') facts.push(['Who can open it', t.mode === 'public' ? 'Public, with Funnel' : 'Private: your tailnet']);
+      if (t.credentialsSecret) facts.push(['Credentials secret', t.credentialsSecret]);
+      if (t.accountId) facts.push(['Account ID', t.accountId]);
+      if (t.machine) facts.push(['Edge machine', t.machine]);
+      if (t.provider === 'custom' && t.image) facts.push(['Image', t.image]);
+      if (gateOf(t).openPaths?.length) facts.push(['Open paths', (gateOf(t).openPaths ?? []).join(', ')]);
       break;
     }
   }
@@ -786,7 +809,9 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
       {r.kind === 'logexport' && <LogExportCard r={r} />}
       {r.kind === 'secret' && (r.spec as { source?: unknown }).source !== undefined && <SyncedSecretCard r={r} />}
       {r.kind === 'secret' && (canReveal ? <Reveal r={r} /> : <Card title="Value"><Text tone="subtle">{needRole('editor', r.project)}</Text></Card>)}
-      {r.kind === 'domain' && <DomainCards r={r} />}
+      {r.kind === 'domain' && ((r.spec as DomainSpec).tunnel ? <PublicDomainCard r={r} /> : <DomainCards r={r} />)}
+      {r.kind === 'tunnel' && <TunnelCards r={r as Resource<'tunnel'>} />}
+      {r.kind === 'app' && <PublicAddressesCard app={r} />}
       {r.kind === 'firewall' && <RulesCard spec={r.spec as FirewallSpec} />}
       {r.kind === 'vm' && <SSHCard r={r} />}
       {['database', 'queue', 'topic', 'search', 'email'].includes(r.kind) && r.status.phase === 'ready' && <ConnectCard r={r} />}

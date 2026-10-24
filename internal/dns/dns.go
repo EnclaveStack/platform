@@ -27,6 +27,9 @@ type Record struct {
 	// Owner is the EnclaveStack resource that wrote it, when the provider can store that (Cloudflare record
 	// comments); "" when unknown.
 	Owner string
+	// Proxied sends the name's traffic through the provider's network (Cloudflare only): what a public
+	// domain on a Cloudflare tunnel needs (L2-014 PUB-02). Other providers ignore it.
+	Proxied bool
 }
 
 // Provider keeps records of one zone.

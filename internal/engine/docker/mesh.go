@@ -104,10 +104,10 @@ func (d *Driver) ConfigureMesh(ctx context.Context, cfg engine.MeshConfig) (engi
 func meshHelperConfig(cfg engine.MeshConfig, nets map[string]string) mesh.Config {
 	out := mesh.Config{ListenPort: cfg.TunnelPort}
 	for _, p := range cfg.Peers {
-		if p.PublicKey == "" || p.Endpoint == "" {
-			continue // a peer that hasn't made its key yet, or can't be reached
+		if p.PublicKey == "" {
+			continue // a peer that hasn't made its key yet
 		}
-		out.Peers = append(out.Peers, mesh.Peer{PublicKey: p.PublicKey, Endpoint: p.Endpoint, Addresses: p.Addresses})
+		out.Peers = append(out.Peers, mesh.Peer{PublicKey: p.PublicKey, Endpoint: p.Endpoint, Addresses: p.Addresses, Limited: p.Limited, Reach: p.Reach})
 	}
 	names := make([]string, 0, len(nets))
 	for n := range nets {

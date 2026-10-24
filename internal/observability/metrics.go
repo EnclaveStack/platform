@@ -43,6 +43,13 @@ type Metrics struct {
 	LogExportErrors  *prometheus.CounterVec
 	LogExportGaps    *prometheus.CounterVec
 	SecretSyncs      *prometheus.CounterVec
+	// Public access (L3-007 §14).
+	Tunnels             *prometheus.GaugeVec
+	TunnelConnections   *prometheus.GaugeVec
+	TunnelProviderCalls *prometheus.CounterVec
+	GateChecks          *prometheus.CounterVec
+	GateSignins         *prometheus.CounterVec
+	RelayUp             *prometheus.GaugeVec
 }
 
 // NewMetrics registers every instrument on a fresh registry (one per server, so tests don't collide).
@@ -146,12 +153,31 @@ func NewMetrics() *Metrics {
 		SecretSyncs: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "enclave_secret_syncs_total", Help: "Reads of secrets from secret stores, by provider and result.",
 		}, []string{"provider", "result"}),
+		Tunnels: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "enclave_tunnels", Help: "Tunnels by provider and connection state (connected, reconnecting, failed).",
+		}, []string{"provider", "state"}),
+		TunnelConnections: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "enclave_tunnel_connections", Help: "Open connections of each tunnel to its provider (1 or 0 for links and relays).",
+		}, []string{"tunnel"}),
+		TunnelProviderCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "enclave_tunnel_provider_calls_total", Help: "Calls to tunnel providers' APIs by provider and result.",
+		}, []string{"provider", "result"}),
+		GateChecks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "enclave_gate_checks_total", Help: "Gate checks by result (allowed, signin, denied, error).",
+		}, []string{"result"}),
+		GateSignins: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "enclave_gate_signins_total", Help: "Gate sign-ins by result (ok, wrong, no_access, throttled).",
+		}, []string{"result"}),
+		RelayUp: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "enclave_relay_up", Help: "1 while a relay on its edge machine runs.",
+		}, []string{"tunnel"}),
 	}
 	reg.MustRegister(m.HTTPRequests, m.HTTPDuration, m.ReconcileTotal, m.ReconcileDuration, m.Resources, m.EngineUp, m.RunsTotal, m.RunDuration,
 		m.FirewallApply, m.FirewallApplySeconds, m.LBHealthyTargets, m.DNSCalls, m.ACMEOrders,
 		m.VMs, m.VMStarts, m.ImageDownloads, m.Snapshots, m.SnapshotSeconds,
 		m.MessagesSent, m.Deliveries, m.DeadLetters, m.Purges,
 		m.ResourceValue, m.Samples, m.SampleDuration, m.AlertTransitions, m.Notifications, m.LogLinesExported, m.LogExportErrors, m.LogExportGaps, m.SecretSyncs,
+		m.Tunnels, m.TunnelConnections, m.TunnelProviderCalls, m.GateChecks, m.GateSignins, m.RelayUp,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }

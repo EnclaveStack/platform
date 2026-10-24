@@ -31,9 +31,14 @@ func TestAWordPressStackFromTheCatalogue(t *testing.T) {
 	admin := env.Setup(t)
 	ctx := context.Background()
 
+	// Six apps and six ways in from the internet (L2-014 TUN-15).
 	entries, err := admin.Catalogue(ctx)
-	if err != nil || len(entries) != 6 {
-		t.Fatalf("catalogue: %d %v", len(entries), err)
+	byCategory := map[string]int{}
+	for _, e := range entries {
+		byCategory[e.Category]++
+	}
+	if err != nil || byCategory[api.CategoryApps] != 6 || byCategory[api.CategoryPublicAccess] != 6 {
+		t.Fatalf("catalogue: %v %v", byCategory, err)
 	}
 	wp, err := admin.CatalogueEntry(ctx, "wordpress", "")
 	if err != nil || !wp.BuiltIn || len(wp.Members) != 4 || !wp.Members[3].Optional {

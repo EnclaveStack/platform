@@ -2,12 +2,13 @@ import { Alert, Button, Checkbox, Choice, ConfirmDialog, describedBy, Field, Fie
 import { useState, type FormEvent } from 'react';
 import { useApi } from '../api/context';
 import { RULES } from '../api/generated';
-import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
+import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type TunnelProvider, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
 import { isPlaced, MachineFields, usePlacement } from '../components/MachineFields';
 import { BucketAccessEditor, grantRows, grantsOf, type GrantRow } from '../components/AccessFields';
 import { DiskPicker, freeDisks, IMAGE_TITLES, MountEditor, mountRows, mountsOf, VM_SIZES, type MountRow } from '../components/ComputeFields';
 import { DATA_IMMUTABLE, DATA_KINDS, useDataForm } from '../components/DataFields';
 import { OPERATE_IMMUTABLE, OPERATE_KINDS, useOperateForm } from '../components/OperateFields';
+import { useDomainPublic, useTunnelForm } from '../components/PublicAccessFields';
 import { useProject } from '../lib/project';
 import { hasInternet, PlacementFields, RuleEditor, ruleRows, rulesOf, TargetChecklist, TargetEditor, targetRows, targetsOf, type RuleRow, type TargetRow } from '../components/NetworkingFields';
 import { fromRows, KeyValueEditor, toRows, type Row } from '../components/KeyValueEditor';
@@ -32,6 +33,10 @@ interface Props {
   initialSnapshot?: string;
   /** Pre-fills a new snapshot's source ("Take snapshot" on a volume or VM). */
   initialSource2?: string;
+  /** Pre-fills a new tunnel's way in (Install on a Public access card, Make public). */
+  initialProvider?: TunnelProvider;
+  /** Pre-fills a new domain's tunnel (Make public through a domain tunnel). */
+  initialTunnel?: string;
 }
 
 /** The database engines with one line each on what they are for (L2.5-002 §13). */
@@ -66,7 +71,7 @@ function scheduleHint(schedule: string, timeZone: string): string {
 }
 
 // Create and edit forms for every kind (L2-001 CON-14, CON-15; L2.5-002 §1–2).
-export function ResourceForm({ kind, existing, onDone, onReload, initialApp, initialSource, initialZone, initialSnapshot, initialSource2 }: Props) {
+export function ResourceForm({ kind, existing, onDone, onReload, initialApp, initialSource, initialZone, initialSnapshot, initialSource2, initialProvider, initialTunnel }: Props) {
   const api = useApi();
   // A resource stays in its project; a new one goes to the current project (ADR-035, CON-45).
   const { createIn } = useProject();
@@ -130,6 +135,9 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const [version, setVersion] = useState(spec.version ?? RULES.defaultDatabaseVersion);
   const data = useDataForm(kind, existing);
   const operate = useOperateForm(kind, existing);
+  const tunnelForm = useTunnelForm(existing, { provider: initialProvider, app: initialApp });
+  const pub = useDomainPublic(existing, initialTunnel);
+  const edgeMachines = useLoad(`form-edge:${kind}`, () => (kind === 'tunnel' ? api.listMachines() : Promise.resolve([])));
   const [maxMemory, setMaxMemory] = useState(String(spec.maxMemoryMiB ?? RULES.cacheMemoryDefault));
   const [versioning, setVersioning] = useState(spec.versioning ?? false);
   const [strategy, setStrategy] = useState<Strategy>(spec.strategy ?? 'rolling');
@@ -379,8 +387,10 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           d.zone = domainZone;
           d.tls = 'auto';
         }
-        return d as unknown as Record<string, unknown>;
+        return pub.apply(d, live) as unknown as Record<string, unknown>;
       }
+      case 'tunnel':
+        return tunnelForm.build();
     }
   }
 
@@ -423,7 +433,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
       if (k === 'engine' || (kind === 'database' && k === 'version') || (kind === 'backup' && k === 'source') || kind === 'network'
         || (kind === 'zone' && (k === 'provider' || k === 'zone')) || (kind === 'record' && (k === 'zone' || k === 'name' || k === 'type'))
         || (kind === 'vm' && ['image', 'imageSha256', 'sshKeys', 'sshKeySecret', 'userData'].includes(k)) || (kind === 'volume' && (k === 'type' || k === 'snapshot'))
-        || kind === 'snapshot' || (DATA_IMMUTABLE[kind] ?? []).includes(k) || (OPERATE_IMMUTABLE[kind] ?? []).includes(k)) continue;
+        || kind === 'snapshot' || (kind === 'tunnel' && (k === 'provider' || k === 'machine')) || (DATA_IMMUTABLE[kind] ?? []).includes(k) || (OPERATE_IMMUTABLE[kind] ?? []).includes(k)) continue;
       const a = JSON.stringify(prev?.[k] ?? null);
       const b = JSON.stringify(next[k] ?? null);
       if (a !== b) out[k] = next[k] ?? null;
@@ -480,6 +490,18 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
 
   const onBlur = () => setErrors(validate());
   const err = (f: string) => errors[f];
+  // A domain's zone: DNS-01 for a local domain, where its record is written for a public one (PUB-02).
+  const domainZoneField = (
+    <Field id="f-domain-zone" label={pub.isPublic ? 'Zone' : 'Get the certificate through DNS'} error={err('spec.zone')}
+      hint={pub.isPublic ? undefined : domainZone ? `Let's Encrypt checks a TXT record in ${domainZone}: no inbound port is needed, and the hostname may start with *.` : 'Optional. Choose a zone to use DNS-01, needed for wildcard hostnames like *.example.com.'}>
+      <Select id="f-domain-zone" value={domainZone} onChange={(e) => setDomainZone(e.target.value)}>
+        <option value="">{pub.isPublic ? 'None: I point the record myself' : "No (HTTP-01 or this machine's certificate)"}</option>
+        {zoneNames.map((z) => (
+          <option key={z} value={z}>{z}</option>
+        ))}
+      </Select>
+    </Field>
+  );
 
   return (
     <Form onSubmit={submit} noValidate>
@@ -650,6 +672,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         </>
       )}
       {DATA_KINDS.includes(kind) && data.render({ live, editing, errors, onBlur })}
+      {kind === 'tunnel' && tunnelForm.render({ live, edgeMachines: (edgeMachines.data ?? []).filter((m) => m.role === 'edge'), editing, errors, onBlur })}
       {OPERATE_KINDS.includes(kind) && operate.render({ live, editing, errors, onBlur })}
       {kind === 'database' && <PlacementFields networks={networks} network={network} subnet={subnet} errors={errors} onChange={(n, sub) => { setNetwork(n); setSubnet(sub); }} />}
       {kind === 'cache' && <PlacementFields networks={networks} network={network} subnet={subnet} errors={errors} onChange={(n, sub) => { setNetwork(n); setSubnet(sub); }} />}
@@ -844,6 +867,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               <Input id="f-domain-port" inputMode="numeric" value={domainPort} onChange={(e) => setDomainPort(e.target.value)} onBlur={onBlur} />
             </Field>
           </FormRow>
+          {!pub.isPublic && (<>
           <Field id="f-tls" label="HTTPS certificate" error={err('spec.tls')}
             hint={tls === 'auto' ? "Let's Encrypt: the hostname's DNS must point to this machine and ports 80 and 443 must reach it."
               : tls === 'internal' ? 'Signed by this machine. Browsers trust it once you install the EnclaveStack root certificate.'
@@ -856,15 +880,9 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             </Select>
           </Field>
           {tls !== 'off' && <Checkbox label="Redirect HTTP to HTTPS" checked={redirect} onChange={(e) => setRedirect(e.target.checked)} />}
-          <Field id="f-domain-zone" label="Get the certificate through DNS" error={err('spec.zone')}
-            hint={domainZone ? `Let's Encrypt checks a TXT record in ${domainZone}: no inbound port is needed, and the hostname may start with *.` : 'Optional. Choose a zone to use DNS-01, needed for wildcard hostnames like *.example.com.'}>
-            <Select id="f-domain-zone" value={domainZone} onChange={(e) => setDomainZone(e.target.value)}>
-              <option value="">No (HTTP-01 or this machine's certificate)</option>
-              {zoneNames.map((z) => (
-                <option key={z} value={z}>{z}</option>
-              ))}
-            </Select>
-          </Field>
+          </>)}
+          {!pub.isPublic && domainZoneField}
+          {pub.render({ live, edgeMachines: [], editing, errors, onBlur, host: hostname.trim().toLowerCase(), zone: domainZone, zoneField: domainZoneField })}
         </>
       )}
 
@@ -946,7 +964,12 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             <Choice name="dns-provider" value="route53" checked={provider === 'route53'} disabled={editing} onChange={() => setProvider('route53')}
               title="Route 53" description="An IAM key limited to this hosted zone, stored as a secret {&quot;accessKeyId&quot;: &quot;…&quot;, &quot;secretAccessKey&quot;: &quot;…&quot;}." />
           </Fieldset>
-          <Field id="f-zone" label="Zone" error={err('spec.zone')} hint={editing ? "A zone's provider and name can't change." : 'The zone as it exists at the provider, like example.com. EnclaveStack never creates or deletes zones.'}>
+          {/* PUB-09, PUB-10: one zone per environment; records EnclaveStack didn't make are left alone. */}
+          <Alert tone="info">
+            EnclaveStack writes, changes and deletes only the records of its own domains and records. Anything else in the zone, like production on another cloud, is never touched.
+            Another environment on the same domain gets its own project and its own subdomain zone, like stage.example.com.
+          </Alert>
+          <Field id="f-zone" label="Zone" error={err('spec.zone')} hint={editing ? "A zone's provider and name can't change." : 'The zone as it exists at the provider, like example.com or a subdomain zone like stage.example.com. EnclaveStack never creates or deletes zones.'}>
             <Input id="f-zone" mono value={zoneName} readOnly={editing} onChange={(e) => setZoneName(e.target.value)} onBlur={onBlur} placeholder="example.com" spellCheck={false} />
           </Field>
           <Field id="f-zone-creds" hint="A secret holding the provider’s API token, allowed to edit this zone’s DNS." label="Credentials secret" error={err('spec.credentialsSecret')}>

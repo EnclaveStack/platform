@@ -17,7 +17,9 @@ import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { ResourceDetailView } from './ResourceDetailView';
 import { ResourceForm } from './ResourceForm';
-import type { Resource } from '../api/types';
+import { RULES } from '../api/generated';
+import type { Resource, TunnelProvider, TunnelSpec } from '../api/types';
+import { WAY_TITLE } from '../components/PublicAccessFields';
 
 export const ALERT_STATE: Record<string, string> = { ok: 'OK', firing: 'Firing', no_data: 'No data', disabled: 'Off' };
 
@@ -48,6 +50,13 @@ function keyFact(r: Resource): string {
   if (r.kind === 'logexport') return o.linesSent !== undefined ? `${String(o.linesSent)} lines sent` : '';
   if (r.kind === 'secretstore') return (r.spec as { provider?: string }).provider ?? '';
   if (r.kind === 'stack') return o.total !== undefined ? `${String(o.ready)} of ${String(o.total)} ready` : '';
+  if (r.kind === 'tunnel') {
+    // The way in and what it gives: an app link's address, or how many connections a domain tunnel holds (CON-76).
+    const t = r.spec as TunnelSpec;
+    const where = typeof o.url === 'string' && o.url ? o.url.replace(/^https:\/\//, '') : t.app ? `→ ${t.app}` : o.publicAddress ? String(o.publicAddress) : '';
+    return [WAY_TITLE[t.provider], o.connection === 'reconnecting' ? 'reconnecting' : where].filter(Boolean).join(' · ');
+  }
+  if (r.kind === 'domain' && o.public === true) return `public via ${String(o.tunnel ?? '')}`;
   if (r.kind === 'snapshot') return `${String(o.type ?? '')}${o.sizeBytes !== undefined ? ` · ${formatBytes(Number(o.sizeBytes))}` : ''}`;
   if (o.host && o.port) return `${String(o.host)}:${String(o.port)}`;
   if (o.internalHost) return String(o.internalHost);
@@ -67,8 +76,9 @@ export function SectionPage() {
   const creating = opened || params.get('new') === '1';
   const setCreating = (open: boolean) => {
     setOpened(open);
-    if (!open && params.has('new')) {
+    if (!open && (params.has('new') || params.has('provider'))) {
       params.delete('new');
+      params.delete('provider');
       setParams(params, { replace: true });
     }
   };
@@ -135,6 +145,8 @@ export function SectionPage() {
     <Drawer title={`New ${section.noun}`} onClose={() => setCreating(false)}>
       <ResourceForm
         kind={section.kind}
+        // `?provider=` sets a new tunnel's way in: Install on a catalogue Public access card (CON-80).
+        initialProvider={kind === 'tunnel' ? (RULES.tunnelProviders as readonly string[]).find((p) => p === params.get('provider')) as TunnelProvider | undefined : undefined}
         onDone={(r) => {
           setCreating(false);
           toast(`Creating ${r.kind} ${r.name}`);

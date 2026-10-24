@@ -1,0 +1,6 @@
+{{template "head" .}}
+<h1 class="es-gate-title">You're signed out of <span class="es-gate-host">{{.Host}}</span>.</h1>
+<form class="es-gate-form" method="get" action="/.enclave/gate/signin">
+<button class="es-gate-button" type="submit">Sign in again</button>
+</form>
+{{template "foot" .}}

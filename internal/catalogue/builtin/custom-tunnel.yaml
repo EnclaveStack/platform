@@ -1,0 +1,13 @@
+name: custom-tunnel
+title: Custom connector
+category: public-access
+description: "Any other tunnel service, from its own container image. EnclaveStack sets ENCLAVE_UPSTREAM, where the connector sends traffic; the gate still stands in front of your app. Add its command and environment on the tunnel's page."
+version: 1.0.0
+parameters:
+  - { name: app, title: App, description: "The app to make public.", type: string, required: true }
+  - { name: image, title: Image, description: "The connector's image, like ghcr.io/acme/tunnel:1.", type: string, required: true }
+  - { name: url, title: Public address, description: "The https:// address the service gives, to show; empty if you don't know it yet.", type: string, default: "" }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: custom, app: "${param:app}", image: "${param:image}", url: "${param:url}" }

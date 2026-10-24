@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	dschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -24,20 +25,25 @@ import (
 // ─── enclave_domain (TF-11) ──────────────────────────────────────────────
 
 type domainModel struct {
-	ID            types.String   `tfsdk:"id"`
-	Name          types.String   `tfsdk:"name"`
-	Project       types.String   `tfsdk:"project"`
-	Hostname      types.String   `tfsdk:"hostname"`
-	App           types.String   `tfsdk:"app"`
-	Port          types.Int64    `tfsdk:"port"`
-	TLS           types.String   `tfsdk:"tls"`
-	RedirectHTTP  types.Bool     `tfsdk:"redirect_http"`
-	URL           types.String   `tfsdk:"url"`
-	CertState     types.String   `tfsdk:"certificate_state"`
-	CertExpiresAt types.String   `tfsdk:"certificate_expires_at"`
-	CertIssuer    types.String   `tfsdk:"certificate_issuer"`
-	Zone          types.String   `tfsdk:"zone"`
-	Timeouts      timeouts.Value `tfsdk:"timeouts"`
+	ID            types.String           `tfsdk:"id"`
+	Name          types.String           `tfsdk:"name"`
+	Project       types.String           `tfsdk:"project"`
+	Hostname      types.String           `tfsdk:"hostname"`
+	App           types.String           `tfsdk:"app"`
+	Port          types.Int64            `tfsdk:"port"`
+	TLS           types.String           `tfsdk:"tls"`
+	RedirectHTTP  types.Bool             `tfsdk:"redirect_http"`
+	URL           types.String           `tfsdk:"url"`
+	CertState     types.String           `tfsdk:"certificate_state"`
+	CertExpiresAt types.String           `tfsdk:"certificate_expires_at"`
+	CertIssuer    types.String           `tfsdk:"certificate_issuer"`
+	Zone          types.String           `tfsdk:"zone"`
+	Tunnel        types.String           `tfsdk:"tunnel"`
+	Gate          *gateModel             `tfsdk:"gate"`
+	Access        *cloudflareAccessModel `tfsdk:"cloudflare_access"`
+	Public        types.Bool             `tfsdk:"public"`
+	DNSRecord     types.Object           `tfsdk:"dns_record"`
+	Timeouts      timeouts.Value         `tfsdk:"timeouts"`
 }
 
 type domainResource struct{ base }
@@ -75,19 +81,31 @@ func (r *domainResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 			"certificate_expires_at": schema.StringAttribute{Computed: true, Description: "When the current certificate expires (RFC 3339)."},
 			"certificate_issuer":     schema.StringAttribute{Computed: true, Description: "Who issued the current certificate."},
 			"zone": schema.StringAttribute{Optional: true,
-				Description: "Zone to get the certificate through (ACME DNS-01): no inbound port needed, and the hostname may be a wildcard like *.example.com."},
-			"timeouts": timeoutsAttr(ctx),
+				Description: "Zone to get the certificate through (ACME DNS-01): no inbound port needed, and the hostname may be a wildcard like *.example.com. " +
+					"On a public domain, the zone EnclaveStack writes its DNS record in (required through a cloudflare tunnel)."},
+			"tunnel": schema.StringAttribute{Optional: true,
+				Description: "Make it public through this cloudflare or relay tunnel (L2-014). Unset: served on this machine only."},
+			"gate":              gateAttr("a public domain"),
+			"cloudflare_access": cloudflareAccessAttr(),
+			"public":            schema.BoolAttribute{Computed: true, Description: "Whether it is served to the internet through a tunnel."},
+			"dns_record":        dnsRecordAttr(),
+			"timeouts":          timeoutsAttr(ctx),
 		},
 	}
 }
 
-func (m *domainModel) spec() api.DomainSpec {
+func (m *domainModel) spec(ctx context.Context) (api.DomainSpec, diag.Diagnostics) {
 	redirect := m.RedirectHTTP.ValueBool()
 	if m.RedirectHTTP.IsNull() || m.RedirectHTTP.IsUnknown() {
 		redirect = true
 	}
-	return api.DomainSpec{Hostname: m.Hostname.ValueString(), App: m.App.ValueString(), Port: int(m.Port.ValueInt64()),
-		TLS: m.TLS.ValueString(), RedirectHTTP: &redirect, Zone: m.Zone.ValueString()}
+	s := api.DomainSpec{Hostname: m.Hostname.ValueString(), App: m.App.ValueString(), Port: int(m.Port.ValueInt64()),
+		TLS: m.TLS.ValueString(), RedirectHTTP: &redirect, Zone: m.Zone.ValueString(), Tunnel: m.Tunnel.ValueString()}
+	gate, diags := m.Gate.gate(ctx)
+	access, d := m.Access.access(ctx)
+	s.Gate, s.CloudflareAccess = gate, access
+	diags.Append(d...)
+	return s, diags
 }
 
 func (m *domainModel) fill(r api.Resource) {
@@ -103,7 +121,9 @@ func (m *domainModel) fill(r api.Resource) {
 	m.RedirectHTTP = types.BoolValue(s.RedirectHTTP == nil || *s.RedirectHTTP)
 	m.URL, m.CertState = outString(r, "url"), outString(r, "certificateState")
 	m.CertExpiresAt, m.CertIssuer = outString(r, "certificateExpiresAt"), outString(r, "certificateIssuer")
-	m.Zone = strOrNull(s.Zone)
+	m.Zone, m.Tunnel = strOrNull(s.Zone), strOrNull(s.Tunnel)
+	m.Gate, m.Access = gateModelOf(s.Gate, m.Gate), cloudflareAccessModelOf(s.CloudflareAccess, m.Access)
+	m.Public, m.DNSRecord = types.BoolValue(s.IsPublic()), dnsRecordOf(r)
 }
 
 func (r *domainResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -111,10 +131,12 @@ func (r *domainResource) Create(ctx context.Context, req resource.CreateRequest,
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	timeout, d := plan.Timeouts.Create(ctx, DefaultTimeout)
 	resp.Diagnostics.Append(d...)
+	spec, d := plan.spec(ctx)
+	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	res, err := r.createAndWait(ctx, plan.Project, plan.Name.ValueString(), plan.spec(), timeout)
+	res, err := r.createAndWait(ctx, plan.Project, plan.Name.ValueString(), spec, timeout)
 	if res.ID != "" {
 		plan.fill(res)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -149,11 +171,13 @@ func (r *domainResource) Update(ctx context.Context, req resource.UpdateRequest,
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	timeout, d := plan.Timeouts.Update(ctx, DefaultTimeout)
 	resp.Diagnostics.Append(d...)
+	s, d := plan.spec(ctx)
+	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	s := plan.spec()
-	patch := map[string]any{"app": s.App, "port": nilIfZero(s.Port), "redirectHttp": *s.RedirectHTTP, "zone": nilIfEmptyString(s.Zone)}
+	patch := map[string]any{"app": s.App, "port": nilIfZero(s.Port), "redirectHttp": *s.RedirectHTTP, "zone": nilIfEmptyString(s.Zone),
+		"tunnel": nilIfEmptyString(s.Tunnel), "gate": s.Gate, "cloudflareAccess": s.CloudflareAccess} // nil encodes as null: cleared
 	if s.TLS != "" {
 		patch["tls"] = s.TLS
 	}

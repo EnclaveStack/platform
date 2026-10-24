@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 
 // "Use from code" (CON-18): the CLI command and OpenTofu block that produce a resource as it is now,
 // so operators can move from clicks to code. Secret values are never included.
@@ -89,6 +89,24 @@ function mountsHcl(ms: VolumeMount[] | undefined): string | null {
 function ruleText(r: FirewallRule, dir: 'from' | 'to'): string {
   const ports = r.ports?.length ? ` ${r.ports.join(',')}` : '';
   return `${r.protocol ?? 'tcp'}${ports} ${dir} ${(dir === 'from' ? r.from : r.to)?.join(',') ?? ''}`;
+}
+
+/** The gate's flags on `tunnel create` and `domain create`; --yes because --gate none asks first (GATE-05). */
+function gateFlags(g: Gate | undefined): string[] {
+  if (!g) return [];
+  const out = g.mode === 'password' && g.passwordSecret ? [`--gate-password-secret ${g.passwordSecret}`] : [`--gate ${g.mode}`];
+  for (const p of g.openPaths ?? []) out.push(`--gate-open-path ${sh(p)}`);
+  if (g.mode === 'none') out.push('--yes');
+  return out;
+}
+
+/** The gate as an HCL object. */
+function gateHcl(g: Gate | undefined): string | null {
+  if (!g) return null;
+  const fields = [`mode = ${hcl(g.mode)}`];
+  if (g.passwordSecret) fields.push(`password_secret = ${hcl(g.passwordSecret)}`);
+  if (g.openPaths?.length) fields.push(`open_paths = [${g.openPaths.map(hcl).join(', ')}]`);
+  return `{ ${fields.join(', ')} }`;
 }
 
 /** The CLI command; resources outside the default project name theirs (CLI-37). */
@@ -377,7 +395,30 @@ function kindCommand(r: Resource): string {
       if (d.tls && d.tls !== (d.hostname.endsWith(RULES.localhostSuffix) ? 'internal' : 'auto')) parts.push(`--tls ${d.tls}`);
       if (d.redirectHttp === false) parts.push('--no-redirect');
       if (d.zone) parts.push(`--zone ${d.zone}`);
+      if (d.tunnel) parts.push(`--tunnel ${d.tunnel}`, ...gateFlags(d.gate));
+      for (const e of d.cloudflareAccess?.emails ?? []) parts.push(`--access-email ${sh(e)}`);
+      for (const e of d.cloudflareAccess?.emailDomains ?? []) parts.push(`--access-email-domain ${sh(e)}`);
       parts.push('--wait');
+      return parts.join(' \\\n  ');
+    }
+    case 'tunnel': {
+      // Public access (L2.5-002 §21): one flag per field the way in uses.
+      const t = r.spec as TunnelSpec;
+      const parts = [`enclave tunnel create ${r.name}`, `--provider ${t.provider}`];
+      if (t.credentialsSecret) parts.push(`--credentials ${t.credentialsSecret}`);
+      if (t.accountId) parts.push(`--account-id ${t.accountId}`);
+      if (t.machine) parts.push(`--machine ${t.machine}`);
+      if (t.app) parts.push(`--app ${t.app}`);
+      if (t.port) parts.push(`--port ${t.port}`);
+      if (t.mode && t.mode !== 'private') parts.push(`--mode ${t.mode}`);
+      if (t.hostname) parts.push(`--hostname ${t.hostname}`);
+      if (t.domain) parts.push(`--domain ${t.domain}`);
+      if (t.image) parts.push(`--image ${sh(t.image)}`);
+      for (const c of t.command ?? []) parts.push(`--command ${sh(c)}`);
+      for (const [k, v] of Object.entries(t.env ?? {})) parts.push(`--env ${sh(`${k}=${v}`)}`);
+      for (const [k, v] of Object.entries(t.secretEnv ?? {})) parts.push(`--secret-env ${k}=${v}`);
+      if (t.url) parts.push(`--url ${sh(t.url)}`);
+      parts.push(...gateFlags(t.gate), '--wait');
       return parts.join(' \\\n  ');
     }
     case 'app': {
@@ -640,6 +681,28 @@ export function tofuBlock(r: Resource): string {
       if (d.tls && d.tls !== (d.hostname.endsWith(RULES.localhostSuffix) ? 'internal' : 'auto')) lines.push(`  tls = ${hcl(d.tls)}`);
       if (d.redirectHttp === false) lines.push('  redirect_http = false');
       if (d.zone) lines.push(`  zone = ${hcl(d.zone)}`);
+      if (d.tunnel) lines.push(`  tunnel = ${hcl(d.tunnel)}`);
+      const gate = gateHcl(d.gate);
+      if (gate) lines.push(`  gate = ${gate}`);
+      const a = d.cloudflareAccess;
+      if (a) lines.push(`  cloudflare_access = { ${[a.emails?.length ? `emails = ${refs(a.emails)}` : '', a.emailDomains?.length ? `email_domains = ${refs(a.emailDomains)}` : ''].filter(Boolean).join(', ')} }`);
+      break;
+    }
+    case 'tunnel': {
+      // "provider" is reserved by OpenTofu: the attribute is tunnel_provider (TF-51).
+      const t = r.spec as TunnelSpec;
+      lines.push(`  tunnel_provider = ${hcl(t.provider)}`);
+      const fields: [string, string | number | undefined][] = [['credentials_secret', t.credentialsSecret], ['account_id', t.accountId], ['machine', t.machine],
+        ['app', t.app], ['port', t.port], ['mode', t.mode && t.mode !== 'private' ? t.mode : undefined], ['hostname', t.hostname], ['domain', t.domain],
+        ['image', t.image], ['connector_url', t.url]];
+      for (const [k, v] of fields) if (v !== undefined && v !== '') lines.push(`  ${k} = ${typeof v === 'number' ? v : hcl(v)}`);
+      if (t.command?.length) lines.push(`  command = ${refs(t.command)}`);
+      const env = hclMap(t.env);
+      if (env) lines.push(`  env = ${env}`);
+      const senv = hclMap(t.secretEnv);
+      if (senv) lines.push(`  secret_env = ${senv}`);
+      const gate = gateHcl(t.gate);
+      if (gate) lines.push(`  gate = ${gate}`);
       break;
     }
     case 'cache':

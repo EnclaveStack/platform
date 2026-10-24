@@ -6,9 +6,9 @@
 | Document ID | L4-001-local-dev-setup-v1 |
 | Layer | L4 — Infrastructure & Deployment |
 | Status | Draft |
-| Version | v19 |
+| Version | v20 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -116,6 +116,8 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | `--fake-step-delay`, `--fake-faults` (hidden) | `300ms`, — | Fake driver timing and fault injection (`name:transient=N;other:permanent`) |
 | `--setup-code-file` (hidden) | — | Also write the setup code to a 0600 file, for e2e automation |
 | `--drift-interval`, `--poll-interval` (hidden) | `60s`, `2s` | Faster reconciler timing for tests |
+| `--gate-listen` | Docker Desktop `127.0.0.1:7172`; Linux the default network's gateway address, port 7172 | Where the gate listens for the edge proxy (ADR-053). Never make it reachable from outside the computer |
+| `--cloudflare-api` (hidden) | `https://api.cloudflare.com/client/v4` | Point the Cloudflare tunnel plug-in at a fake for tests |
 
 ## v0.3 prerequisites (planned)
 
@@ -160,6 +162,19 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 - **The mesh image** `enclave.local/mesh` is built on each machine on first use from pinned `golang` and `alpine` images, so every machine needs network access once, like the VM link image.
 - **Looking at the tunnel:** `docker exec es-system-mesh wg show` lists peers and handshakes; `docker ps --filter label=enclave.standin-of` lists stand-ins. Never kill containers or processes by name pattern; remove stand-ins only through EnclaveStack (they come back at the next sync anyway).
 
+## Public access prerequisites (`L2-014`)
+
+- **Nothing to open at home.** Tunnels dial out. Leave the router alone, and keep the server on `--listen 127.0.0.1:7070` and the edge on its default address.
+- **Quick links** need only internet access. The connector image `cloudflare/cloudflared` (pinned by digest) is pulled on first use.
+- **Tailscale links** need a free Tailscale account. In its admin console: **DNS › MagicDNS** on and **HTTPS Certificates** on; for public links, Funnel allowed in the tailnet policy (the `funnel` node attribute); a **reusable auth key** (**Settings › Keys › Generate auth key**, reusable, ideally with a tag such as `tag:enclave`). Store it: `enclave secret create ts-key --value '{"authKey":"tskey-auth-…"}'`. The image `tailscale/tailscale` is pulled on first use.
+- **ngrok links** need an ngrok account's authtoken (**Your Authtoken** in its dashboard): `enclave secret create ngrok --value '{"authToken":"…"}'`. The free plan gives one address per account.
+- **Custom connectors** need only their image. EnclaveStack sets `ENCLAVE_UPSTREAM`; the connector must forward HTTP to it.
+- **Cloudflare tunnels** need a free Cloudflare account with the domain's DNS there (Cloudflare: **Add a site**, then change the domain's name servers at the registrar to the two Cloudflare gives; this takes minutes to a day). They also need an API token (**My Profile › API Tokens › Create Token › Custom**) with Account › **Cloudflare Tunnel › Edit**, Zone › **DNS › Edit** for that zone, and, for Cloudflare Access, Account › **Access: Apps and Policies › Edit**. Store it as a secret, `enclave secret create cf --value '<token>'`, and pass the account ID (on the zone's overview page) to the tunnel: `enclave tunnel create home --provider cloudflare --credentials cf --account-id <id>`.
+- **An edge machine** (own-server relay) needs a Linux server with a public IPv4 address, Docker, the same EnclaveStack version, and inbound TCP 80, 443 and 7071 and UDP 51820. The smallest plan of most providers is enough (1 vCPU, 512 MB–1 GB). The main machine needs nothing open.
+- **Trying a relay on one computer:** `make machine2 EDGE=1` starts the Docker-in-Docker second machine as an edge machine, with its ports 80/443 published on `127.0.0.2`. Then `curl --resolve dev.example.test:443:127.0.0.2 https://dev.example.test` goes through the relay, with Pebble issuing the certificate.
+- **Automated tests never touch Cloudflare.** `internal/tunnel` tests run against an in-process fake of the tunnel, DNS and Access endpoints (`--cloudflare-api`). The connector itself is tested on real Docker with a fake that speaks enough of the protocol to hand out a quick hostname. The live checks in `L5-001` §2h are run by hand with a real account and a real VPS.
+- **Looking at a tunnel:** `docker logs es-tunnel-<hash>` shows the connector's connections (it never prints the token); `docker exec es-system-edge wget -qO- localhost:2019/config/` shows the edge configuration, tunnel listeners included. Remove connectors only through EnclaveStack, never by name pattern.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -183,3 +198,4 @@ Full suites (provider acceptance, console e2e, engine e2e, load): `L4-002` §2.
 | v17 | 2026-10-23 | Soupler | `make tofu`: build the provider, sign in once and run OpenTofu in one command |
 | v18 | 2026-10-23 | Soupler | `make install`: put `enclave` on the PATH |
 | v19 | 2026-10-23 | Soupler | Points people who only use EnclaveStack to the user guide (`L5-004`) |
+| v20 | 2026-10-24 | Soupler | Public access prerequisites and flags: nothing open at home, Cloudflare account, DNS and token, edge machine requirements, a local relay with machine2, tests against fakes, inspection (L2-014) |

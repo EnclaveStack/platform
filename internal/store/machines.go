@@ -33,6 +33,10 @@ type Machine struct {
 	CreatedAt       time.Time
 	// Main is the computer EnclaveStack runs on; exactly one machine is (MCH-01).
 	Main bool
+	// Role is api.MachineWorker or api.MachineEdge (L2-014 EDG-01).
+	Role string
+	// JoinKey is an edge machine's join key sealed with the master key, until it joins (ADR-052).
+	JoinKey []byte
 }
 
 // MachineInfo is what a machine's agent last reported about it (or, for the main machine, its engine).
@@ -140,7 +144,7 @@ func (q *Queries) renameMainMachine(ctx context.Context, name, id string) error 
 }
 
 const machineCols = `id, name, state, state_since, labels_json, schedulable, address, agent_port, tunnel_port, tunnel_public_key,
-	cert_serial, cert_not_after, info_json, last_seen_at, join_code_hash, join_expires_at, created_at, is_main`
+	cert_serial, cert_not_after, info_json, last_seen_at, join_code_hash, join_expires_at, created_at, is_main, role, join_key_ciphertext`
 
 // InsertMachine stores a new machine; a duplicate name or join code returns ErrConflict.
 func (q *Queries) InsertMachine(ctx context.Context, m Machine) error {
@@ -148,9 +152,10 @@ func (q *Queries) InsertMachine(ctx context.Context, m Machine) error {
 	if err != nil {
 		return err
 	}
-	_, err = q.q.ExecContext(ctx, `INSERT INTO machines (`+machineCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = q.q.ExecContext(ctx, `INSERT INTO machines (`+machineCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Name, m.State, ts(m.StateSince), labels, boolInt(m.Schedulable), nullable(m.Address), m.AgentPort, m.TunnelPort, m.TunnelPublicKey,
-		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), ts(m.CreatedAt), boolInt(m.Main))
+		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), ts(m.CreatedAt), boolInt(m.Main),
+		roleOf(m), nullBytes(m.JoinKey))
 	if isUnique(err) {
 		return ErrConflict
 	}
@@ -165,9 +170,9 @@ func (q *Queries) SaveMachine(ctx context.Context, m Machine) error {
 	}
 	res, err := q.q.ExecContext(ctx, `UPDATE machines SET state = ?, state_since = ?, labels_json = ?, schedulable = ?, address = ?, agent_port = ?,
 		tunnel_port = ?, tunnel_public_key = ?, cert_serial = ?, cert_not_after = ?, info_json = ?, last_seen_at = ?, join_code_hash = ?,
-		join_expires_at = ? WHERE id = ?`,
+		join_expires_at = ?, join_key_ciphertext = ? WHERE id = ?`,
 		m.State, ts(m.StateSince), labels, boolInt(m.Schedulable), nullable(m.Address), m.AgentPort, m.TunnelPort, m.TunnelPublicKey,
-		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), m.ID)
+		m.CertSerial, tsPtr(m.CertNotAfter), info, tsPtr(m.LastSeenAt), nullable(m.JoinCodeHash), tsPtr(m.JoinExpiresAt), nullBytes(m.JoinKey), m.ID)
 	if isUnique(err) {
 		return ErrConflict
 	}
@@ -415,7 +420,7 @@ func scanMachine(r scanner) (Machine, error) {
 	var schedulable, isMain int
 	var address, certNotAfter, lastSeen, joinHash, joinExpires sql.NullString
 	err := r.Scan(&m.ID, &m.Name, &m.State, &since, &labels, &schedulable, &address, &m.AgentPort, &m.TunnelPort, &m.TunnelPublicKey,
-		&m.CertSerial, &certNotAfter, &info, &lastSeen, &joinHash, &joinExpires, &created, &isMain)
+		&m.CertSerial, &certNotAfter, &info, &lastSeen, &joinHash, &joinExpires, &created, &isMain, &m.Role, &m.JoinKey)
 	if err != nil {
 		return m, err
 	}
@@ -442,6 +447,24 @@ func encodeMachine(m Machine) (string, string, error) {
 	}
 	ib, err := json.Marshal(m.Info)
 	return string(lb), string(ib), err
+}
+
+// roleOf is m's role, a worker unless it says otherwise.
+func roleOf(m Machine) string {
+	if m.Role == "" {
+		return api.MachineWorker
+	}
+	return m.Role
+}
+
+// IsEdge reports whether m only relays visitors (L2-014 EDG-03).
+func (m Machine) IsEdge() bool { return m.Role == api.MachineEdge }
+
+func nullBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 func boolInt(b bool) int {

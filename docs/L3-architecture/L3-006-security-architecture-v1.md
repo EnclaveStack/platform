@@ -6,7 +6,7 @@
 | Document ID | L3-006-security-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v14 |
+| Version | v15 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -172,6 +172,32 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | Downloads | A stored HTML file running in the console's origin | `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` on every download |
 | Logs and events | File contents in logs | Events and logs name the key and size only |
 
+## 14 · Public access (`L2-014`, ADR-051 – ADR-053)
+
+The point of this feature is to let the internet in, so every control below starts from "a stranger can reach this hostname".
+
+| Area | Threat | Control |
+|---|---|---|
+| The home machine | Opening the computer to the internet | Nothing listens publicly at home: connectors and the mesh only dial out (TUN-06). The home address is never in a public DNS record for a tunnel; visitors see Cloudflare's or the edge machine's |
+| Reaching more than intended | A visitor asks for the console, the API, another project's domain or a `.localhost` name through a tunnel | Each tunnel has its own listener on the edge proxy, whose routes are exactly its public domains, then a fixed 404 (TUN-07). The control plane is never a route target. Public domains aren't served on the machine's own edge ports, so the gate can't be skipped from the local network |
+| Unprotected environments | Dev and stage left open with test data and debug pages | Every public domain and quick tunnel has a gate, `signin` by default; `none` needs an explicit choice and a confirmation, and the page says **Open to everyone** (GATE-01, GATE-05) |
+| Gate sessions | A gate cookie stolen or reused elsewhere | Random 32 bytes, stored only as SHA-256; `__Host-` prefixed, `Secure`, `HttpOnly`, `SameSite=Lax`; valid for one hostname only, 12 hours; never accepted by the API, and console cookies and tokens never accepted by the gate. Roles re-checked every 30 s, so removal ends access within a minute |
+| Gate sign-in | Password guessing; phishing with a look-alike page; a form posted from another site | The gate's own throttle (10 failures per address and hostname per 15 min, then `429` with `Retry-After`) and audit; the form is accepted only with this hostname's `Origin` (CSRF); the visitor's address comes from the edge proxy, which alone holds the edge key. The page names the hostname and is on that hostname, over HTTPS; `next` is a same-host path only (no open redirect) |
+| Gate headers | A visitor forging `X-Enclave-User` to impersonate someone to the app | The edge proxy removes every `X-Enclave-*` request header before routing; only `/check`'s answer sets it (GATE-07) |
+| Gate failure | The gate down means the app is open | Fail closed: the edge proxy waits 2 s to reach the gate and 2 s for `/check`, then answers `502` or `504`; a gate that can't check answers `503`. Nothing reaches the app (tested on real Docker with an unreachable gate) |
+| Gate listener | Other containers or the network using it | Bound to an address only the computer's containers reach (ADR-053), it serves only the gate's routes, and every request needs the edge key, which is sealed in the store and written into the edge configuration with mode 0600 |
+| Connectors | A connector compromised by a flaw in cloudflared | Pinned by digest, no capabilities, `no-new-privileges`, read-only root (its files in a volume of their own, writable directories as small tmpfs), 128 MiB; on `es-system-tunnel` with only the edge proxy and the probe helper, never on a user's network; its listener routes only its tunnel's hostnames and believes a visitor address only from that connector (all tested on real Docker) |
+| Provider credentials | A leaked Cloudflare token repoints or deletes tunnels and records | A secret, encrypted at rest, decrypted for one provider call. The console asks for the narrowest token (Account › Cloudflare Tunnel › Edit, Zone › DNS › Edit for the zone, and Access › Apps and Policies › Edit only with GATE-09) and shows it. The tunnel's run token is fetched from Cloudflare each time its connector is made and passed in its environment, never stored, shown or logged |
+| Cloudflare sees traffic | TLS ends at Cloudflare for Cloudflare tunnels, so Cloudflare can read requests | Stated in the console and `L5-004` §15. Users who don't accept that use a relay, where TLS ends at home |
+| Edge machines | A rented server, run by a hosting company, compromised | It never holds a certificate key, secret or decrypted byte: the relay passes encrypted TCP through (EDG-04, DAR-041). Its agent identity can be removed at once (ADR-043). Nothing is ever placed on it (EDG-03). In the mesh it peers only with the main machine and learns only the edge proxy's address. On the main machine, traffic from its relays may open connections only to the edge proxy's relay listener ports (nftables, ADR-052), so it can't reach apps, databases or the gate directly (tested in `internal/mesh` and `internal/reconciler`) |
+| The edge join | A man in the middle joining a rogue server, or a rogue control plane taking a server | Both sides prove the code with HMACs bound to both nonces, the request and the temporary certificate's key (ADR-052); the code is single-use and one hour; five failed proofs stop the agent listening |
+| PROXY protocol | A container sending a forged PROXY header to spoof a visitor's address | Each relay listener accepts PROXY headers only from its relay's address |
+| Zones that also serve production | EnclaveStack changing or deleting prod's records in a zone it shares with AWS or another host | It writes only its own domains' records and never overwrites a record with other values (DNS-04, PUB-10). A Cloudflare token can only be limited to a whole zone, so the guide suggests a subdomain zone (PUB-09) when prod's records must be out of the token's reach |
+| Tailscale | A leaked auth key adds devices to the user's tailnet; a `private` link thought public, or the reverse | The key is a secret; the guide asks for a reusable key tagged for EnclaveStack, so the user's tailnet policy can limit what those devices reach. The connector container is on `es-system-tunnel` only, so the tailnet reaches the app's listener and nothing else on the machine. The link's page says **Private: only your tailnet's devices** or **Public on the internet** |
+| ngrok | The free plan's warning page and shared limits surprise users | Stated on the catalogue entry and the link's page (TUN-13); the token is a secret |
+| Custom connectors | A custom image is arbitrary code | Only editors and owners create tunnels, as apps (the same trust as running an app). The container gets no capabilities, `no-new-privileges`, a read-only root and no user network: it reaches only the internet and its own listener, so it can't reach other apps, the gate listener or the control plane. The gate still stands between it and the app |
+| Quick links | A random URL guessed or shared | Gated like a domain (`signin` by default); the URL changes on every restart; the console calls it temporary |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -190,3 +216,4 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | v12 | 2026-10-24 | Soupler | §11 per-app bucket access: least privilege, keys, revocation, overrides (ADR-049) |
 | v13 | 2026-10-24 | Soupler | §12 transcoder renditions and notifications: the script, output keys from tags, webhooks, the message (ADR-050) |
 | v14 | 2026-10-24 | Soupler | §13 bucket objects: access, keys, size, downloads, logs (L2-013) |
+| v15 | 2026-10-24 | Soupler | §14 public access: home exposure, isolation per tunnel, the gate (sessions, sign-in, headers, failing closed, its listener), connectors, credentials, Cloudflare's view, edge machines, the edge join, PROXY protocol, quick links (L2-014) |

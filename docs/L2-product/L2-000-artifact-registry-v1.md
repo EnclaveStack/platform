@@ -25,9 +25,9 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v19 | Soupler | 2026-10-24 |
-| L2-002-cli-prd-v1 | Command-Line Interface PRD | Draft | v21 | Soupler | 2026-10-24 |
-| L2-003-opentofu-provider-prd-v1 | OpenTofu Provider PRD | Draft | v17 | Soupler | 2026-10-24 |
+| L2-001-web-console-prd-v1 | Web Console PRD | Draft | v20 | Soupler | 2026-10-24 |
+| L2-002-cli-prd-v1 | Command-Line Interface PRD | Draft | v22 | Soupler | 2026-10-24 |
+| L2-003-opentofu-provider-prd-v1 | OpenTofu Provider PRD | Draft | v18 | Soupler | 2026-10-24 |
 | L2-004-control-plane-resource-lifecycle-prd-v1 | Control Plane and Resource Lifecycle PRD | Draft | v3 | Soupler | 2026-10-21 |
 | L2-005-v0-3-run-a-real-product-prd-v1 | v0.3 "Run a Real Product" PRD | Draft | v2 | Soupler | 2026-10-21 |
 | L2-006-v0-4-networking-prd-v1 | v0.4 "Networking" PRD | Draft | v2 | Soupler | 2026-10-21 |
@@ -38,6 +38,7 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 | L2-011-per-app-bucket-access-prd-v1 | Per-app Bucket Access PRD | Draft | v1 | Soupler | 2026-10-24 |
 | L2-012-transcoder-renditions-and-notifications-prd-v1 | Transcoder Renditions, Notifications and Tags PRD | Draft | v2 | Soupler | 2026-10-24 |
 | L2-013-bucket-objects-and-readable-details-prd-v1 | Bucket Objects and Readable Details PRD | Draft | v1 | Soupler | 2026-10-24 |
+| L2-014-public-access-prd-v1 | Public Access PRD | Draft | v1 | Soupler | 2026-10-24 |
 
 ## Version history
 

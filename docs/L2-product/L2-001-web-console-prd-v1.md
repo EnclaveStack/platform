@@ -6,7 +6,7 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v19 |
+| Version | v20 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -123,6 +123,11 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | CON-73 | The transcoder's page shows its presets, renditions, ladder (with each rung) and notify settings; a run lists the files it wrote, the master playlist first (`L2-012` TRX-10) | Must |
 | CON-74 | A bucket's page has an **Objects** tab: browse folders, upload files with tags, download and delete (`L2-013`) | Must |
 | CON-75 | Every resource page shows its details as a readable list, each with its explanation, copy buttons and links (`L2-013` DET-*) | Must |
+| CON-76 | A **Tunnels** section in the Networking group: list with provider, state and what each serves; a create form that changes with the provider (quick, Tailscale, ngrok, custom, Cloudflare, relay); a tunnel's page with its state, connections or public address, its public domains, and an app link's URL with Copy ("Temporary" for a quick link) (`L2-014`) | Must |
+| CON-77 | The domain form has **Public access** (only on this machine, or from the internet through a tunnel) with the zone, the **Gate** (Sign in, Password, Open to everyone after a confirmation), open paths and, for Cloudflare tunnels, **Cloudflare Access** emails; a public domain's page shows the public URL, DNS record, certificate, gate and Access (`L2-014` PUB-08) | Must |
+| CON-78 | Machines has **Add an edge machine**: name and public address, then the join command with Copy and the ports to open; an edge machine's page shows its relays and no placement actions (`L2-014` EDG-*) | Must |
+| CON-79 | The gate's sign-in page, password prompt and "This environment is private" page (`L2-014` GATE-*, `L2.5-002` §21) | Must |
+| CON-80 | The catalogue's **Public access** category with one entry per way in, and **Make public** on an app's page with its public addresses (`L2-014` TUN-15, TUN-16) | Must |
 
 ## Version history
 
@@ -147,3 +152,4 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | v17 | 2026-10-24 | Soupler | CON-72, CON-73: transcoder renditions, ladder and notify in the form and page (L2-012) |
 | v18 | 2026-10-24 | Soupler | CON-74 bucket objects tab, CON-75 readable details (L2-013) |
 | v19 | 2026-10-24 | Soupler | CON-61: folded, the rail keeps every control inside it and its expand button in view; CON-67: each guide links to its full guide on the website |
+| v20 | 2026-10-24 | Soupler | CON-76 – CON-80: tunnels, public access on domains, edge machines, the gate's pages, Public access in the catalogue and Make public (L2-014) |

@@ -36,6 +36,15 @@ const (
 // MachineStates lists every state.
 var MachineStates = []string{MachineWaiting, MachineOnline, MachineOffline}
 
+// Machine roles (L2-014 EDG-01): an edge machine only relays visitors and never takes placements.
+const (
+	MachineWorker = "worker"
+	MachineEdge   = "edge"
+)
+
+// MachineRoles lists every role.
+var MachineRoles = []string{MachineWorker, MachineEdge}
+
 // Machine limits and ports (L3-002 §11.9).
 const (
 	MachineLabelsMax  = 10
@@ -156,6 +165,8 @@ type MachineSummary struct {
 	VersionMismatch     bool              `json:"versionMismatch"`
 	Links               []MachineLink     `json:"links"`
 	Message             string            `json:"message"`
+	// Role is worker, or edge for a machine that only relays (L2-014 EDG-01).
+	Role string `json:"role"`
 }
 
 // MachineList wraps machines.
@@ -167,6 +178,11 @@ type MachineList struct {
 type AddMachine struct {
 	Name   string            `json:"name"`
 	Labels map[string]string `json:"labels,omitempty"`
+	// Role edge adds an edge machine, joined from the main machine at Address (L2-014 EDG-02), where its
+	// agent listens on AgentPort (default 7071).
+	Role      string `json:"role,omitempty"`
+	Address   string `json:"address,omitempty"`
+	AgentPort int    `json:"agentPort,omitempty"`
 }
 
 // AddedMachine is returned with a new join code, shown once.
@@ -215,7 +231,26 @@ type DrainResult struct {
 
 // ValidateAddMachine checks POST /machines.
 func ValidateAddMachine(m AddMachine) []FieldError {
-	return append(ValidateName(m.Name), ValidateLabels(m.Labels, "labels")...)
+	errs := append(ValidateName(m.Name), ValidateLabels(m.Labels, "labels")...)
+	switch m.Role {
+	case "", MachineWorker:
+		if m.Address != "" {
+			errs = append(errs, FieldError{Field: "address", Code: FieldNotAllowed, Message: "Only an edge machine is added with its address; other machines advertise theirs when they join."})
+		}
+		if m.AgentPort != 0 {
+			errs = append(errs, FieldError{Field: "agentPort", Code: FieldNotAllowed, Message: "Only an edge machine is added with its agent's port."})
+		}
+	case MachineEdge:
+		if e := ValidateHostname(m.Address); m.Address == "" || (e != nil && !isIPv4(m.Address)) {
+			errs = append(errs, FieldError{Field: "address", Code: FieldInvalidFormat, Message: "Give the edge machine's public IPv4 address or host name."})
+		}
+		if m.AgentPort != 0 && (m.AgentPort < PortMin || m.AgentPort > PortMax) {
+			errs = append(errs, FieldError{Field: "agentPort", Code: FieldOutOfRange, Message: fmt.Sprintf("Use a port from %d to %d.", PortMin, PortMax)})
+		}
+	default:
+		errs = append(errs, FieldError{Field: "role", Code: FieldNotAllowed, Message: "Choose worker or edge."})
+	}
+	return errs
 }
 
 // ValidateJoin checks POST /machines/join.

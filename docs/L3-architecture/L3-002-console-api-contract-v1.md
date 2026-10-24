@@ -6,7 +6,7 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v25 |
+| Version | v26 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -1220,6 +1220,126 @@ The media type is the key's extension's (`video/mp4`, `application/vnd.apple.mpe
 
 The console's detail list reads each label's explanation from one table (`console/src/lib/details.ts`), the source the user guide's reference (`L5-004` §14) is checked against by a test.
 
+## 16 · Public access (2026-10-24, `L2-014`)
+
+### 16.1 Kinds and identifiers
+
+`tunnel` (ID prefix `tun_`), in a project like every resource. Machines gain a role.
+
+### 16.2 Spec fields
+
+```ts
+type Kind = /* earlier kinds */ | 'tunnel';
+type GateMode = 'signin' | 'password' | 'none';
+interface Gate {
+  mode: GateMode;                     // a new public domain or quick tunnel defaults to { mode: 'signin' }
+  passwordSecret?: string;            // password only: a secret {"username","password"}
+  openPaths?: string[];               // 0 – 10 path prefixes that skip the gate, e.g. "/webhooks/"
+}
+type TunnelProvider =
+  | 'quick' | 'tailscale' | 'ngrok' | 'custom'   // app links: one app, an address the provider gives
+  | 'cloudflare' | 'relay';                      // domain tunnels: serve the public domains that name them
+interface TunnelSpec {
+  provider: TunnelProvider;           // immutable
+  credentialsSecret?: string;         // cloudflare, tailscale, ngrok: the token itself, or JSON with one key
+                                      // {"apiToken"} / {"authKey"} / {"authToken"}; one Cloudflare token may serve the zone too
+  accountId?: string;                 // cloudflare only: the account the tunnel is made in (32 hex digits)
+  machine?: string;                   // relay only: an edge machine's name; immutable
+  app?: string; port?: number;        // app links: the app; port defaults to the app's
+  gate?: Gate;                        // app links (a domain carries its own)
+  mode?: 'private' | 'public';        // tailscale only; default 'private'
+  hostname?: string;                  // tailscale only; default "<project>-<app>"
+  domain?: string;                    // ngrok only: a domain reserved in the account
+  image?: string; command?: string[]; // custom only
+  env?: Record<string,string>; secretEnv?: Record<string,string>;   // custom only, as on apps
+  url?: string;                       // custom only: the public address the service gives, for display
+}
+interface CloudflareAccess { emails?: string[]; emailDomains?: string[] }   // at least one entry in all
+interface DomainSpec {
+  /* earlier fields */
+  tunnel?: string;                    // a tunnel of provider cloudflare or relay in the same project: the domain is public through it
+  gate?: Gate;                        // public domains only
+  cloudflareAccess?: CloudflareAccess;// public domains through a cloudflare tunnel only
+}
+interface AddMachine { /* earlier fields */ role?: 'worker' | 'edge'; address?: string; agentPort?: number }
+                                      // edge needs address; agentPort default 7071
+interface CatalogueEntry { /* earlier fields */ category: 'apps' | 'public-access'; signup?: string }   // signup: where to make the account
+```
+
+On update, `tunnel: ""` makes the domain local again and drops its gate and Access. `gate` and `cloudflareAccess` are replaced whole.
+
+### 16.3 Outputs
+
+| Kind | Outputs |
+|---|---|
+| `tunnel` (all) | `connection` (`connected` or `reconnecting`), `connections` (open connections to the provider, or 1/0 for a relay's link), `serves` (domain tunnels: the hostnames it routes) |
+| `tunnel` `cloudflare` | `tunnelId`. The connector's token is fetched from Cloudflare each time the connector is made and never stored |
+| `tunnel` `relay` | `publicAddress` (the edge machine's address) |
+| `tunnel` app links | `gate` (the mode in force, default applied); `url`: `quick` `https://<random>.trycloudflare.com` (changes on restart); `tailscale` `https://<hostname>.<tailnet>.ts.net`; `ngrok` the account's address; `custom` the `url` given, absent when none is; absent until known. `tailscale` also `device` (its name in the tailnet) and `funnel` (whether it is public) |
+| `domain` (public) | `public: true`, `tunnel`, `tunnelState` (the tunnel's `connection`), `url` (the public URL), `gate`, `dnsRecord` (`{ type, name, value, state: 'created' \| 'adopted' \| 'conflict' \| 'manual' }`), `certificateState` gains `edge` (Cloudflare serves it; `certificateIssuer` "Cloudflare"), `accessApplicationId`; internal bookkeeping `dnsRecordOwned`, `dnsZone` (which record EnclaveStack made, so only that one is ever deleted) |
+| machine | `role`; an edge machine's `schedulable` is always `false`; `AddedMachine.joinCommand` is `enclave agent join --edge --code <code>` for an edge machine |
+
+### 16.4 Endpoints
+
+Tunnels use the resource endpoints (`/api/v1/resources`, kind `tunnel`) with the actions `reconcile` and `delete`. The gate's routes are **not** part of the API. They are served on the gate listener (ADR-053) and reached only through the edge proxy, on the public hostname:
+
+| Path on the public hostname | What it does |
+|---|---|
+| `GET /.enclave/gate/signin?next=<path>` | The sign-in page |
+| `POST /.enclave/gate/signin` | Form `email`, `password`, `next`, sent from the page (`Origin` must be the same host, else `403` "This form has to be sent from this page"); success → `303` to `next` (a path on the same host only) with the gate cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, this host only); wrong credentials → `401` and the page again with "That email and password don't match, or you can't open this environment."; a user without access to the project → `403` "This environment is private"; too many attempts → `429` with `Retry-After` |
+| `POST /.enclave/gate/signout` | Ends the session → `303` to a "Signed out" page |
+
+The edge proxy's call `GET /check` carries `X-Enclave-Edge-Key` (anything else gets `404`), `X-Enclave-Gate-Target` (the domain's or app link's ID), `X-Enclave-Client-IP` (the visitor's address as the edge resolved it from the trusted connector), `X-Forwarded-Method`, `X-Forwarded-Uri`, the `Host` and `Cookie`. It answers `204` with `X-Enclave-User`, `302` to the sign-in page, `401` for `Accept: application/json`, or `503` when it can't check. The edge drops every `X-Enclave-*` header a visitor sends before anything else; when the gate can't be reached at all the edge answers `502`. Either way nothing reaches the app (fail closed).
+
+### 16.5 Validation rules
+
+| Field | Rule |
+|---|---|
+| `tunnel.spec.provider` | `quick`, `tailscale`, `ngrok`, `custom`, `cloudflare` or `relay` (`NOT_ALLOWED`); immutable |
+| `tunnel.spec.credentialsSecret` | required for `cloudflare`, `tailscale` and `ngrok`, an existing secret of the project (`NOT_FOUND`); not allowed otherwise. Its value is the token itself or JSON with the one key; anything else fails the tunnel permanently when applied, naming the key |
+| `tunnel.spec.accountId` | required for `cloudflare` (32 hex digits, lower-cased); not allowed otherwise |
+| `tunnel.spec.machine` | required for `relay`: an existing machine with role `edge` (`NOT_FOUND`; a worker → `NOT_ALLOWED` "A relay runs on an edge machine"); at most one relay tunnel per edge machine (`NOT_ALLOWED` "The edge machine … already carries a relay"), because a relay takes its ports 80 and 443; not allowed otherwise |
+| `tunnel.spec.app`, `port` | required (`app`) for app links: an existing app of the project; `port` 1–65535, or the app must have a port; not allowed for domain tunnels |
+| `tunnel.spec.gate` | app links only; default `signin`, except `tailscale` with `mode: private`, default `none` |
+| `tunnel.spec.mode`, `hostname` | `tailscale` only; `hostname` a DNS label (`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`) |
+| `tunnel.spec.domain` | `ngrok` only; a hostname |
+| `tunnel.spec.image`, `command`, `env`, `secretEnv`, `url` | `custom` only; `image` required (the app image rules); `env` and `secretEnv` as on apps, and neither may set `ENCLAVE_UPSTREAM`; `url` `https://…` |
+| `gate.mode` | `signin`, `password` or `none` |
+| `gate.passwordSecret` | required with `password`, an existing secret of the project; not allowed otherwise. Its value must hold `username` and `password` (1–128 characters each), checked when applied; a wrong shape fails the domain permanently |
+| `gate.openPaths` | 0 – 10; each starts with `/`, ≤ 255 characters, no `..`, no `*`, and not under `/.enclave/` |
+| `domain.spec.tunnel` | an existing tunnel of the project whose provider is `cloudflare` or `relay` (an app link → `NOT_ALLOWED` "This way in gives one app its own address; your own domains go through Cloudflare or your own server") |
+| `domain.spec.zone` with a `cloudflare` tunnel | required; the zone's provider must be `cloudflare` (`NOT_ALLOWED` with PUB-02's text). That it's in the tunnel's account is checked when applied |
+| `domain.spec.tls` with a tunnel | `cloudflare`: absent or `auto` (served by Cloudflare); `relay`: `auto` (`internal` and `off` → `NOT_ALLOWED`: a public name needs a public certificate) |
+| `domain.spec.gate` | only with `tunnel` (`NOT_ALLOWED`); defaults to `{ mode: 'signin' }` when `tunnel` is set |
+| `domain.spec.cloudflareAccess` | only with a `cloudflare` tunnel; ≤ 50 emails (valid addresses), ≤ 10 email domains (valid hostnames); at least one entry |
+| `zone.spec.zone` | may be a subdomain that is a zone of its own at the provider (`stage.galiaraa.com`, PUB-09); still unique on the machine (PRJ-03). Creating it checks it exists in the account, with PUB-09's message when it doesn't |
+| `AddMachine.role`, `address`, `agentPort` | `edge` needs `address`: an IPv4 address or a host name (the address visitors and the main machine reach); `agentPort` 1–65535; a worker takes neither (`NOT_ALLOWED`) |
+| `UpdateMachine.schedulable` | `true` on an edge machine → `NOT_ALLOWED` |
+
+### 16.6 Dependencies (CP-12)
+
+- domain → its tunnel;
+- domain → its gate's password secret;
+- tunnel → its credentials secret; app link → its app, its gate's password secret and, for `custom`, the secrets in `secretEnv`;
+- a relay tunnel → its edge machine: deleting the machine is refused with `409 MACHINE_NOT_EMPTY` naming the tunnel.
+
+### 16.7 Events
+
+On the tunnel: "Tunnel created at Cloudflare (ID …)", "Joined the tailnet as galiaraa-stage-web", "Public with Funnel", "Connected (4 connections)", "No connection for 30 s: restarting the connector", "Quick link is now https://…", "Routing rules put back (changed at Cloudflare)". On the domain: "Public through tunnel home", "DNS record CNAME dev → ….cfargotunnel.com created", "Gate: sign in", "Cloudflare Access: 2 emails". Gate sign-ins go to the audit log (`gate.signin`, `gate.signin_failed`, `gate.signout`) with the hostname, never the password.
+
+### 16.8 Engine
+
+- `Driver.EnsureConnector(ctx, Connector)`, `RemoveConnector` and `ConnectorState` run one connector container of ADR-051: a tunnel's (`es-tunnel-<hash>`, the provider's image or the custom one) on the main machine, or a relay (`es-relay-<hash>`, HAProxy) on its edge machine, routed there by the engine router (ADR-044). A connector carries its command, environment, files (written into the `<name>-files` volume, since its root is read-only), state volume, published ports and a configuration hash; a changed hash replaces it. `ConnectorExec` runs a fixed command in it (`tailscale status --json`, `tailscale logout`); `ConnectorFetch` reads a connector's endpoint from inside its network (cloudflared's `/ready`).
+- `Driver.ConfigureEdge` takes the tunnels' listeners (port, bind network, trusted connector or relay address, the header that carries the visitor's address) and the gated routes with their gate settings and edge key, rendered with the rest of the configuration. A new edge starts without the listeners first, since it has no address on a network until it runs, then reloads with them. `GateBindAddress` and `EdgeAddress` say where the gate listens and where the edge is reached on a network.
+- Mesh configuration gains, per peer, whether it has an endpoint and the keepalive (ADR-052); stand-ins include the edge proxy on edge machines.
+
+### 16.9 Agent protocol (internal)
+
+| Method and path | Who | Body → response |
+|---|---|---|
+| `POST /agent/v1/join` | the control plane, on a waiting edge agent's temporary listener (each check round until it joins) | `{ nonce }` → `{ csr, facts, agentNonce, mac }`; then `{ certificate, ca, machineId, server, mac }` → `204`; a wrong MAC → `401`, five → the agent stops listening (ADR-052) |
+| `POST /agent/v1/driver/{EnsureConnector,RemoveConnector,ConnectorState,ConnectorExec,ConnectorFetch}` | the control plane, on a joined agent | the connector whole → its state, output and exit code, or body; errors keep their class |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1249,3 +1369,4 @@ The console's detail list reads each label's explanation from one table (`consol
 | v23 | 2026-10-24 | Soupler | §12 per-app bucket access: `bucketAccess` on apps and jobs, `bucketCredentialsSecret`, the five variables, validation, references, `Driver.SetStoreUserAccess` (L2-011) |
 | v24 | 2026-10-24 | Soupler | §13 transcoder renditions, HLS ladder, notify and tags: fields, output keys, the message, validation, references, engine (L2-012) |
 | v25 | 2026-10-24 | Soupler | §14 bucket object routes, rules and events; §15 detail explanations (L2-013) |
+| v26 | 2026-10-24 | Soupler | §16 public access, as built: the tunnel kind, public domains and the gate, edge machines, outputs, gate routes, validation, references, events, engine and agent calls, the edge join (L2-014) |

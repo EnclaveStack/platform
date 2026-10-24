@@ -258,6 +258,33 @@ test('serve the app on a domain, then remove the domain (CON-19, CON-20)', async
   await expect(page.getByText('No domains yet.')).toBeVisible({ timeout: 20_000 });
 });
 
+test('make the app public with a quick link, see its address, then delete the link (CON-76, CON-80)', async () => {
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
+  await page.getByRole('link', { name: /web/ }).click();
+  await page.getByRole('button', { name: 'Make public' }).click();
+  await page.getByRole('dialog', { name: 'Make web public' }).getByRole('button', { name: 'Use Quick link' }).click();
+  const panel = page.getByRole('dialog', { name: 'Make web public' });
+  await expect(panel.getByLabel('App', { exact: true })).toHaveValue('web');
+  await panel.getByLabel('Name', { exact: true }).fill('web-link');
+  await panel.getByRole('button', { name: 'Create tunnel' }).click();
+  await expect(page.getByRole('group', { name: 'Summary' }).getByText('Ready')).toBeVisible({ timeout: 20_000 });
+  const address = page.getByRole('region', { name: 'Public address' });
+  await expect(address.getByText(/^https:\/\/.+\.trycloudflare\.com$/)).toBeVisible();
+  await expect(address.getByText(/Temporary/)).toBeVisible();
+  await expect(address.getByText('Gate: Sign in')).toBeVisible();
+  // The app's page lists the address too.
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
+  await page.getByRole('link', { name: /web/ }).click();
+  await expect(page.getByRole('region', { name: 'Public addresses' }).getByText(/trycloudflare\.com/)).toBeVisible();
+  await sidebar().getByRole('link', { name: /^Tunnels/ }).click();
+  await page.getByRole('link', { name: /web-link/ }).click();
+  await page.getByRole('button', { name: 'Delete' }).click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByLabel(/Type/).fill('web-link');
+  await dialog.getByRole('button', { name: 'Delete tunnel' }).click();
+  await expect(page.getByText('No tunnels yet.')).toBeVisible({ timeout: 20_000 });
+});
+
 test('run a job from the console and read its output (CON-22)', async () => {
   await sidebar().getByRole('link', { name: /^Jobs/ }).click();
   await page.getByRole('button', { name: 'New job' }).first().click();

@@ -3,11 +3,11 @@ import {
   ProgressBar, Row, Rows, Skeleton, Stack, Status, Table, Text, useToast,
 } from '@enclavestack/ui';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../api/context';
 import { DETAIL_HELP, withHelp } from '../lib/details';
 import { RULES } from '../api/generated';
-import { ApiError, type AddedMachine, type DrainResult, type MachineSummary } from '../api/types';
+import { ApiError, type AddedMachine, type DrainResult, type MachineSummary, type TunnelSpec } from '../api/types';
 import { useSession } from '../auth/session';
 import { fromRows, KeyValueEditor, toRows, type Row as KV } from '../components/KeyValueEditor';
 import { MACHINE_STATE } from '../components/MachineFields';
@@ -18,7 +18,7 @@ import { sectionByKind } from '../lib/sections';
 import { usePageTitle } from '../lib/shell';
 import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
-import { validateLabels, validateName, type FieldErrors } from '../lib/validation';
+import { validateHostname, validateLabels, validateName, type FieldErrors } from '../lib/validation';
 
 // Machines (CON-54, CON-55; L2.5-002 §15): every machine, the main one first, and a machine's page.
 
@@ -35,15 +35,24 @@ export function MachinesPage() {
   const { state } = useSession();
   const admin = isMachineAdmin(state.status === 'signed-in' ? state.session : null);
   const list = useLoad('machines', () => api.listMachines());
-  const [adding, setAdding] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // `?edge=1` opens Add an edge machine: the relay tunnel form links here (CON-78).
+  const [adding, setAdding] = useState<'worker' | 'edge' | null>(params.get('edge') === '1' ? 'edge' : null);
   const [added, setAdded] = useState<AddedMachine | null>(null);
+  const closeAdd = () => {
+    setAdding(null);
+    if (params.has('edge')) {
+      params.delete('edge');
+      setParams(params, { replace: true });
+    }
+  };
   // Waiting machines turn online without a reload (CON-54).
   usePolling(true, POLL_MS, list.reload);
 
   const back = <Link to="/machines" className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All machines</Link>;
   const addDrawer = adding && (
-    <Drawer title="Add machine" onClose={() => setAdding(false)}>
-      <AddMachineForm onDone={(a) => { setAdding(false); setAdded(a); list.reload(); }} />
+    <Drawer title={adding === 'edge' ? 'Add an edge machine' : 'Add machine'} onClose={closeAdd}>
+      <AddMachineForm edge={adding === 'edge'} onDone={(a) => { closeAdd(); setAdded(a); list.reload(); }} />
     </Drawer>
   );
 
@@ -69,7 +78,12 @@ export function MachinesPage() {
     <Page>
       <PageHeader label="Machines" title="Machines" status={list.data && <Badge tone="soft">{list.data.length}</Badge>}
         lede="The computers EnclaveStack runs on. New resources go to the one with the most free memory, unless you choose."
-        actions={admin && <Button variant="dark" icon={<Icons.Plus />} onClick={() => { setAdded(null); setAdding(true); }}>Add machine</Button>} />
+        actions={admin && (
+          <Inline gap={2}>
+            <Button icon={<Icons.Globe />} onClick={() => { setAdded(null); setAdding('edge'); }}>Add an edge machine</Button>
+            <Button variant="dark" icon={<Icons.Plus />} onClick={() => { setAdded(null); setAdding('worker'); }}>Add machine</Button>
+          </Inline>
+        )} />
       <Stack as="section" gap={3} aria-label="Machines list">
       {list.loading && !list.data && [0, 1].map((i) => <Skeleton key={i} shape="card" />)}
       {list.error && <Alert>{list.error.message}</Alert>}
@@ -93,7 +107,7 @@ export function MachinesPage() {
                 <td><Text size="sm">{m.resources} {m.resources === 1 ? 'resource' : 'resources'}</Text></td>
                 <td>
                   <Inline gap={2} wrap>
-                    {!m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
+                    {m.role === 'edge' ? <Chip icon={<Icons.Globe />}>Edge</Chip> : !m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
                     {m.versionMismatch && <Chip tone="warn">Different version</Chip>}
                   </Inline>
                 </td>
@@ -108,9 +122,12 @@ export function MachinesPage() {
   );
 }
 
-function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
+/** A worker runs resources; an edge machine is a server with a public address that only relays visitors (L2-014 EDG-01, EDG-02). */
+function AddMachineForm({ edge, onDone }: { edge: boolean; onDone: (a: AddedMachine) => void }) {
   const api = useApi();
   const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [agentPort, setAgentPort] = useState('');
   const [labels, setLabels] = useState<KV[]>([]);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -122,12 +139,16 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
     const found: FieldErrors = { ...validateLabels(l, 'labels') };
     const bad = validateName(name.trim());
     if (bad) found.name = bad;
+    const addr = address.trim();
+    if (edge && !/^\d{1,3}(\.\d{1,3}){3}$/.test(addr) && validateHostname(addr.toLowerCase())) found.address = "Give the server's public IPv4 address or host name, like 203.0.113.9.";
+    const port = agentPort.trim() ? Number(agentPort) : undefined;
+    if (port !== undefined && (!Number.isInteger(port) || port < RULES.portMin || port > RULES.portMax)) found.agentPort = 'Use a port from 1 to 65535.';
     setErrors(found);
     if (Object.keys(found).length) return;
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.addMachine(name.trim(), l));
+      onDone(await api.addMachine(name.trim(), l, edge ? { address: addr, ...(port !== undefined ? { agentPort: port } : {}) } : undefined));
     } catch (err) {
       if (err instanceof ApiError && err.details.length) setErrors(Object.fromEntries(err.details.map((d) => [d.field, d.message])));
       else setError(errorText(err));
@@ -138,9 +159,20 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
   return (
     <Form onSubmit={submit} noValidate>
       {error && <Alert>{error}</Alert>}
-      <Field id="m-name" label="Name" hint="How you'll refer to it, like rack-1." error={errors.name}>
+      {edge && <Text as="p" tone="muted">A small server you rent with a public address. It relays visitors for your own domains to this machine over an encrypted tunnel; nothing else runs on it.</Text>}
+      <Field id="m-name" label="Name" hint={edge ? 'How you’ll refer to it, like vps1.' : "How you'll refer to it, like rack-1."} error={errors.name}>
         <Input id="m-name" mono value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={Boolean(errors.name)} />
       </Field>
+      {edge && (
+        <>
+          <Field id="m-address" label="Public address" hint="The server’s public IP address or host name. This machine connects to it, so your router stays closed." error={errors.address}>
+            <Input id="m-address" mono value={address} onChange={(e) => setAddress(e.target.value)} placeholder="203.0.113.9" autoComplete="off" spellCheck={false} aria-invalid={Boolean(errors.address)} />
+          </Field>
+          <Field id="m-agent-port" label="Agent port" hint={`Optional. The port its agent listens on; ${RULES.agentPortDefault} unless you change it.`} error={errors.agentPort}>
+            <Input id="m-agent-port" mono inputMode="numeric" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} placeholder={String(RULES.agentPortDefault)} aria-invalid={Boolean(errors.agentPort)} />
+          </Field>
+        </>
+      )}
       <KeyValueEditor idPrefix="m-labels" label="Labels" rows={labels} onChange={setLabels} errors={errors} errorField={(k) => `labels.${k}`}
         addLabel="Add a label" emptyHint="Optional: resources can ask for machines with labels, like disk = ssd." />
       {errors.labels && <Alert>{errors.labels}</Alert>}
@@ -187,10 +219,17 @@ function JoinCard({ added, onDone }: { added: AddedMachine; onDone: () => void }
           <Heading level={2}>Join {added.machine.name}</Heading>
           <Text as="p">On the other computer, with Docker running, run this. It works once, until {new Date(added.expiresAt).toLocaleTimeString()}.</Text>
           <CodeBlock label="Join command" code={added.joinCommand} />
-          <Text as="p" size="sm" tone="muted">
-            That computer must reach this one, and this one must reach it on the agent port ({RULES.agentPortDefault}/tcp) and the tunnel ({RULES.tunnelPortDefault}/udp).
-            It shows here as online once it joins.
-          </Text>
+          {added.machine.role === 'edge' ? (
+            <Text as="p" size="sm" tone="muted">
+              Run it on the server, with Docker running. Open these ports in the server’s firewall: the agent ({RULES.agentPortDefault}/tcp, from this machine only), the tunnel
+              ({RULES.tunnelPortDefault}/udp) and visitors (80/tcp and 443/tcp). This machine connects to it, so nothing is opened on your router. It shows here as online once it joins.
+            </Text>
+          ) : (
+            <Text as="p" size="sm" tone="muted">
+              That computer must reach this one, and this one must reach it on the agent port ({RULES.agentPortDefault}/tcp) and the tunnel ({RULES.tunnelPortDefault}/udp).
+              It shows here as online once it joins.
+            </Text>
+          )}
           <div><Button variant="dark" onClick={onDone}>Done</Button></div>
         </Stack>
       </Card>
@@ -201,7 +240,8 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
   const api = useApi();
   const toast = useToast();
   const m = useLoad(`machine:${name}`, () => api.getMachineByName(name));
-  const here = useLoad(`machine-resources:${name}`, async () => (await api.listResources()).filter((r) => r.outputs.machine === name && r.status.phase !== 'deleting'));
+  const all = useLoad(`machine-resources:${name}`, () => api.listResources());
+  const here = { data: all.data?.filter((r) => r.outputs.machine === name && r.status.phase !== 'deleting'), reload: all.reload };
   const events = useLoad(`machine-events:${name}`, () => api.getMachineEvents(name));
   usePolling(true, POLL_MS, m.reload);
   const [busy, setBusy] = useState(false);
@@ -218,6 +258,9 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
   if (m.error) return <Alert>{m.error.message}</Alert>;
   const x = m.data;
   if (!x) return <Stack aria-busy="true"><Skeleton shape="title" /><Skeleton shape="block" /></Stack>;
+  // An edge machine runs no resources: nothing is placed, drained or moved there (EDG-03).
+  const edge = x.role === 'edge';
+  const relays = (all.data ?? []).filter((r) => r.kind === 'tunnel' && (r.spec as TunnelSpec).machine === name && r.status.phase !== 'deleting');
 
   const refresh = () => {
     m.reload();
@@ -280,10 +323,10 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
         back={back}
         title={x.main ? x.title : x.name}
         status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
-        lede={x.main ? 'The computer EnclaveStack runs on.' : 'A computer that joined this EnclaveStack.'}
-        meta={(!x.schedulable || x.versionMismatch) && (
+        lede={x.main ? 'The computer EnclaveStack runs on.' : edge ? 'A server with a public address that relays visitors to this EnclaveStack.' : 'A computer that joined this EnclaveStack.'}
+        meta={(!x.schedulable || x.versionMismatch || edge) && (
           <>
-            {!x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
+            {edge ? <Chip icon={<Icons.Globe />}>Edge</Chip> : !x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
             {x.versionMismatch && <Chip tone="warn">Different version</Chip>}
           </>
         )}
@@ -291,10 +334,12 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
               <Inline gap={2} wrap>
                 {x.main && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setRenaming(true)}>Rename</Button>}
                 {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
-                <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
-                  {x.schedulable ? 'Pause placing' : 'Allow placing'}
-                </Button>
-                {x.state === 'online' && !x.main && <Button size="sm" icon={<Icons.ArrowRightLeft />} disabled={busy} onClick={() => setDraining(true)}>Drain</Button>}
+                {!edge && (
+                  <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
+                    {x.schedulable ? 'Pause placing' : 'Allow placing'}
+                  </Button>
+                )}
+                {x.state === 'online' && !x.main && !edge && <Button size="sm" icon={<Icons.ArrowRightLeft />} disabled={busy} onClick={() => setDraining(true)}>Drain</Button>}
                 {!x.main && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => { setRemoveError(null); setRemoving('ask'); }}>Remove</Button>}
               </Inline>
         )}
@@ -316,6 +361,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
             { label: 'ID', mono: true, value: x.id, copy: x.id },
             { label: `${MACHINE_STATE[x.state] ?? x.state} since`, hint: DETAIL_HELP['State since'], value: <span title={new Date(x.since).toLocaleString()}>{formatAgo(x.since)}</span> },
             { label: 'Last heard', value: x.lastSeenAt ? <span title={new Date(x.lastSeenAt).toLocaleString()}>{formatAgo(x.lastSeenAt)}</span> : '—' },
+            { label: 'Role', value: edge ? 'Edge (only relays visitors)' : 'Worker' },
             { label: 'Address', mono: true, value: x.address ?? '—', copy: x.address ?? undefined },
             { label: 'System', value: x.os ? `${x.os} · ${x.arch}` : '—' },
             { label: 'Agent', mono: true, value: x.agentVersion || '—' },
@@ -363,6 +409,21 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
             </Table>
           </Card>
         )}
+        {edge ? (
+        <Card as="section" title="Relays" action={admin && relays.length === 0 && <Link to="/tunnels?new=1&provider=relay" className={buttonClass({ size: 'sm' })}><Icons.Plus /> Add a relay</Link>}>
+          {relays.length === 0 ? <Text tone="subtle">No relay runs here yet. Make one: Tunnels › New tunnel › Own server.</Text> : (
+            <Rows>
+              {relays.map((r) => (
+                <Row key={r.id}>
+                  <PhaseDot phase={r.status.phase} />
+                  <Link to={`/tunnels/${encodeURIComponent(r.id)}`}><Text weight="semibold">{r.name}</Text></Link>
+                  <Text size="sm" tone="subtle">{r.project}</Text>
+                </Row>
+              ))}
+            </Rows>
+          )}
+        </Card>
+        ) : (
         <Card title="Runs here">
           {here.data?.length === 0 ? <Text tone="subtle">Nothing runs here.</Text> : (
             <Rows>
@@ -377,6 +438,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
             </Rows>
           )}
         </Card>
+        )}
         <Card title="Events">
           {events.data?.length === 0 ? <Text tone="subtle">No events yet.</Text> : (
             <Rows>

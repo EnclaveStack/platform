@@ -1,0 +1,11 @@
+name: quick-link
+title: Quick link
+category: public-access
+description: "An address for one app with no account and no domain: a random trycloudflare.com link. It changes when it restarts and handles at most 200 requests at once, so it is for demos."
+version: 1.0.0
+parameters:
+  - { name: app, title: App, description: "The app to make public.", type: string, required: true }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: quick, app: "${param:app}" }

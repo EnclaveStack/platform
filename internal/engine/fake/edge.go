@@ -124,7 +124,7 @@ func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error
 		d.edge.running = false
 		return engine.Permanent(errors.New(d.edge.failure))
 	}
-	d.edge.cfg, d.edge.running = cfg, len(cfg.Routes) > 0
+	d.edge.cfg, d.edge.running = cfg, !cfg.Empty()
 	d.edge.reloads++
 	for _, r := range cfg.Routes {
 		if r.TLS == api.TLSInternal {
@@ -144,7 +144,15 @@ func (d *Driver) Certificate(ctx context.Context, hostname string) (engine.Certi
 	if !d.edge.running {
 		return engine.Certificate{State: engine.CertPending}, nil
 	}
-	for _, r := range d.edge.cfg.Routes {
+	routes := d.edge.cfg.Routes
+	for _, l := range d.edge.cfg.Listeners { // a relay's hostnames: TLS ends on its listener (ADR-052)
+		for _, g := range l.Routes {
+			if g.TLS {
+				routes = append(routes, engine.Route{Hostname: g.Hostname, TLS: api.TLSAuto, DNS01: g.DNS01})
+			}
+		}
+	}
+	for _, r := range routes {
 		if !routeMatches(r.Hostname, hostname) {
 			continue
 		}

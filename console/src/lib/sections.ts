@@ -1,6 +1,6 @@
 import type { Kind } from '../api/types';
 
-/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52, CON-60). The slug is the URL segment. */
+/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52, CON-60, CON-76). The slug is the URL segment. */
 export const SECTIONS = [
   // v0.8 (CON-60): products installed from the catalogue.
   { slug: 'stacks', kind: 'stack', label: 'Stacks', noun: 'stack', blurb: 'Products installed from the catalogue — an app with its database, storage and domain — changed and deleted as one.' },
@@ -23,6 +23,8 @@ export const SECTIONS = [
   { slug: 'search', kind: 'search', label: 'Search', noun: 'search service', blurb: 'OpenSearch with a password, for full-text search and analytics over your data.' },
   { slug: 'transcoders', kind: 'transcoder', label: 'Transcoders', noun: 'transcoder', blurb: 'Video and audio dropped in a bucket folder, converted to MP4, HLS, WebM, MP3 and thumbnails.' },
   { slug: 'cdn', kind: 'cdn', label: 'CDN', noun: 'CDN', blurb: 'A cache with its own hostname in front of an app or a bucket, served over HTTPS.' },
+  // Public access (CON-76, L2-014): ways in from the internet.
+  { slug: 'tunnels', kind: 'tunnel', label: 'Tunnels', noun: 'tunnel', blurb: 'Ways in from the internet with nothing opened on your router: an address for one app, or your own domains through Cloudflare or a server you rent.' },
   { slug: 'email', kind: 'email', label: 'Email', noun: 'email service', blurb: 'SMTP for your apps: every message kept to look at, and relayed through your provider when you want it delivered.' },
   { slug: 'zones', kind: 'zone', label: 'DNS', noun: 'zone', blurb: 'Zones at Cloudflare or Route 53 and the records EnclaveStack keeps in them — pointed at this machine if you like, and put back if changed elsewhere.' },
   // v0.7 (CON-49 – CON-52): watching and wiring what runs.
@@ -54,7 +56,7 @@ export type NavPage = keyof typeof NAV_PAGES;
 export const NAV_GROUPS: readonly { id: string; heading: string; items: readonly (SectionSlug | NavPage)[] }[] = [
   { id: 'compute', heading: 'Compute', items: ['apps', 'jobs', 'vms', 'load-balancers'] },
   { id: 'data', heading: 'Data', items: ['databases', 'caches', 'buckets', 'volumes', 'snapshots', 'backups', 'search'] },
-  { id: 'networking', heading: 'Networking', items: ['networks', 'firewalls', 'domains', 'zones', 'cdn'] },
+  { id: 'networking', heading: 'Networking', items: ['networks', 'firewalls', 'domains', 'zones', 'cdn', 'tunnels'] },
   { id: 'messaging', heading: 'Messaging and media', items: ['queues', 'topics', 'email', 'transcoders'] },
   { id: 'security', heading: 'Security', items: ['secrets', 'secret-stores'] },
   { id: 'install', heading: 'Install', items: ['catalogue', 'stacks'] },

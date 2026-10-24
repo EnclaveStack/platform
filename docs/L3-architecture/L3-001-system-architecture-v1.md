@@ -6,9 +6,9 @@
 | Document ID | L3-001-system-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v17 |
+| Version | v18 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -72,6 +72,9 @@ EnclaveStack is **one Go binary** (`enclave`) that is both the control plane (`e
 | Mesh *(v0.8: planned)* | `es-system-mesh` and `es-standin-*` containers running `es-mesh` (`internal/mesh`, built into its image from its own source); configured by the driver's `ConfigureMesh` from the reconciler's mesh sync | WireGuard peers, routes and proxy neighbours for remote addresses, isolation rules, stand-ins for remote names, address pools (ADR-045) | Engine API; WireGuard between machines | The store |
 | Catalogue *(v0.8: planned)* | `internal/catalogue` (template parsing, placeholders, built-in templates), `internal/service` (stacks) | Templates, rendering, members of stacks (ADR-048) | Nothing: pure; the service validates and stores what it renders | The engine |
 | Engine services *(v0.6: planned)* | The driver's database plans (MySQL, MongoDB, ClickHouse), `es-search-<name>` (OpenSearch), `es-email-<name>` (Mailpit), `es-cdn-<name>` (nginx), transcode runs (FFmpeg) | Containers, their configuration files, dumps and restores, cache purges, transcodes fed through the archive API (ADR-030 – ADR-034) | Engine API | The store |
+| Tunnels *(public access)* | `internal/tunnel` (the `Provider` port; `quick`, `tailscale`, `ngrok`, `cloudflare`, `relay`, `custom` and a test provider), `internal/reconciler/tunnels.go`; `es-tunnel-<hash>` connector containers (cloudflared, tailscale, ngrok or a custom image) on the `es-system-tunnel` network; the `public-access` catalogue templates | Remote tunnels, routing rules, run tokens, the addresses providers give, connection state, drift, Cloudflare Access (ADR-051, DAR-043) | Provider HTTP APIs; `internal/dns` for public domains' records; engine through the reconciler | The store, handlers |
+| Relays *(public access)* | `es-relay-<hash>` containers (HAProxy, TCP) on edge machines, run through the engine router | Passing ports 80 and 443 to the edge proxy's relay listeners over the mesh, with PROXY protocol (ADR-052) | Configured only by the reconciler | Certificates, secrets, decrypted traffic |
+| Gate *(public access)* | `internal/gate`, served on the control plane's gate listener (`--gate-listen`) | Gate sessions, the sign-in pages, `/check` for the edge proxy (ADR-053) | The store (sessions, users, roles), `internal/auth` for passwords and throttling | The API's sessions and tokens |
 ## 3 · Data ownership
 
 *Reconstructed 2026-10-21 from the code and `L3-005`; the original text of this section was lost (see Version history).*
@@ -143,3 +146,4 @@ ADR-001 and ADR-002 are recorded here; ADR-003 onward are in `L3-003`, with thei
 | v15 | 2026-10-21 | Soupler | v0.6 components (planned): message broker, delivery loop, mail client, engine services for the new engines and kinds (ADR-029 – ADR-034) |
 | v16 | 2026-10-22 | Soupler | v0.7 components (planned): monitor (sampler, alerts, notifier, log shipper), secret stores and the shared SigV4 signer, authorization (ADR-035 – ADR-041) |
 | v17 | 2026-10-22 | Soupler | v0.8 components (planned): agent, engine router, machines, mesh, catalogue; runtime flow 8 (ADR-042 – ADR-048) |
+| v18 | 2026-10-24 | Soupler | §2: tunnels, relays and the gate components (L2-014, ADR-051 – ADR-053) |

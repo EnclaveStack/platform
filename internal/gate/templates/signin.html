@@ -1,0 +1,13 @@
+{{template "head" .}}
+<h1 class="es-gate-title"><span class="es-gate-host">{{.Host}}</span> is private</h1>
+<p class="es-gate-lede">Sign in with your EnclaveStack account to continue.</p>
+{{if .Error}}<p class="es-gate-banner" role="alert">{{.Error}}</p>{{end}}
+<form class="es-gate-form" method="post" action="/.enclave/gate/signin">
+<input type="hidden" name="next" value="{{.Next}}">
+<label class="es-gate-label">Email<input class="es-gate-input" type="email" name="email" value="{{.Email}}" autocomplete="username" required autofocus></label>
+<label class="es-gate-label">Password<input class="es-gate-input" type="password" name="password" autocomplete="current-password" required></label>
+<button class="es-gate-button" type="submit">Continue</button>
+</form>
+{{if .Session}}<form class="es-gate-form" method="post" action="/.enclave/gate/signout"><p class="es-gate-foot">Signed in as {{.Session}}.</p><button class="es-gate-button es-gate-button-quiet" type="submit">Sign out</button></form>{{end}}
+<p class="es-gate-foot">People with access to this environment's project in EnclaveStack can sign in here. This page is part of EnclaveStack, not of the site behind it.</p>
+{{template "foot" .}}

@@ -75,7 +75,9 @@ describe('mock api, v0.8', () => {
 
   it('installs a stack with its members, refuses member changes, and deletes them together (L3-002 §11.7)', async () => {
     const api = await signedIn();
-    expect((await api.listCatalogue()).map((e) => e.name)).toEqual(['ghost', 'gitea', 'n8n', 'plausible', 'uptime-kuma', 'wordpress']);
+    const catalogue = await api.listCatalogue();
+    expect(catalogue.filter((e) => e.category === 'apps').map((e) => e.name)).toEqual(['ghost', 'gitea', 'n8n', 'plausible', 'uptime-kuma', 'wordpress']);
+    expect(catalogue.filter((e) => e.category === 'public-access').map((e) => e.name)).toEqual(['cloudflare-tunnel', 'custom-tunnel', 'ngrok', 'own-server', 'quick-link', 'tailscale']);
     expect((await fails(api.createResource('stack', 'pub', { template: 'ghost' } as StackSpec)))?.details[0]?.field).toBe('spec.parameters.domain');
     await api.createResource('database', 'taken-db', { engine: 'postgres', version: '16' });
     expect((await fails(api.createResource('stack', 'taken', { template: 'wordpress' } as StackSpec)))?.code).toBe('NAME_TAKEN');

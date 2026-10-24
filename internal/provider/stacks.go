@@ -373,6 +373,8 @@ type catalogueEntryModel struct {
 	Description types.String          `tfsdk:"description"`
 	Version     types.String          `tfsdk:"version"`
 	BuiltIn     types.Bool            `tfsdk:"built_in"`
+	Category    types.String          `tfsdk:"category"`
+	Signup      types.String          `tfsdk:"signup"`
 	Parameters  []catalogueParamModel `tfsdk:"parameters"`
 }
 
@@ -398,6 +400,8 @@ func (d *catalogueData) Schema(_ context.Context, _ datasource.SchemaRequest, re
 				"name": dschema.StringAttribute{Computed: true}, "title": dschema.StringAttribute{Computed: true},
 				"description": dschema.StringAttribute{Computed: true}, "version": dschema.StringAttribute{Computed: true},
 				"built_in": dschema.BoolAttribute{Computed: true},
+				"category": dschema.StringAttribute{Computed: true, Description: "apps or public-access (ways in from the internet)."},
+				"signup":   dschema.StringAttribute{Computed: true, Description: "Where to make the account a public-access entry needs; null when none."},
 				"parameters": dschema.ListNestedAttribute{Computed: true, NestedObject: dschema.NestedAttributeObject{Attributes: map[string]dschema.Attribute{
 					"name": dschema.StringAttribute{Computed: true}, "title": dschema.StringAttribute{Computed: true},
 					"type": dschema.StringAttribute{Computed: true}, "required": dschema.BoolAttribute{Computed: true},
@@ -417,7 +421,8 @@ func (d *catalogueData) Read(ctx context.Context, _ datasource.ReadRequest, resp
 	out := catalogueModel{Entries: []catalogueEntryModel{}}
 	for _, e := range items {
 		entry := catalogueEntryModel{Name: types.StringValue(e.Name), Title: types.StringValue(e.Title), Description: types.StringValue(e.Description),
-			Version: types.StringValue(e.Version), BuiltIn: types.BoolValue(e.BuiltIn), Parameters: []catalogueParamModel{}}
+			Version: types.StringValue(e.Version), BuiltIn: types.BoolValue(e.BuiltIn), Category: types.StringValue(e.Category), Signup: strOrNull(e.Signup),
+			Parameters: []catalogueParamModel{}}
 		for _, p := range e.Parameters {
 			def := types.StringNull()
 			if p.Default != nil {

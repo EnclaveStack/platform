@@ -110,6 +110,17 @@ type Reconciler struct {
 	// machine is offline before its apps start elsewhere (DefaultRescheduleAfter, ADR-046).
 	MeshEvery       time.Duration
 	RescheduleAfter time.Duration
+	// Public access (ADR-051 – ADR-053): CloudflareAPI is the base of Cloudflare's API ("" for the real one),
+	// Gate how the edge reaches the gate listener. TunnelConnectWait bounds one wait for a connector's first
+	// connection; TunnelCheckEvery and TunnelDriftEvery pace the tunnel loop (DefaultTunnel…).
+	CloudflareAPI     string
+	Gate              engine.GateConfig
+	TunnelConnectWait time.Duration
+	TunnelCheckEvery  time.Duration
+	TunnelDriftEvery  time.Duration
+	// TunnelRestartAfter is how long a connector may stay without a connection before it is restarted
+	// (TunnelDownRestart when 0).
+	TunnelRestartAfter time.Duration
 
 	queue    chan string
 	mu       sync.Mutex
@@ -131,6 +142,9 @@ type Reconciler struct {
 	mesh   meshState
 	meshMu sync.Mutex
 	keep   sync.Map
+	// Public access: the tunnel loop's state, and the hash of the edge configuration last applied.
+	tun      tunnelState
+	edgeHash string
 }
 
 // New builds a reconciler with production defaults; tests override fields before Run.
@@ -163,10 +177,14 @@ func (r *Reconciler) Run(ctx context.Context) {
 			}
 		}()
 	}
-	r.wg.Add(4)
+	r.wg.Add(5)
 	go func() {
 		defer r.wg.Done()
 		r.driftLoop(ctx)
+	}()
+	go func() {
+		defer r.wg.Done()
+		r.tunnelLoop(ctx)
 	}()
 	go func() {
 		defer r.wg.Done()
@@ -419,6 +437,12 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	} else if res.Kind == api.KindStack {
 		var err error
 		outputs, err = r.ensureStack(ctx, res, &progress{r: r, ctx: ctx, res: res, gen: gen})
+		if err != nil {
+			return err
+		}
+	} else if res.Kind == api.KindTunnel {
+		var err error
+		outputs, err = r.ensureTunnel(ctx, res, &progress{r: r, ctx: ctx, res: res, gen: gen})
 		if err != nil {
 			return err
 		}
@@ -683,8 +707,16 @@ func (r *Reconciler) restart(ctx context.Context, res *domain.Resource, log *slo
 
 func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog.Logger) error {
 	if res.Kind == api.KindDomain {
+		// A public domain takes its record, routing rule and Access application with it (PUB-04).
+		if err := r.leavePublic(ctx, res); err != nil {
+			return err
+		}
 		// The domain is already in phase deleting, so the configuration applied now drops its route.
 		if err := r.syncEdge(ctx); err != nil {
+			return err
+		}
+	} else if res.Kind == api.KindTunnel {
+		if err := r.deleteTunnel(ctx, res); err != nil {
 			return err
 		}
 	} else if res.Kind == api.KindNetwork {
@@ -950,6 +982,9 @@ func (r *Reconciler) CheckDrift(ctx context.Context) {
 	for _, res := range ready {
 		if res.Kind == api.KindSecret || res.Kind == api.KindJob || res.Kind == api.KindBackup || res.Kind == api.KindStack || isOperateKind(res.Kind) || res.RequestedAction != "" {
 			continue // no long-running runtime to drift
+		}
+		if res.Kind == api.KindTunnel {
+			continue // the tunnel loop watches connectors (TUN-05)
 		}
 		if res.Kind == api.KindFirewall {
 			r.refreshFirewall(ctx, res)

@@ -30,6 +30,7 @@ const ICON: Record<Kind, typeof Icons.Box> = {
   channel: Icons.Megaphone,
   logexport: Icons.ScrollText,
   secretstore: Icons.Vault,
+  tunnel: Icons.Cable,
 };
 
 /** The icon that stands for a resource kind in the sidebar, list cards and empty states. */

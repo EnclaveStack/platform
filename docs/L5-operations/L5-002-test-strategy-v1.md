@@ -6,9 +6,9 @@
 | Document ID | L5-002-test-strategy-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v19 |
+| Version | v20 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -159,6 +159,19 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 | Built-binary e2e, two machines | `tests/e2e` (`make e2e-machines`): the server in a container and an agent in a Docker-in-Docker container | As built: joining with the printed command, a cache on the second machine reached by name from a job on the first through a private network, the cache moved to the first machine with its data, the agent stopped and an app restarted on the first machine, `machine ls` and events showing it offline, and nothing left on Docker afterwards. Catalogue stacks and domains are tested on the fake engine and in OpenTofu acceptance, not here yet | `make e2e-machines` |
 | Performance | `tests/load` | Throughput and latency between two engines over the tunnel (XNET-08); the router's overhead per call | `L5-003` |
 
+## 11 · Public access suites (`L2-014`)
+
+| Suite | Level | What it proves | Command |
+|---|---|---|---|
+| Validation and pure logic | Unit: `pkg/api`, `internal/tunnel`, `internal/gate`, `internal/mesh` (an edge peer's nftables rules: only its relay listeners, everything else dropped) | Tunnel and gate rules of `L3-002` §16.5; the edge configuration a set of tunnels and public domains renders to (listeners, routes, header stripping, trusted addresses, the 404); routing rules and DNS records per provider; join MACs (right code, wrong code, swapped certificate, replayed nonce) | `go test ./pkg/api ./internal/tunnel/... ./internal/gate/...` |
+| Provider plug-ins | Integration: `internal/tunnel/cloudflare` against an in-process fake of Cloudflare's tunnel, configuration, DNS and Access endpoints; `tailscale` and `ngrok` against fakes of `tailscale status --json`, the serve configuration and ngrok's `:4040` API; the `public-access` catalogue templates render and validate | Create and adopt; routing rules whole and idempotent; proxied CNAMEs; Access applications; delete in order; drift put back; `401`/`403` permanent with the permission named; `429`/`5xx` retried | `go test ./internal/tunnel/...` |
+| The gate | Integration: the gate listener and the real auth service and store | Sign-in, cookie attributes, one host only, role re-check and removal within a minute, throttling and audit, same-host `next` only, fail closed, edge key required, console cookies and tokens refused, gate cookies refused by the API | `go test ./internal/gate/... ./internal/httpapi/...` |
+| Control plane on the fake engine | Integration (real API + SQLite + reconciler, fake driver and fake provider): `internal/reconciler`, `internal/httpapi`, `internal/testenv` | Tunnels through their phases; an edge machine's mesh (peers only with the main machine, sees only the edge proxy, limited to its relay's listeners; a worker never peers with it); public domains (records, routes, state following the tunnel); moving between tunnels; references (CP-12); quick URL changes; edge machines never placed; the edge join end to end with in-process agents | `go test ./...` |
+| Real Docker | `internal/engine/docker` (`connector_test.go`, `edge_public_test.go`) | The connector runs hardened (no capabilities, read-only root, its files in a volume) on `es-system-tunnel`; the app is reached only through the gate (password `401`/`200`, open paths, forged `X-Enclave-*` headers stripped, the visitor's address from the connector only); an unreachable gate fails closed within about 2 s; a listener whose connector hasn't started isn't rendered; a relay with PROXY protocol v2 gives the visitor's address, `308` to HTTPS, `404` for other hostnames | `make engine-docker` |
+| Built-binary e2e, edge machine | `tests/e2e/edge_test.go` (`make e2e-machines EDGE=1`): the server in a container, given no address, and a Docker-in-Docker edge machine joined from the main side | The reverse join; the mesh with the main machine behind NAT; a relay tunnel and a public domain whose certificate Pebble issues through the relay; a visitor on another network reaching the app with their own address; `308` and `404` through the relay; no key on the edge machine; removing it refused while the relay exists; no error in the server log | `make e2e-machines EDGE=1` |
+| CLI, provider, console | `internal/cli`, provider acceptance, `pnpm test` (mock), Playwright | `tunnel`, the domain flags, `machine add --edge`; `enclave_tunnel`, the new `enclave_domain` and `enclave_machine` attributes; the Tunnels section, the Public access fieldset with the gate's confirmation, Add an edge machine | `go test ./internal/cli`, `make provider-acceptance`, `pnpm test`, `make console-e2e` |
+| Live (by hand) | `L5-001` §2h | A real Cloudflare account and a real VPS, from a phone on mobile data | — |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -182,3 +195,4 @@ CI runs `make engine-qemu` on a Linux runner with `/dev/kvm` (`L4-002`); macOS H
 | v17 | 2026-10-22 | Soupler | §5: CI runs every level, real-engine e2e and load included, on every PR only (no push or nightly runs) |
 | v18 | 2026-10-22 | Soupler | §10 v0.8 suites (planned): validation and pure logic, agent protocol, many machines on the fake engine, surfaces, two real engines, two-machine e2e, tunnel performance |
 | v19 | 2026-10-22 | Soupler | §10: the two-machine e2e as built |
+| v20 | 2026-10-24 | Soupler | §11 public access suites: validation, the Cloudflare plug-in against a fake, the gate, the fake engine, real Docker (with the gate-reachability spike), edge machine e2e, surfaces, live checks (L2-014) |

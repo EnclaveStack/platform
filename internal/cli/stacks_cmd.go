@@ -205,9 +205,9 @@ func (a *app) catalogueCmd() *cobra.Command {
 				if !e.BuiltIn {
 					from = "yours"
 				}
-				rows = append(rows, []string{e.Name, e.Title, e.Version, from, e.Description})
+				rows = append(rows, []string{e.Name, e.Title, e.Category, e.Version, from, e.Description})
 			}
-			a.table([]string{"NAME", "TITLE", "VERSION", "FROM", "DESCRIPTION"}, rows)
+			a.table([]string{"NAME", "TITLE", "CATEGORY", "VERSION", "FROM", "DESCRIPTION"}, rows)
 			return nil
 		},
 	})
@@ -226,7 +226,11 @@ func (a *app) catalogueCmd() *cobra.Command {
 			if a.output == "json" {
 				return a.json(e)
 			}
-			fmt.Fprintf(a.io.Out, "%s %s — %s\n\nParameters:\n", e.Title, e.Version, e.Description)
+			fmt.Fprintf(a.io.Out, "%s %s — %s\n", e.Title, e.Version, e.Description)
+			if e.Signup != "" { // a way in that needs an account (L2-014 TUN-15)
+				fmt.Fprintf(a.io.Out, "Needs an account: sign up at %s\n", e.Signup)
+			}
+			fmt.Fprintln(a.io.Out, "\nParameters:")
 			for _, p := range e.Parameters {
 				req := ""
 				if p.Required {

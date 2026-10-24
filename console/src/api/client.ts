@@ -5,6 +5,7 @@ import type {
   AuditEntry,
   CatalogueEntry,
   DrainResult,
+  EdgeMachineInput,
   MachineSummary,
   UpdateMachineInput,
   CreatedToken,
@@ -143,8 +144,8 @@ export interface EnclaveApi {
   // v0.8 machines (L3-002 §11.2). The main machine is named "main"; getMachine still describes it.
   listMachines(): Promise<MachineSummary[]>;
   getMachineByName(name: string): Promise<MachineSummary>;
-  /** Machine admins; the join code is shown once. */
-  addMachine(name: string, labels?: Record<string, string>): Promise<AddedMachine>;
+  /** Machine admins; the join code is shown once. With edge: an edge machine at its public address (L2-014 EDG-02). */
+  addMachine(name: string, labels?: Record<string, string>, edge?: EdgeMachineInput): Promise<AddedMachine>;
   updateMachineByName(name: string, input: UpdateMachineInput): Promise<MachineSummary>;
   /** 409 MACHINE_NOT_EMPTY lists what runs there; force removes an offline machine and fails what ran on it. */
   removeMachine(name: string, force?: boolean): Promise<void>;

@@ -1,0 +1,14 @@
+name: ngrok
+title: ngrok
+category: public-access
+signup: https://dashboard.ngrok.com/signup
+description: "An address for one app from a free ngrok account: one address per account, about 1 GB and 20,000 requests a month, and a warning page ngrok shows visitors first. Paid plans can name a reserved domain."
+version: 1.0.0
+parameters:
+  - { name: app, title: App, description: "The app to make public.", type: string, required: true }
+  - { name: authToken, title: Authtoken, description: "Your Authtoken, from the ngrok dashboard.", type: secret, required: true }
+  - { name: domain, title: Reserved domain, description: "A domain reserved in your ngrok account (paid plans); empty uses the account's free address.", type: string, default: "" }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: ngrok, app: "${param:app}", credentialsSecret: "${stack}-authtoken", domain: "${param:domain}" }

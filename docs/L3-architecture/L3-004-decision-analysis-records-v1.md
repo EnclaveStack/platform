@@ -6,9 +6,9 @@
 | Document ID | L3-004-decision-analysis-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v8 |
+| Version | v9 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -540,6 +540,63 @@ Resolution: **specs with placeholders**: `${stack}`, `${project}`, `${param:…}
 
 Resolution: **most free memory**, the main machine on a tie, filtered by version, labels, kind (VMs need VM support) and the volume a resource uses.
 
+## DAR-040 — How traffic from the internet reaches a machine behind NAT (→ ADR-051, ADR-052)
+
+A machine at home has no address strangers can connect to: the router drops unasked-for connections (NAT), and many providers share one address between homes (CGNAT), so no port can be forwarded. Outgoing connections always work (`L2-014` §1).
+
+| Criterion | Weight | Port forwarding + dynamic DNS | A provider's tunnel (Cloudflare): a connector at home dials out to the provider's edge | A relay on the user's own server, reached over the mesh the machine dials out on | An edge EnclaveStack hosts for everyone (`*.enclavestack.dev`) |
+|---|---|---|---|---|---|
+| Works behind CGNAT with no change on the router | 30 | 1 | 5 | 5 | 5 |
+| We operate nothing on the internet (`L1-001`: self-hosted, no service of ours) | 25 | 5 | 5 | 5 | 1 |
+| The home address stays hidden and nothing is opened at home | 15 | 1 | 5 | 5 | 5 |
+| A way in with no third party in the path | 10 | 5 | 1 | 5 | 3 |
+| Cost and setup for the user | 10 | 3 | 5 | 2 | 5 |
+| Effort and moving parts for us | 10 | 5 | 4 | 3 | 1 |
+| **Weighted total** | 100 | 3.00 | **4.50** | **4.50** | 3.40 |
+
+Resolution: **both the provider tunnel and the relay**, behind one `tunnel` kind. They tie, and they serve different users. Cloudflare is free and has nothing to rent. The relay keeps every byte off third-party servers. The owner chose both for the first version (2026-10-24). Port forwarding stays possible, as today (`--edge-address 0.0.0.0`), but it is not part of this feature. A hosted edge is out of scope: we would be running internet infrastructure for strangers, with its cost and abuse handling.
+
+## DAR-041 — Where a relay's TLS ends (→ ADR-052)
+
+| Criterion | Weight | Pass TCP through to the edge proxy at home, the visitor's address in a PROXY protocol header | Terminate TLS on the rented server and re-encrypt over the mesh | Route by SNI on the rented server, TLS still ending at home |
+|---|---|---|---|---|
+| Private keys and decrypted traffic never on the rented server | 35 | 5 | 1 | 5 |
+| Certificates and renewals stay where they are today (the edge proxy, ADR-015, ADR-024) | 20 | 5 | 2 | 5 |
+| The app sees the visitor's real address (PUB-07) | 15 | 5 | 5 | 5 |
+| The relay needs no configuration per domain | 15 | 5 | 2 | 2 |
+| Effort | 15 | 4 | 3 | 3 |
+| **Weighted total** | 100 | **4.85** | 2.25 | 4.25 |
+
+Resolution: **TCP passthrough with PROXY protocol v2**. The relay forwards ports 80 and 443 to one pair of listeners on the edge proxy. It never sees a hostname, a key or a decrypted byte, so it needs no change when domains change.
+
+## DAR-042 — How the gate checks a visitor (→ ADR-053)
+
+| Criterion | Weight | The edge proxy asks a gate listener in the control plane (`forward_auth`); sessions in the store | Only the edge proxy's own HTTP basic authentication | A separate gate container with its own copy of users | A signed cookie checked by a plug-in compiled into the edge proxy |
+|---|---|---|---|---|---|
+| Uses EnclaveStack accounts and project roles, and access ends within a minute when it's taken away (GATE-02, GATE-03) | 30 | 5 | 1 | 3 | 3 |
+| Keeps the stock, pinned edge proxy image (ADR-015) | 20 | 5 | 5 | 5 | 1 |
+| Adds nothing reachable from the internet beyond the gate's own pages | 20 | 4 | 5 | 4 | 5 |
+| Works the same on Docker Desktop and Linux | 15 | 4 | 5 | 5 | 5 |
+| Effort | 15 | 4 | 5 | 2 | 2 |
+| **Weighted total** | 100 | **4.50** | 3.80 | 3.75 | 3.15 |
+
+Resolution: **`forward_auth` to a gate listener in the control plane** for `signin`, and the edge proxy's own basic authentication for `password`, where it is all that's needed. The gate listener must be reachable from the edge container and from nothing outside the computer. On Docker Desktop that means `host.docker.internal`; on Linux, the host's address on the default network's bridge. This is a spike before step 1 of `L2-014` §7, recorded in ADR-053 when it's done.
+
+## DAR-043 — How ways in plug in (→ ADR-051)
+
+The owner wants the way in to be the user's choice, installed from the catalogue (`L2-014` TUN-15).
+
+| Criterion | Weight | Built-in plug-ins for the common providers, plus a `custom` connector for any other, all behind one `tunnel` kind | Built-in plug-ins only | Only `custom`: every provider is an image and settings the user supplies | Each provider a catalogue template of an ordinary app running its connector |
+|---|---|---|---|---|---|
+| A user can pick any provider, including ones we never heard of | 25 | 5 | 2 | 5 | 4 |
+| Common providers work with no knowledge of their connector (addresses read back, settings checked, errors explained, clean-up at the provider) | 25 | 5 | 5 | 1 | 2 |
+| The gate and isolation hold whatever the provider (every connector reaches only its own listener on the edge) | 20 | 5 | 5 | 5 | 2 |
+| One way of making an app public on every surface | 15 | 5 | 5 | 4 | 3 |
+| Effort | 15 | 3 | 4 | 5 | 4 |
+| **Weighted total** | 100 | **4.70** | 4.10 | 3.85 | 2.95 |
+
+Resolution: **built-in plug-ins plus `custom`**. Quick link, Tailscale, Cloudflare, ngrok and the relay are plug-ins. `custom` runs any other connector image with `ENCLAVE_UPSTREAM`. A connector as an ordinary app was rejected, because an app joins user networks and would bypass the per-tunnel listener and the gate. The catalogue entries are templates whose members are a credentials secret and a `tunnel` (ADR-048), so installing one and creating one from **Tunnels** are the same thing.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -552,3 +609,4 @@ Resolution: **most free memory**, the main machine on a tie, filtered by version
 | v6 | 2026-10-22 | Soupler | DAR-027 – DAR-033 for v0.7: project separation, access model, metrics storage, alert evaluation, notification delivery, log export, outside secret managers |
 | v7 | 2026-10-22 | Soupler | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |
 | v8 | 2026-10-22 | Soupler | DAR-034 – DAR-039 for v0.8: agent transport, networks across machines (spike recorded), unique addresses, moving data, template language, choosing a machine |
+| v9 | 2026-10-24 | Soupler | DAR-040 – DAR-042 for public access: the way in (provider tunnel and own relay), where a relay's TLS ends, how the gate checks a visitor (L2-014) |

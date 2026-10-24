@@ -9,8 +9,37 @@ const GiB = 2 ** 30;
 const domainParam = (required: boolean, description: string) => ({ name: 'domain', title: 'Domain', description, type: 'hostname' as const, ...(required ? { required: true } : {}) });
 const member = (kind: Kind, name: string, optional = false): TemplateMember => ({ kind, name: name ? `<stack>-${name}` : '<stack>', optional });
 
-/** The six built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
-export const BUILTIN_CATALOGUE: CatalogueEntry[] = [
+const appParam = { name: 'app', title: 'App', description: 'The app to make public.', type: 'string' as const, required: true };
+const secretParam = (name: string, title: string, description: string) => ({ name, title, description, type: 'secret' as const, required: true });
+
+/** The ways in from the internet (L2-014 TUN-15): the catalogue's Public access category. */
+const PUBLIC_ACCESS = [
+  { name: 'quick-link', title: 'Quick link',
+    description: 'An address for one app with no account and no domain: a random trycloudflare.com link. It changes when it restarts and handles at most 200 requests at once, so it is for demos.',
+    parameters: [appParam] },
+  { name: 'tailscale', title: 'Tailscale', signup: 'https://login.tailscale.com/start',
+    description: "A stable name.ts.net address for one app, free. Private: only devices in your tailnet open it. Public: anyone can, with Funnel, behind EnclaveStack's gate. Needs a free Tailscale account with MagicDNS and HTTPS certificates on.",
+    parameters: [appParam, secretParam('authKey', 'Auth key', 'A reusable auth key from the Tailscale admin console (Settings › Keys).'),
+      { name: 'mode', title: 'Who can open it', description: "private (your tailnet's devices) or public (anyone, with Funnel).", type: 'string' as const, default: 'private' }] },
+  { name: 'ngrok', title: 'ngrok', signup: 'https://dashboard.ngrok.com/signup',
+    description: 'An address for one app from a free ngrok account: one address per account, about 1 GB and 20,000 requests a month, and a warning page ngrok shows visitors first. Paid plans can name a reserved domain.',
+    parameters: [appParam, secretParam('authToken', 'Authtoken', 'Your Authtoken, from the ngrok dashboard.'),
+      { name: 'domain', title: 'Reserved domain', description: "A domain reserved in your ngrok account (paid plans); empty uses the account's free address.", type: 'string' as const, default: '' }] },
+  { name: 'custom-tunnel', title: 'Custom connector',
+    description: 'Any other tunnel service, from its own container image. EnclaveStack sets ENCLAVE_UPSTREAM, where the connector sends traffic; the gate still stands in front of your app. Add its command and environment on the tunnel\'s page.',
+    parameters: [appParam, { name: 'image', title: 'Image', description: "The connector's image, like ghcr.io/acme/tunnel:1.", type: 'string' as const, required: true },
+      { name: 'url', title: 'Public address', description: "The https:// address the service gives, to show; empty if you don't know it yet.", type: 'string' as const, default: '' }] },
+  { name: 'cloudflare-tunnel', title: 'Cloudflare Tunnel', signup: 'https://dash.cloudflare.com/sign-up',
+    description: "Your own domain, like stage.example.com, through your free Cloudflare account; the domain's DNS must be at Cloudflare. Cloudflare serves the certificate, and can check visitors' emails with Cloudflare Access. Add public domains through it afterwards.",
+    parameters: [secretParam('apiToken', 'API token', 'A token with Account › Cloudflare Tunnel › Edit and Zone › DNS › Edit (and Access › Apps and Policies › Edit for Access).'),
+      { name: 'accountId', title: 'Account ID', description: "Your account ID, on the domain's overview page at Cloudflare.", type: 'string' as const, required: true }] },
+  { name: 'own-server', title: 'Your own server',
+    description: 'Your own domain through a small server you rent (about $4–6 a month) and join as an edge machine. No third party sees your traffic: it passes encrypted bytes and never holds a key. Add the edge machine first, then public domains through this.',
+    parameters: [{ name: 'machine', title: 'Edge machine', description: 'The edge machine the relay runs on (Machines › Add an edge machine).', type: 'string' as const, required: true }] },
+].map((e) => ({ ...e, category: 'public-access' as const, members: [member('tunnel', '')], outputs: [] as string[] }));
+
+/** The twelve built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
+export const BUILTIN_CATALOGUE: CatalogueEntry[] = ([
   { name: 'wordpress', title: 'WordPress', description: 'A WordPress site with its MySQL database and a volume for uploads, themes and plugins.',
     parameters: [domainParam(false, 'Serve the site at this host name, with HTTPS.'), { name: 'memoryMiB', title: 'Memory (MiB)', type: 'number' as const, default: 512 }],
     members: [member('database', 'db'), member('volume', 'content'), member('app', ''), member('domain', 'site', true)], outputs: ['url', 'admin'] },
@@ -30,7 +59,8 @@ export const BUILTIN_CATALOGUE: CatalogueEntry[] = [
     parameters: [domainParam(true, 'Plausible needs the address it is opened at.')],
     members: [member('database', 'db'), member('database', 'events'), member('secret', 'key'), member('secret', 'database-url'), member('secret', 'events-url'), member('app', ''), member('domain', 'site')],
     outputs: ['url'] },
-].map((e) => ({ ...e, version: '1.0.0', versions: ['1.0.0'], builtIn: true })).sort((a, b) => a.name.localeCompare(b.name));
+].map((e) => ({ ...e, category: 'apps' as const })) as Omit<CatalogueEntry, 'version' | 'versions' | 'builtIn'>[])
+  .concat(PUBLIC_ACCESS).map((e) => ({ ...e, version: '1.0.0', versions: ['1.0.0'], builtIn: true })).sort((a, b) => a.name.localeCompare(b.name));
 
 /** A member as the mock creates it. */
 export interface MockMember {
@@ -119,7 +149,7 @@ export function parseTemplate(body: string): CatalogueEntry | FieldError[] {
   });
   if (!details.length && kinds.length === 0) details.push({ field: 'body.line 1: resources', code: 'REQUIRED', message: 'A template has at least one resource.' });
   if (details.length) return details;
-  return { name: name ?? '', title: top('title') ?? name ?? '', description: top('description') ?? '', version: version ?? '', versions: [version ?? ''], builtIn: false,
+  return { name: name ?? '', title: top('title') ?? name ?? '', description: top('description') ?? '', version: version ?? '', versions: [version ?? ''], builtIn: false, category: 'apps',
     parameters: [], members: kinds.map(([, kind, local]) => member(kind as Kind, local ?? '')), outputs: [] };
 }
 
@@ -128,7 +158,7 @@ export const MAIN = { id: 'mch_mainmachine0000', name: 'this-mac' } as const;
 
 /** The main machine, as GET /machines lists it. */
 export function mainMachine(title: string, reservedBytes: number, resources: number): MachineSummary {
-  return { id: MAIN.id, name: MAIN.name, title, main: true, state: 'online', since: new Date(Date.now() - 3 * 86_400_000).toISOString(), labels: {},
+  return { id: MAIN.id, name: MAIN.name, title, main: true, role: 'worker', state: 'online', since: new Date(Date.now() - 3 * 86_400_000).toISOString(), labels: {},
     schedulable: true, address: null, os: 'darwin', arch: 'arm64', agentVersion: '0.8.0-mock', engine: { driver: 'mock', available: true, version: 'mock', message: '' },
     cpus: 8, memoryTotalBytes: 16 * GiB, memoryReservedBytes: reservedBytes, vms: { available: true, message: 'VMs can run: QEMU 11.1 with HVF.' }, lastSeenAt: new Date().toISOString(),
     resources, versionMismatch: false, links: [], message: '' };
@@ -136,7 +166,7 @@ export function mainMachine(title: string, reservedBytes: number, resources: num
 
 /** A machine waiting for its agent. */
 export function waitingMachine(id: string, name: string, labels: Record<string, string>): MachineSummary {
-  return { id, name, title: name, main: false, state: 'waiting', since: new Date().toISOString(), labels, schedulable: true, address: null, os: '', arch: '', agentVersion: '',
+  return { id, name, title: name, main: false, role: 'worker', state: 'waiting', since: new Date().toISOString(), labels, schedulable: true, address: null, os: '', arch: '', agentVersion: '',
     engine: { driver: '', available: false, version: '', message: '' }, cpus: 0, memoryTotalBytes: 0, memoryReservedBytes: 0, vms: { available: false, message: 'Not joined yet.' },
     lastSeenAt: null, resources: 0, versionMismatch: false, links: [], message: 'Waiting for its agent to join.' };
 }

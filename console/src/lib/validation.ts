@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, CloudflareAccess, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 import { validateAlert, validateChannel, validateDashboard, validateLogExport, validateSecretSource, validateSecretStore } from './operate';
 import { parseCron } from './schedule';
 
@@ -182,6 +182,101 @@ export function validateDomain(s: DomainSpec): FieldErrors {
   if (s.port !== undefined && (!Number.isInteger(s.port) || s.port < RULES.portMin || s.port > RULES.portMax)) e['spec.port'] = 'Use a port from 1 to 65535.';
   if (s.tls !== undefined && !(RULES.tlsModes as readonly string[]).includes(s.tls)) e['spec.tls'] = 'Choose auto, internal or off.';
   else if (s.tls === 'auto' && hostname.endsWith(RULES.localhostSuffix)) e['spec.tls'] = "Public certificates can't be issued for .localhost names. Use internal.";
+  return { ...e, ...validateDomainAccess({ ...s, hostname }) };
+}
+
+// Public access (L3-002 §16.5), the same rules as pkg/api tunnel.go.
+
+const accountIdPattern = /^[a-f0-9]{32}$/;
+const notAllowedForProvider: [keyof TunnelSpec, string, (p: TunnelSpec['provider']) => boolean][] = [
+  ['mode', 'Only a Tailscale link is private or public.', (p) => p === 'tailscale'],
+  ['hostname', 'Only a Tailscale link chooses its device name.', (p) => p === 'tailscale'],
+  ['domain', 'Only an ngrok link names a reserved domain.', (p) => p === 'ngrok'],
+  ['accountId', 'Only a Cloudflare tunnel names an account.', (p) => p === 'cloudflare'],
+  ['machine', 'Only a relay runs on an edge machine.', (p) => p === 'relay'],
+];
+
+export function validateGate(g: Gate, field: string): FieldErrors {
+  const e: FieldErrors = {};
+  if (!(RULES.gateModes as readonly string[]).includes(g.mode)) e[`${field}.mode`] = 'Choose signin, password or none.';
+  if (g.mode === 'password' && !g.passwordSecret) e[`${field}.passwordSecret`] = 'Choose the secret holding the user name and password.';
+  else if (g.mode !== 'password' && g.passwordSecret) e[`${field}.passwordSecret`] = 'Only the password gate uses a secret.';
+  const paths = g.openPaths ?? [];
+  if (paths.length > RULES.gateOpenPathsMax) e[`${field}.openPaths`] = `Use at most ${RULES.gateOpenPathsMax} open paths.`;
+  paths.forEach((p, i) => {
+    if (!p.startsWith('/') || p.length > RULES.gatePathMax || p.includes('..') || /[*?# \t\r\n]/.test(p)) e[`${field}.openPaths[${i}]`] = 'Use a path that starts with /, like /webhooks/.';
+    else if (p.startsWith(RULES.gatePathPrefix) || `${p}/`.startsWith(RULES.gatePathPrefix)) e[`${field}.openPaths[${i}]`] = 'Paths under /.enclave/ belong to the gate.';
+  });
+  return e;
+}
+
+function validateAccess(a: CloudflareAccess): FieldErrors {
+  const e: FieldErrors = {};
+  const emails = a.emails ?? [];
+  const domains = a.emailDomains ?? [];
+  if (!emails.length && !domains.length) e['spec.cloudflareAccess'] = 'List at least one email or email domain.';
+  if (emails.length > RULES.accessEmailsMax) e['spec.cloudflareAccess.emails'] = `Use at most ${RULES.accessEmailsMax} emails.`;
+  if (domains.length > RULES.accessEmailDomainsMax) e['spec.cloudflareAccess.emailDomains'] = `Use at most ${RULES.accessEmailDomainsMax} email domains.`;
+  emails.forEach((x, i) => {
+    if (validateEmail(x)) e[`spec.cloudflareAccess.emails[${i}]`] = 'Enter an email address like you@example.com.';
+  });
+  domains.forEach((x, i) => {
+    if (validateHostname(x.replace(/^@/, '').toLowerCase())) e[`spec.cloudflareAccess.emailDomains[${i}]`] = 'Enter a domain like example.com.';
+  });
+  return e;
+}
+
+/** A domain's public-access fields; the tunnel's provider is checked by the server, which can see it. */
+export function validateDomainAccess(s: DomainSpec): FieldErrors {
+  const e: FieldErrors = {};
+  if (!s.tunnel) {
+    if (s.gate) e['spec.gate'] = 'Only a public domain has a gate. Choose a tunnel first.';
+    if (s.cloudflareAccess) e['spec.cloudflareAccess'] = 'Cloudflare Access needs a Cloudflare tunnel.';
+    return e;
+  }
+  if (validateName(s.tunnel)) e['spec.tunnel'] = 'Choose a tunnel.';
+  if (s.tls !== 'auto') e['spec.tls'] = 'A public name needs a public certificate: use tls auto.';
+  if (s.hostname.endsWith(RULES.localhostSuffix)) e['spec.hostname'] = "A .localhost name can't be public. Use a domain you own.";
+  if (s.gate) Object.assign(e, validateGate(s.gate, 'spec.gate'));
+  if (s.cloudflareAccess) Object.assign(e, validateAccess(s.cloudflareAccess));
+  return e;
+}
+
+export function validateTunnel(s: TunnelSpec): FieldErrors {
+  const e: FieldErrors = {};
+  if (!(RULES.tunnelProviders as readonly string[]).includes(s.provider)) return { 'spec.provider': 'Choose quick, tailscale, ngrok, custom, cloudflare or relay.' };
+  const credentialed = s.provider in RULES.credentialKeys;
+  if (credentialed && !s.credentialsSecret) {
+    e['spec.credentialsSecret'] = { cloudflare: 'Choose the secret holding the Cloudflare API token.', tailscale: 'Choose the secret holding the Tailscale auth key.', ngrok: 'Choose the secret holding the ngrok authtoken.' }[s.provider as 'cloudflare'];
+  } else if (!credentialed && s.credentialsSecret) e['spec.credentialsSecret'] = 'This way in needs no credentials.';
+  for (const [f, msg, allowed] of notAllowedForProvider) if (s[f] && !allowed(s.provider)) e[`spec.${f}`] = msg;
+  if (s.provider === 'cloudflare' && !accountIdPattern.test(s.accountId ?? '')) e['spec.accountId'] = "Give the Cloudflare account ID: 32 letters and digits, on the domain's overview page.";
+  if (s.provider === 'relay' && !s.machine) e['spec.machine'] = 'Choose the edge machine the relay runs on.';
+  if ((RULES.appLinkProviders as readonly string[]).includes(s.provider)) {
+    if (!s.app) e['spec.app'] = 'Choose the app this link makes public.';
+    if (s.port !== undefined && (!Number.isInteger(s.port) || s.port < RULES.portMin || s.port > RULES.portMax)) e['spec.port'] = 'Use a port from 1 to 65535.';
+    if (s.gate) Object.assign(e, validateGate(s.gate, 'spec.gate'));
+  } else {
+    for (const f of ['app', 'port', 'gate'] as const) if (s[f] !== undefined && s[f] !== '') e[`spec.${f}`] = 'A domain tunnel serves the domains that name it; set the app and gate on each domain.';
+  }
+  if (s.provider === 'tailscale') {
+    if (s.mode && !(RULES.tailscaleModes as readonly string[]).includes(s.mode)) e['spec.mode'] = 'Choose private or public.';
+    if (s.hostname && !hostLabel.test(s.hostname)) e['spec.hostname'] = 'Use lowercase letters, digits and hyphens, at most 63, like example-stage.';
+  }
+  if (s.provider === 'ngrok' && s.domain && validateHostname(s.domain)) e['spec.domain'] = 'Use a domain reserved in your ngrok account, like stage.ngrok.app.';
+  if (s.provider === 'custom') {
+    if (!s.image) e['spec.image'] = "Enter the connector's image, like ghcr.io/acme/tunnel:1.";
+    else if (!imagePattern.test(s.image)) e['spec.image'] = 'Use an image reference like ghcr.io/acme/tunnel:1.';
+    for (const [field, m] of [['spec.env', s.env], ['spec.secretEnv', s.secretEnv]] as const) {
+      for (const k of Object.keys(m ?? {})) {
+        if (k === RULES.upstreamEnv) e[`${field}.${k}`] = 'EnclaveStack sets ENCLAVE_UPSTREAM itself.';
+        else if (!envKeyPattern.test(k)) e[`${field}.${k}`] = 'Variable names use letters, digits and underscores and cannot start with a digit.';
+      }
+    }
+    if (s.url && !/^https:\/\/[^/\s]+/.test(s.url)) e['spec.url'] = 'Use the https:// address the service gives.';
+  } else {
+    for (const f of ['image', 'command', 'env', 'secretEnv', 'url'] as const) if (s[f] !== undefined) e[`spec.${f}`] = 'Only a custom connector sets its image, command, environment and address.';
+  }
   return e;
 }
 
@@ -541,6 +636,8 @@ function validateKind(kind: Kind, spec: unknown): FieldErrors {
       return validateLogExport(spec as LogExportSpec);
     case 'secretstore':
       return validateSecretStore(spec as SecretStoreSpec);
+    case 'tunnel':
+      return validateTunnel(spec as TunnelSpec);
   }
 }
 

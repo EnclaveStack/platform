@@ -3,13 +3,16 @@ package provider
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	dschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -29,6 +32,8 @@ type machineResourceModel struct {
 	Schedulable types.Bool              `tfsdk:"schedulable"`
 	State       types.String            `tfsdk:"state"`
 	Address     types.String            `tfsdk:"address"`
+	Role        types.String            `tfsdk:"role"`
+	AgentPort   types.Int64             `tfsdk:"agent_port"`
 	JoinCommand types.String            `tfsdk:"join_command"`
 }
 
@@ -53,10 +58,18 @@ func (r *machineResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Validators: []validator.String{nameValidator{}}},
 			"labels": schema.MapAttribute{Optional: true, ElementType: types.StringType,
 				Description: "Labels resources can ask for with machine_labels (up to 10). Change in place."},
-			"schedulable": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true),
-				Description: "Whether new resources may be placed here (false keeps what runs there)."},
-			"state":   schema.StringAttribute{Computed: true, Description: "waiting (for its agent), online or offline (refreshed on read)."},
-			"address": schema.StringAttribute{Computed: true, Description: "Where its agent is reached, once joined."},
+			"schedulable": schema.BoolAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.Bool{schedulableDefault{}},
+				Description: "Whether new resources may be placed here (false keeps what runs there). Default true; always false on an edge machine."},
+			"state": schema.StringAttribute{Computed: true, Description: "waiting (for its agent), online or offline (refreshed on read)."},
+			"role": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString(api.MachineWorker),
+				Description:   "worker (default) or edge: a server with a public address that only relays visitors for relay tunnels (L2-014). Changing it replaces the machine.",
+				Validators:    []validator.String{stringvalidator.OneOf(api.MachineRoles...)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"address": schema.StringAttribute{Optional: true, Computed: true,
+				Description:   "Where its agent is reached, once joined. An edge machine is added with it: its public IPv4 address or host name.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplaceIf(addressGiven, "", "")}},
+			"agent_port": schema.Int64Attribute{Optional: true, Description: "Edge machines: where its agent waits (default 7071).",
+				Validators: []validator.Int64{int64validator.Between(api.PortMin, api.PortMax)}, PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()}},
 			"join_command": schema.StringAttribute{Computed: true, Sensitive: true,
 				Description:   "The command that joins the machine's agent, valid for an hour and once; empty once joined.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
@@ -72,8 +85,37 @@ func labelsOf(m map[string]types.String) map[string]string {
 	return out
 }
 
+// schedulableDefault plans schedulable as true when unset, or false for an edge machine (EDG-01).
+type schedulableDefault struct{}
+
+func (schedulableDefault) Description(context.Context) string {
+	return "true unless the machine is an edge machine"
+}
+func (d schedulableDefault) MarkdownDescription(ctx context.Context) string {
+	return d.Description(ctx)
+}
+
+func (schedulableDefault) PlanModifyBool(ctx context.Context, req planmodifier.BoolRequest, resp *planmodifier.BoolResponse) {
+	if !req.ConfigValue.IsNull() {
+		return
+	}
+	var role types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("role"), &role)...)
+	resp.PlanValue = types.BoolValue(role.ValueString() != api.MachineEdge)
+}
+
+// addressGiven replaces the machine when the address it was added with changes; a worker's address is the
+// one its agent reports, so it never forces a replacement.
+func addressGiven(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+	resp.RequiresReplace = !req.ConfigValue.IsNull() && !req.StateValue.IsNull() && req.ConfigValue != req.StateValue
+}
+
 func (m *machineResourceModel) fill(s api.MachineSummary) {
 	m.ID, m.Name, m.Schedulable, m.State = types.StringValue(s.ID), types.StringValue(s.Name), types.BoolValue(s.Schedulable), types.StringValue(s.State)
+	m.Role = types.StringValue(s.Role)
+	if s.Role == "" {
+		m.Role = types.StringValue(api.MachineWorker)
+	}
 	m.Address = types.StringNull()
 	if s.Address != nil {
 		m.Address = types.StringValue(*s.Address)
@@ -95,13 +137,15 @@ func (r *machineResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	added, err := r.c.AddMachine(ctx, api.AddMachine{Name: plan.Name.ValueString(), Labels: labelsOf(plan.Labels)})
+	// The server checks the role's fields: only an edge machine takes an address and an agent port.
+	added, err := r.c.AddMachine(ctx, api.AddMachine{Name: plan.Name.ValueString(), Labels: labelsOf(plan.Labels), Role: plan.Role.ValueString(),
+		Address: plan.Address.ValueString(), AgentPort: int(plan.AgentPort.ValueInt64())})
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Add machine", err))
 		return
 	}
 	m := added.Machine
-	if !plan.Schedulable.ValueBool() {
+	if !plan.Schedulable.ValueBool() && m.Role != api.MachineEdge {
 		no := false
 		if m, err = r.c.UpdateMachineByName(ctx, m.Name, api.UpdateMachine{Schedulable: &no}); err != nil {
 			resp.Diagnostics.Append(apiDiag("Update machine", err))
@@ -137,8 +181,12 @@ func (r *machineResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	sched := plan.Schedulable.ValueBool()
-	m, err := r.c.UpdateMachineByName(ctx, plan.Name.ValueString(), api.UpdateMachine{Labels: labelsOf(plan.Labels), Schedulable: &sched})
+	upd := api.UpdateMachine{Labels: labelsOf(plan.Labels)}
+	if plan.Role.ValueString() != api.MachineEdge { // an edge machine is never schedulable
+		sched := plan.Schedulable.ValueBool()
+		upd.Schedulable = &sched
+	}
+	m, err := r.c.UpdateMachineByName(ctx, plan.Name.ValueString(), upd)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update machine", err))
 		return

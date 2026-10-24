@@ -27,8 +27,12 @@ import (
 // shows the main machine.
 func (a *app) machineSubcommands(cmd *cobra.Command) {
 	var labels []string
+	var edge bool
+	var address string
+	var agentPort int
 	add := &cobra.Command{
-		Use: "add NAME [--label k=v]…", Short: "Add a machine and print the command that joins it (machine admins)", Args: cobra.ExactArgs(1),
+		Use: "add NAME [--label k=v]… | add NAME --edge --address A", Short: "Add a machine and print the command that joins it (machine admins)", Args: cobra.ExactArgs(1),
+		Long: "Add a machine and print the command that joins it.\n\nWith --edge, add an edge machine: a server with a public address (a rented VPS) that only relays\nvisitors to this machine for relay tunnels (L2-014 EDG-01). This machine joins it, so the command run there names no server.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, err := parseLabels(labels)
 			if err != nil {
@@ -38,7 +42,13 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			out, err := c.AddMachine(cmd.Context(), api.AddMachine{Name: args[0], Labels: l})
+			req := api.AddMachine{Name: args[0], Labels: l}
+			if edge {
+				req.Role, req.Address, req.AgentPort = api.MachineEdge, address, agentPort
+			} else if address != "" || agentPort != 0 {
+				return usagef("--address and --agent-port go with --edge")
+			}
+			out, err := c.AddMachine(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -46,6 +56,9 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 		},
 	}
 	add.Flags().StringArrayVar(&labels, "label", nil, "a label placement can ask for, as key=value (repeat)")
+	add.Flags().BoolVar(&edge, "edge", false, "add an edge machine that only relays visitors (L2-014)")
+	add.Flags().StringVar(&address, "address", "", "the edge machine's public IPv4 address or host name")
+	add.Flags().IntVar(&agentPort, "agent-port", 0, "where the edge machine's agent waits (default 7071)")
 	list := &cobra.Command{
 		Use: "ls", Aliases: []string{"list"}, Short: "List the machines", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -63,7 +76,9 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 			rows := [][]string{}
 			for _, m := range items {
 				state := m.State
-				if !m.Schedulable {
+				if m.Role == api.MachineEdge {
+					state += " (edge)"
+				} else if !m.Schedulable {
 					state += " (not schedulable)"
 				}
 				rows = append(rows, []string{m.Name, state, deref(m.Address, "-"), strconv.Itoa(m.CPUs),
@@ -87,7 +102,7 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 			if a.output == "json" {
 				return a.json(m)
 			}
-			rows := [][]string{{"Name", m.Name}, {"Title", m.Title}, {"State", m.State + " since " + ago(&m.Since)},
+			rows := [][]string{{"Name", m.Name}, {"Title", m.Title}, {"Role", roleText(m.Role)}, {"State", m.State + " since " + ago(&m.Since)},
 				{"Schedulable", map[bool]string{true: "yes", false: "no"}[m.Schedulable]}, {"Address", deref(m.Address, "-")},
 				{"OS / arch", m.OS + " / " + m.Arch}, {"Agent version", m.AgentVersion}, {"Engine", m.Engine.Driver + " " + m.Engine.Version},
 				{"CPUs", strconv.Itoa(m.CPUs)}, {"Memory reserved", mib(m.MemoryReservedBytes) + " of " + mib(m.MemoryTotalBytes)},
@@ -215,9 +230,22 @@ func (a *app) printJoin(out api.AddedMachine) error {
 	if a.output == "json" {
 		return a.json(out)
 	}
+	if out.Machine.Role == api.MachineEdge {
+		fmt.Fprintf(a.io.Out, "Added the edge machine %s. On that server (Linux with Docker), run this within the hour:\n\n    %s\n\n"+
+			"It waits for this machine, which joins it within a minute. Its firewall must let this machine in on the agent's port\n"+
+			"(7071/tcp unless you chose another) and 51820/udp, and everyone in on 80/tcp and 443/tcp. The code works once.\n", out.Machine.Name, out.JoinCommand)
+		return nil
+	}
 	fmt.Fprintf(a.io.Out, "Added the machine %s. On that computer (Linux or macOS with Docker), run this within the hour:\n\n    %s\n\n"+
 		"The main machine must reach it on 7071/tcp, and the machines each other on 51820/udp. The code works once.\n", out.Machine.Name, out.JoinCommand)
 	return nil
+}
+
+func roleText(role string) string {
+	if role == api.MachineEdge {
+		return "edge (only relays visitors for relay tunnels)"
+	}
+	return "worker"
 }
 
 func parseLabels(pairs []string) (map[string]string, error) {
@@ -263,15 +291,29 @@ func (a *app) agentCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "agent", Short: "Run this computer as a machine of an EnclaveStack (on the other computer)"}
 	var opts agent.JoinOptions
 	var run agentRunFlags
-	var install bool
+	var install, edge bool
 	join := &cobra.Command{
-		Use: "join SERVER --code CODE", Short: "Join an EnclaveStack with a code from `enclave machine add`, then run the agent", Args: cobra.ExactArgs(1),
+		Use: "join SERVER --code CODE | join --edge --code CODE", Short: "Join an EnclaveStack with a code from `enclave machine add`, then run the agent", Args: cobra.MaximumNArgs(1),
+		Long: "Join an EnclaveStack with a code from `enclave machine add`, then run the agent.\n\nWith --edge, this computer is an edge machine: it waits on --listen for the main machine to join it\n(the main machine can reach it; the reverse often isn't true), then runs the agent (L2-014 EDG-02).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.Code == "" {
 				return usagef("pass --code, from `enclave machine add` on the main machine")
 			}
-			opts.Server, opts.StateDir = args[0], run.stateDir
-			id, err := agent.Join(cmd.Context(), opts)
+			var id agent.Identity
+			var err error
+			if edge {
+				if len(args) > 0 {
+					return usagef("an edge machine waits for the main machine: drop %s", args[0])
+				}
+				fmt.Fprintf(a.io.Out, "Waiting on %s for the main machine to join this edge machine…\n", opts.Listen)
+				id, err = agent.WaitForMain(cmd.Context(), agent.EdgeJoinOptions{Code: opts.Code, Listen: opts.Listen, TunnelPort: opts.TunnelPort, StateDir: run.stateDir})
+			} else {
+				if len(args) == 0 {
+					return usagef("name the main machine's address, as `enclave machine add` printed it")
+				}
+				opts.Server, opts.StateDir = args[0], run.stateDir
+				id, err = agent.Join(cmd.Context(), opts)
+			}
 			if err != nil {
 				return err
 			}
@@ -287,6 +329,7 @@ func (a *app) agentCmd() *cobra.Command {
 	join.Flags().StringVar(&opts.Listen, "listen", ":7071", "where the agent listens")
 	join.Flags().IntVar(&opts.TunnelPort, "tunnel-port", api.TunnelPortDefault, "the UDP port of the tunnel between machines")
 	join.Flags().BoolVar(&install, "install", false, "install the agent as a service that starts with the computer (systemd or launchd) instead of running it here")
+	join.Flags().BoolVar(&edge, "edge", false, "join as an edge machine: wait for the main machine to come to this one")
 	run.register(join)
 	runCmd := &cobra.Command{
 		Use: "run", Short: "Run the agent of a computer that joined", Args: cobra.NoArgs,
