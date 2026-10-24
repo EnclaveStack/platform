@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/enclavestack/platform/internal/domain"
@@ -276,6 +277,7 @@ func (r *Reconciler) jobRun(ctx context.Context, res *domain.Resource, run *doma
 		return jr, 0, err
 	}
 	secretEnv := map[string]string{}
+	var access map[string]string // bucket access variables, set last (BKA-04)
 	network, subnet := s.Network, s.Subnet
 	if s.App != "" {
 		app, err := r.Store.GetResourceByName(ctx, res.Project, api.KindApp, s.App)
@@ -305,6 +307,12 @@ func (r *Reconciler) jobRun(ctx context.Context, res *domain.Resource, run *doma
 		for k, v := range a.SecretEnv {
 			secretEnv[k] = v
 		}
+		// A job that runs as an app uses the app's bucket access and keys (BKA-05).
+		if len(a.BucketAccess) > 0 {
+			if access, err = r.grantBucketAccess(ctx, app, a.BucketAccess); err != nil {
+				return jr, 0, err
+			}
+		}
 	}
 	if jr.Placement, err = r.placement(ctx, res.Project, network, subnet); err != nil {
 		return jr, 0, err
@@ -323,11 +331,18 @@ func (r *Reconciler) jobRun(ctx context.Context, res *domain.Resource, run *doma
 		}
 		jr.Env[k] = v
 	}
+	if len(s.BucketAccess) > 0 {
+		if access, err = r.grantBucketAccess(ctx, res, s.BucketAccess); err != nil {
+			return jr, 0, err
+		}
+	}
+	maps.Copy(jr.Env, access) // after env and secretEnv, which may not use these names (BKA-04)
 	return jr, time.Duration(s.TimeoutSeconds) * time.Second, nil
 }
 
 // finish records a run's end, the resource's last-run facts, metrics and (for failures) an event.
-func (r *Reconciler) finish(ctx context.Context, res *domain.Resource, run *domain.Run, status string, exit *int, output []byte, msg string, log *slog.Logger) {
+// finish records a run's result and reports whether this call did (a run already finished stays).
+func (r *Reconciler) finish(ctx context.Context, res *domain.Resource, run *domain.Run, status string, exit *int, output []byte, msg string, log *slog.Logger) bool {
 	now := r.Now()
 	run.Status, run.FinishedAt, run.ExitCode, run.OutputTail, run.Message = status, &now, exit, output, msg
 	ok, err := r.Store.FinishRun(ctx, run)
@@ -335,7 +350,7 @@ func (r *Reconciler) finish(ctx context.Context, res *domain.Resource, run *doma
 		if err != nil {
 			log.Error("record run result failed", "error", err)
 		}
-		return
+		return false
 	}
 	outputs := map[string]any{"lastRunStatus": status, "lastRunAt": now.UTC().Format(time.RFC3339)}
 	failures, err := r.Store.RecordRunOutcome(ctx, res.ID, status != api.RunSucceeded, outputs)
@@ -349,10 +364,11 @@ func (r *Reconciler) finish(ctx context.Context, res *domain.Resource, run *doma
 	r.Metrics.RunDuration.WithLabelValues(string(res.Kind)).Observe(now.Sub(run.StartedAt).Seconds())
 	if status == api.RunSucceeded {
 		log.Info("run succeeded", "duration_ms", now.Sub(run.StartedAt).Milliseconds())
-		return
+		return true
 	}
 	r.event(ctx, res, "run_"+status, fmt.Sprintf("Run %s: %s", run.ID, msg))
 	log.Warn("run did not succeed", "status", status, "message", msg)
+	return true
 }
 
 // ensureJob validates a job's schedule and sets its next run (ADR-017). A spec change reschedules from
@@ -364,10 +380,16 @@ func (r *Reconciler) ensureJob(ctx context.Context, res *domain.Resource, report
 		return nil, engine.Permanent(fmt.Errorf("the schedule can't be used: %w", err))
 	}
 	raw, _, _ := api.NormalizeSpec(api.KindJob, res.Spec)
-	if s := raw.(api.JobSpec); s.App != "" {
+	s := raw.(api.JobSpec)
+	if s.App != "" {
 		if _, err := r.Store.GetResourceByName(ctx, res.Project, api.KindApp, s.App); err != nil {
 			return nil, engine.Permanent(fmt.Errorf("the app %s no longer exists", s.App))
 		}
+	}
+	// A job's own access is given (or taken away) now, as well as before each run, so a change shows at
+	// once and removed access stops working at once (BKA-02, BKA-06).
+	if _, err := r.bucketAccessEnv(ctx, res, s); err != nil {
+		return nil, err
 	}
 	if res.NextRunAt == nil || res.ObservedGeneration != res.Generation {
 		next := sched.Next(r.Now())

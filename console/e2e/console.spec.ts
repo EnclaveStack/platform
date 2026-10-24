@@ -107,6 +107,105 @@ test('edit an app in place and redeploy it', async () => {
   await expect(page.getByText('Image pulled again and a new revision deployed.')).toBeVisible();
 });
 
+test('give an app read access to a bucket, see it, and take it away (CON-70, CON-71)', async () => {
+  await sidebar().getByRole('link', { name: /^Apps/ }).click();
+  await page.getByRole('link', { name: /web/ }).click();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  let panel = page.getByRole('dialog', { name: 'Edit app web' });
+  await panel.getByRole('button', { name: 'Add bucket' }).click();
+  await panel.getByLabel('Bucket 1', { exact: true }).selectOption('media');
+  await expect(panel.getByLabel('Bucket 1 access')).toHaveValue('read');
+  await panel.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('group', { name: 'Summary' }).getByText('Ready')).toBeVisible({ timeout: 20_000 });
+  // The card: the bucket, its level, the keys' secret and the variables.
+  const card = page.getByRole('region', { name: 'Bucket access' });
+  await expect(card.getByRole('link', { name: 'media' })).toBeVisible();
+  await expect(card.getByText('Read', { exact: true })).toBeVisible();
+  await expect(card.getByRole('link', { name: 'web-bucket-credentials' })).toBeVisible();
+  await expect(card.getByText(/AWS_ACCESS_KEY_ID/)).toBeVisible();
+  // The server agrees, keeps the keys out of the app, and won't delete a bucket in use.
+  const app = (await (await page.request.get('/api/v1/resources?kind=app&name=web')).json()).items[0];
+  expect(app.spec.bucketAccess).toEqual([{ bucket: 'media', access: 'read' }]);
+  expect(app.outputs.bucketCredentialsSecret).toBe('web-bucket-credentials');
+  expect(JSON.stringify(app)).not.toContain('secretKey');
+  const bucket = (await (await page.request.get('/api/v1/resources?kind=bucket&name=media')).json()).items[0];
+  const del = await page.request.delete(`/api/v1/resources/${bucket.id}`, { headers: { 'X-Enclave-CSRF': '1' } });
+  expect(del.status()).toBe(409);
+  // Taken away: the card goes, and so do the keys.
+  await page.getByRole('button', { name: 'Edit' }).click();
+  panel = page.getByRole('dialog', { name: 'Edit app web' });
+  await panel.getByRole('button', { name: 'Remove bucket 1' }).click();
+  await panel.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('group', { name: 'Summary' }).getByText('Ready')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('region', { name: 'Bucket access' })).toHaveCount(0);
+  const keys = await (await page.request.get('/api/v1/resources?kind=secret&name=web-bucket-credentials')).json();
+  expect(keys.items).toEqual([]);
+});
+
+test('make a transcoder with an HLS ladder, a rendition and a webhook (CON-72, CON-73)', async () => {
+  await sidebar().getByRole('link', { name: /^Transcoders/ }).click();
+  await page.getByRole('button', { name: 'New transcoder' }).first().click();
+  const panel = page.getByRole('dialog', { name: 'New transcoder' });
+  await panel.getByLabel('Name').fill('videos');
+  await panel.getByLabel('Bucket').first().selectOption('media');
+  await panel.getByLabel('Folder').first().fill('incoming/');
+  await panel.getByLabel('Bucket').nth(1).selectOption('media');
+  await panel.getByLabel('Folder').nth(1).fill('processed/{meta:video-id}/');
+  for (const p of ['mp4-720p', 'thumbnail']) await panel.getByRole('checkbox', { name: new RegExp(`^${p}`) }).uncheck();
+  await panel.getByRole('checkbox', { name: /adaptive HLS stream/ }).check();
+  await expect(panel.getByLabel('Rung 3 name')).toHaveValue('1080p');
+  await panel.getByRole('button', { name: 'Add rendition' }).click();
+  await panel.getByLabel('Rendition 1 name').fill('selfie');
+  await panel.getByLabel('Rendition 1 width').fill('720');
+  await panel.getByLabel('Rendition 1 height').fill('1280');
+  await panel.getByLabel('Webhook URL').fill('https://video.example.com/done');
+  await panel.getByRole('button', { name: 'Create transcoder' }).click();
+  await expect(page.getByRole('group', { name: 'Summary' }).getByText('Ready')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('region', { name: 'HLS ladder' }).getByText('hls/master.m3u8')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Renditions' }).getByText('selfie.mp4')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Notify' }).getByText('https://video.example.com/done')).toBeVisible();
+  const tc = (await (await page.request.get('/api/v1/resources?kind=transcoder&name=videos')).json()).items[0];
+  expect(tc.spec.hls.rungs.map((r: { name: string }) => r.name)).toEqual(['360p', '720p', '1080p']);
+  expect(tc.spec.hls.segmentSeconds).toBe(6);
+  expect(tc.spec.renditions[0]).toMatchObject({ name: 'selfie', container: 'mp4', maxWidth: 720, maxHeight: 1280, audioKbps: 128 });
+  expect(tc.spec.presets).toBeUndefined();
+  const del = await page.request.delete(`/api/v1/resources/${tc.id}`, { headers: { 'X-Enclave-CSRF': '1' } });
+  expect(del.status()).toBe(202);
+});
+
+test('read a bucket\'s details, upload a file with a tag, download and delete it (CON-74, CON-75)', async () => {
+  await sidebar().getByRole('link', { name: /^Buckets/ }).click();
+  await page.getByRole('link', { name: /media/ }).click();
+  // Details: each line explained, addresses whole and copyable, the keys' secret a link.
+  const details = page.getByRole('region', { name: 'Details' });
+  await expect(details.getByText('The S3 address apps inside EnclaveStack use. It is what AWS_ENDPOINT_URL is set to.')).toBeVisible();
+  await expect(details.getByText(/^http:\/\/es-system-objectstore:9000$/)).toBeVisible();
+  await expect(details.getByRole('button', { name: 'Copy S3 endpoint' })).toBeVisible();
+  await expect(details.getByRole('link', { name: 'objectstore-credentials' })).toBeVisible();
+  // Files.
+  await page.getByRole('tab', { name: 'Objects' }).click();
+  await expect(page.getByText('No files yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Upload' }).first().click();
+  const dialog = page.getByRole('alertdialog', { name: 'Upload to media' });
+  await dialog.getByLabel('Choose files').setInputFiles({ name: 'clip.mov', mimeType: 'video/quicktime', buffer: Buffer.from('e2e video bytes') });
+  await dialog.getByLabel('Folder').fill('incoming/');
+  await dialog.getByRole('button', { name: 'Add tag' }).click();
+  await dialog.getByLabel('Tag 1 name').fill('video-id');
+  await dialog.getByLabel('Tag 1 value').fill('v42');
+  await dialog.getByRole('button', { name: 'Upload' }).click();
+  const files = page.getByRole('table', { name: 'Files' });
+  await expect(files.getByText('clip.mov')).toBeVisible();
+  const link = files.getByRole('link', { name: 'Download incoming/clip.mov' });
+  const got = await page.request.get((await link.getAttribute('href')) ?? '');
+  expect(got.status()).toBe(200);
+  expect(await got.text()).toBe('e2e video bytes');
+  expect(got.headers()['x-enclave-tag-video-id']).toBe('v42');
+  expect(got.headers()['content-disposition']).toBe('attachment; filename=clip.mov');
+  await page.getByRole('button', { name: 'Delete incoming/clip.mov' }).click();
+  await page.getByRole('alertdialog', { name: 'Delete this file?' }).getByRole('button', { name: 'Delete file' }).click();
+  await expect(page.getByText('This folder is empty')).toBeVisible();
+});
+
 test('reveal a secret, and refuse deleting it while the app uses it', async () => {
   await sidebar().getByRole('link', { name: /^Secrets/ }).click();
   await page.getByRole('link', { name: /stripe-key/ }).click();

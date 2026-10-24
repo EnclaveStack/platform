@@ -465,6 +465,7 @@ func validateApp(s AppSpec) []FieldError {
 	}
 	errs = append(errs, validateHealthCheck(s)...)
 	errs = append(errs, validateEnv(s.Env, s.SecretEnv)...)
+	errs = append(errs, validateBucketAccess(s.BucketAccess, s.Env, s.SecretEnv)...)
 	errs = append(errs, validatePlacement(s.Network, s.Subnet)...)
 	switch {
 	case s.Replicas < ReplicasMin || s.Replicas > ReplicasMax:
@@ -598,6 +599,11 @@ func validateJob(s JobSpec) []FieldError {
 	}
 	errs = append(errs, validateCommand(s.Command)...)
 	errs = append(errs, validateEnv(s.Env, s.SecretEnv)...)
+	if s.App != "" && len(s.BucketAccess) > 0 {
+		errs = append(errs, FieldError{Field: "spec.bucketAccess", Code: FieldNotAllowed, Message: "A job that runs as an app uses the app's bucket access."})
+	} else {
+		errs = append(errs, validateBucketAccess(s.BucketAccess, s.Env, s.SecretEnv)...)
+	}
 	if s.TimeoutSeconds < JobTimeoutMin || s.TimeoutSeconds > JobTimeoutMax {
 		errs = append(errs, FieldError{Field: "spec.timeoutSeconds", Code: FieldOutOfRange, Message: "Use 1 second to 24 hours (86400)."})
 	}

@@ -93,7 +93,7 @@ func (p *Provider) Resources(context.Context) []func() resource.Resource {
 		newNetwork, newFirewall, newLoadBalancer, newZone, newRecord, newVM, newVolume, newSnapshot,
 		newQueue, newTopic, newSearch, newTranscoder, newCDN, newEmail, newProject, newUser,
 		newDashboard, newAlert, newChannel, newLogExport, newSecretStore,
-		newMachine, newStack, newCatalogueTemplate}
+		newMachine, newStack, newCatalogueTemplate, newBucketObject}
 }
 
 // DataSources implements provider.Provider (TF-01).

@@ -19,6 +19,7 @@ import (
 
 	"github.com/enclavestack/platform/internal/engine"
 	"github.com/enclavestack/platform/internal/sigv4"
+	"github.com/enclavestack/platform/pkg/api"
 )
 
 // Project bucket credentials (ADR-035): each project other than default gets an object store user whose
@@ -102,9 +103,51 @@ func projectPolicy(buckets []string) []byte {
 	return doc
 }
 
+// Actions per level (ADR-049): read lists and reads; read and write also writes and deletes objects. No
+// bucket creation, deletion, policy or admin action at either level.
+var (
+	readBucketActions  = []string{"s3:GetBucketLocation", "s3:ListBucket"}
+	readObjectActions  = []string{"s3:GetObject"}
+	writeBucketActions = []string{"s3:ListBucketMultipartUploads"}
+	writeObjectActions = []string{"s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"}
+)
+
+// grantsPolicy allows each grant's level on its bucket and objects, and nothing else.
+func grantsPolicy(grants []api.BucketGrant) []byte {
+	var statements []map[string]any
+	for _, g := range slices.SortedFunc(slices.Values(grants), func(a, b api.BucketGrant) int { return strings.Compare(a.Bucket, b.Bucket) }) {
+		bucket, objects := append([]string(nil), readBucketActions...), append([]string(nil), readObjectActions...)
+		if g.Access == api.BucketReadWrite {
+			bucket, objects = append(bucket, writeBucketActions...), append(objects, writeObjectActions...)
+		}
+		statements = append(statements,
+			map[string]any{"Effect": "Allow", "Action": bucket, "Resource": []string{"arn:aws:s3:::" + g.Bucket}},
+			map[string]any{"Effect": "Allow", "Action": objects, "Resource": []string{"arn:aws:s3:::" + g.Bucket + "/*"}})
+	}
+	doc, _ := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": statements})
+	return doc
+}
+
 // SetProjectStoreAccess implements engine.Driver: the project's user reaches exactly buckets; with none,
 // the user and its policy go.
 func (d *Driver) SetProjectStoreAccess(ctx context.Context, user engine.ObjectStore, buckets []string, root engine.ObjectStore) error {
+	if len(buckets) == 0 {
+		return d.setStoreUser(ctx, user, nil, root)
+	}
+	return d.setStoreUser(ctx, user, projectPolicy(slices.Sorted(slices.Values(buckets))), root)
+}
+
+// SetStoreUserAccess implements engine.Driver: an app's or job's user reaches exactly grants (ADR-049).
+func (d *Driver) SetStoreUserAccess(ctx context.Context, user engine.ObjectStore, grants []api.BucketGrant, root engine.ObjectStore) error {
+	if len(grants) == 0 {
+		return d.setStoreUser(ctx, user, nil, root)
+	}
+	return d.setStoreUser(ctx, user, grantsPolicy(grants), root)
+}
+
+// setStoreUser gives an object store user exactly policy (a policy named after the user), or removes the
+// user and its policy when policy is nil.
+func (d *Driver) setStoreUser(ctx context.Context, user engine.ObjectStore, policy []byte, root engine.ObjectStore) error {
 	c, err := d.inspect(ctx, engine.ObjectStoreName)
 	if err != nil {
 		return err
@@ -113,14 +156,13 @@ func (d *Driver) SetProjectStoreAccess(ctx context.Context, user engine.ObjectSt
 		return fmt.Errorf("the object store isn't running")
 	}
 	a := minioAdmin{base: "http://127.0.0.1:" + strconv.Itoa(hostPort(c, engine.ObjectStorePort)), access: root.AccessKey, secret: root.SecretKey, http: &http.Client{}}
-	policy := user.AccessKey // one policy per project user, named after it
-	if len(buckets) == 0 {
+	name := user.AccessKey // one policy per user, named after it
+	if policy == nil {
 		_ = a.call(ctx, http.MethodDelete, "/remove-user", url.Values{"accessKey": {user.AccessKey}}, nil)
-		_ = a.call(ctx, http.MethodDelete, "/remove-canned-policy", url.Values{"name": {policy}}, nil)
+		_ = a.call(ctx, http.MethodDelete, "/remove-canned-policy", url.Values{"name": {name}}, nil)
 		return nil
 	}
-	buckets = slices.Sorted(slices.Values(buckets))
-	if err := a.call(ctx, http.MethodPut, "/add-canned-policy", url.Values{"name": {policy}}, projectPolicy(buckets)); err != nil {
+	if err := a.call(ctx, http.MethodPut, "/add-canned-policy", url.Values{"name": {name}}, policy); err != nil {
 		return err
 	}
 	body, _ := json.Marshal(map[string]string{"secretKey": user.SecretKey, "status": "enabled"})
@@ -131,5 +173,5 @@ func (d *Driver) SetProjectStoreAccess(ctx context.Context, user engine.ObjectSt
 	if err := a.call(ctx, http.MethodPut, "/add-user", url.Values{"accessKey": {user.AccessKey}}, sealed); err != nil {
 		return err
 	}
-	return a.call(ctx, http.MethodPut, "/set-user-or-group-policy", url.Values{"policyName": {policy}, "userOrGroup": {user.AccessKey}, "isGroup": {"false"}}, nil)
+	return a.call(ctx, http.MethodPut, "/set-user-or-group-policy", url.Values{"policyName": {name}, "userOrGroup": {user.AccessKey}, "isGroup": {"false"}}, nil)
 }

@@ -1,9 +1,10 @@
-import { Alert, Button, Checkbox, Choice, ConfirmDialog, describedBy, Field, Fieldset, Form, FormRow, Inline, Input, Select, Text, Textarea } from '@enclavestack/ui';
+import { Alert, Button, Checkbox, Choice, ConfirmDialog, describedBy, Field, FieldHint, Fieldset, Form, FormRow, Inline, Input, Select, Text, Textarea } from '@enclavestack/ui';
 import { useState, type FormEvent } from 'react';
 import { useApi } from '../api/context';
 import { RULES } from '../api/generated';
 import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
 import { isPlaced, MachineFields, usePlacement } from '../components/MachineFields';
+import { BucketAccessEditor, grantRows, grantsOf, type GrantRow } from '../components/AccessFields';
 import { DiskPicker, freeDisks, IMAGE_TITLES, MountEditor, mountRows, mountsOf, VM_SIZES, type MountRow } from '../components/ComputeFields';
 import { DATA_IMMUTABLE, DATA_KINDS, useDataForm } from '../components/DataFields';
 import { OPERATE_IMMUTABLE, OPERATE_KINDS, useOperateForm } from '../components/OperateFields';
@@ -87,6 +88,8 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const firewallCandidates = RULES.firewallKinds.flatMap((k) => live(k).map((r) => `${k}/${r.name}`));
   // v0.5: filesystem volumes to mount, disk volumes to attach, snapshots to start from.
   const fsVolumes = live('volume').filter((v) => (v.spec as VolumeSpec).type === 'filesystem').map((v) => v.name);
+  // Per-app bucket access (L2-011): the project's buckets.
+  const bucketNames = live('bucket').map((b) => b.name);
   const snapshots = live('snapshot').filter((x) => x.status.phase === 'ready');
   const machine = useLoad(`form-machine:${kind}`, () => (kind === 'vm' ? api.getMachine() : Promise.resolve(null)));
   const noVMs = kind === 'vm' && !existing && machine.data?.vms && !machine.data.vms.available ? machine.data.vms.message : '';
@@ -190,6 +193,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const [recValues, setRecValues] = useState((rspec.values ?? []).join('\n'));
   const [recTtl, setRecTtl] = useState(String(rspec.ttl ?? RULES.recordTtlDefault));
   const [mounts, setMounts] = useState<MountRow[]>(mountRows((existing?.spec as { volumes?: AppSpec['volumes'] } | undefined)?.volumes));
+  const [grants, setGrants] = useState<GrantRow[]>(grantRows((existing?.spec as { bucketAccess?: AppSpec['bucketAccess'] } | undefined)?.bucketAccess));
   const startImage = vspec.image ?? (initialSnapshot ? RULES.snapshotImagePrefix + initialSnapshot : 'ubuntu-24.04');
   const [imageFrom, setImageFrom] = useState<'catalog' | 'url' | 'snapshot'>(startImage.startsWith('https://') ? 'url' : startImage.startsWith(RULES.snapshotImagePrefix) ? 'snapshot' : 'catalog');
   const [vmImage, setVmImage] = useState(startImage.startsWith('https://') || startImage.startsWith(RULES.snapshotImagePrefix) ? 'ubuntu-24.04' : startImage);
@@ -300,6 +304,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         s.strategy = strategy;
         s.replicas = Number(replicas) || 0;
         if (mounts.length) s.volumes = mountsOf(mounts);
+        if (grants.length) s.bucketAccess = grantsOf(grants);
         if (network) s.network = network;
         if (network && subnet) s.subnet = subnet;
         if (hcType) {
@@ -346,6 +351,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         const se = fromRows(secretEnv);
         if (se) j.secretEnv = se;
         if (mounts.length) j.volumes = mountsOf(mounts);
+        if (runWith !== 'app' && grants.length) j.bucketAccess = grantsOf(grants);
         return j as unknown as Record<string, unknown>;
       }
       case 'backup': {
@@ -622,6 +628,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           </Fieldset>
           <PlacementFields networks={networks} network={network} subnet={subnet} errors={errors} onChange={(n, sub) => { setNetwork(n); setSubnet(sub); }} />
           <MountEditor rows={mounts} onChange={setMounts} volumes={fsVolumes} errors={errors} />
+          <BucketAccessEditor rows={grants} onChange={setGrants} buckets={bucketNames} errors={errors} />
         </>
       )}
 
@@ -717,6 +724,9 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
             errorField={(k) => `spec.secretEnv.${k}`} addLabel="Add secret variable"
             emptyHint={secretNames.length ? 'Values taken from secrets; the console never sees them.' : 'Create a secret first to use it here.'} />
           <MountEditor rows={mounts} onChange={setMounts} volumes={fsVolumes} errors={errors} />
+          {runWith === 'app'
+            ? <Fieldset legend="Bucket access"><FieldHint>A job that runs as an app uses the app's bucket access and keys.</FieldHint></Fieldset>
+            : <BucketAccessEditor rows={grants} onChange={setGrants} buckets={bucketNames} errors={errors} />}
         </>
       )}
 

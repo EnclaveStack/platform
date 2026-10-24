@@ -269,17 +269,20 @@ type folderModel struct {
 }
 
 type transcoderModel struct {
-	ID             types.String   `tfsdk:"id"`
-	Name           types.String   `tfsdk:"name"`
-	Project        types.String   `tfsdk:"project"`
-	Input          *folderModel   `tfsdk:"input"`
-	Output         *folderModel   `tfsdk:"output"`
-	Presets        []types.String `tfsdk:"presets"`
-	Watch          types.Bool     `tfsdk:"watch"`
-	TimeoutSeconds types.Int64    `tfsdk:"timeout_seconds"`
-	Concurrency    types.Int64    `tfsdk:"concurrency"`
-	MemoryMiB      types.Int64    `tfsdk:"memory_mib"`
-	Timeouts       timeouts.Value `tfsdk:"timeouts"`
+	ID             types.String     `tfsdk:"id"`
+	Name           types.String     `tfsdk:"name"`
+	Project        types.String     `tfsdk:"project"`
+	Input          *folderModel     `tfsdk:"input"`
+	Output         *folderModel     `tfsdk:"output"`
+	Presets        []types.String   `tfsdk:"presets"`
+	Watch          types.Bool       `tfsdk:"watch"`
+	TimeoutSeconds types.Int64      `tfsdk:"timeout_seconds"`
+	Concurrency    types.Int64      `tfsdk:"concurrency"`
+	MemoryMiB      types.Int64      `tfsdk:"memory_mib"`
+	Renditions     []renditionModel `tfsdk:"renditions"`
+	HLS            *hlsModel        `tfsdk:"hls"`
+	Notify         *notifyModel     `tfsdk:"notify"`
+	Timeouts       timeouts.Value   `tfsdk:"timeouts"`
 }
 
 func (m *transcoderModel) ids() (types.String, types.String) { return m.ID, m.Name }
@@ -293,8 +296,13 @@ func folderOf(f *folderModel) api.BucketFolder {
 }
 
 func (m *transcoderModel) patch() map[string]any {
-	p := map[string]any{"input": folderOf(m.Input), "output": folderOf(m.Output), "presets": toStrings(m.Presets),
-		"timeoutSeconds": intOrNil(m.TimeoutSeconds), "concurrency": intOrNil(m.Concurrency), "memoryMiB": intOrNil(m.MemoryMiB), "watch": nil}
+	var presets any
+	if len(m.Presets) > 0 {
+		presets = toStrings(m.Presets)
+	}
+	p := map[string]any{"input": folderOf(m.Input), "output": folderOf(m.Output), "presets": presets,
+		"timeoutSeconds": intOrNil(m.TimeoutSeconds), "concurrency": intOrNil(m.Concurrency), "memoryMiB": intOrNil(m.MemoryMiB), "watch": nil,
+		"renditions": renditionsOf(m.Renditions), "hls": hlsOf(m.HLS), "notify": notifyOf(m.Notify)}
 	if !m.Watch.IsNull() && !m.Watch.IsUnknown() {
 		p["watch"] = m.Watch.ValueBool()
 	}
@@ -319,7 +327,10 @@ func (m *transcoderModel) fill(r api.Resource) {
 	_ = json.Unmarshal(r.Spec, &s)
 	m.ID, m.Name = types.StringValue(r.ID), types.StringValue(r.Name)
 	m.Input, m.Output = folderFill(m.Input, s.Input, ""), folderFill(m.Output, s.Output, api.TranscodeOutputDefault)
-	m.Presets = tfStrings(s.Presets)
+	if len(s.Presets) > 0 || m.Presets != nil {
+		m.Presets = tfStrings(s.Presets)
+	}
+	m.Renditions, m.HLS, m.Notify = renditionModels(m.Renditions, s.Renditions), hlsModelOf(m.HLS, s.HLS), notifyModelOf(s.Notify)
 	if !m.Watch.IsNull() || s.Watch != nil {
 		m.Watch = types.BoolValue(s.Watching())
 	}
@@ -344,21 +355,20 @@ func newTranscoder() resource.Resource {
 	return &kindResource[transcoderModel, *transcoderModel]{base: base{kind: api.KindTranscoder}, suffix: "_transcoder", label: "transcoder",
 		schemaOf: func(ctx context.Context) schema.Schema {
 			return schema.Schema{
-				Description: "Converts media written to a bucket folder with FFmpeg presets. Changes apply in place; runs are not part of state.",
-				Attributes: map[string]schema.Attribute{
-					"id":      idAttr(),
-					"name":    nameAttr("transcoder"),
-					"project": projectAttr(),
-					"input":   folderAttr("Where media arrives."),
-					"output":  folderAttr(`Where results go (default prefix "transcoded/").`),
-					"presets": schema.ListAttribute{Required: true, ElementType: types.StringType, Description: "Presets: " + fmt.Sprint(api.Presets),
-						Validators: []validator.List{}},
+				Description: "Converts media written to a bucket folder with FFmpeg: presets, renditions of your own and an HLS ladder, and sends a message when each file is done. Changes apply in place; runs are not part of state.",
+				Attributes: withTranscodeOutputs(map[string]schema.Attribute{
+					"id":              idAttr(),
+					"name":            nameAttr("transcoder"),
+					"project":         projectAttr(),
+					"input":           folderAttr("Where media arrives."),
+					"output":          folderAttr(`Where results go (default prefix "transcoded/"). {name} and {meta:<tag>} in the prefix take the file's name and the uploader's tags, like "processed/{meta:video-id}/".`),
+					"presets":         schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Presets: " + fmt.Sprint(api.Presets) + ". At least one of presets, renditions and hls."},
 					"watch":           schema.BoolAttribute{Optional: true, Description: "Convert new files automatically (default true)."},
 					"timeout_seconds": optInt("Longest one file may take, 60–86400 (default 3600)."),
 					"concurrency":     optInt("Files converted at once, 1–4 (default 1)."),
 					"memory_mib":      optInt("Memory per file in MiB, 256–8192 (default 1024)."),
 					"timeouts":        timeoutsAttr(ctx),
-				},
+				}),
 			}
 		}}
 }

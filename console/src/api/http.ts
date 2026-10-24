@@ -27,6 +27,8 @@ import {
   type MachineSettings,
   type SetupStatus,
   type MessageList,
+  type ObjectInfo,
+  type ObjectList,
   type ReceivedMessage,
   type Resource,
   type ResourceList,
@@ -65,6 +67,9 @@ interface Call {
   idempotent?: boolean;
   /** Return the body as text (e.g. a PEM certificate) instead of parsing JSON. */
   text?: boolean;
+  /** A file sent as it is (an object upload), with headers of its own. */
+  raw?: Blob;
+  headers?: Record<string, string>;
 }
 
 export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi {
@@ -76,6 +81,7 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
   async function call<T>(c: Call): Promise<T> {
     const headers: Record<string, string> = { Accept: c.text ? '*/*' : 'application/json' };
     if (c.body !== undefined) headers['Content-Type'] = 'application/json';
+    if (c.raw !== undefined) Object.assign(headers, { 'Content-Type': 'application/octet-stream' }, c.headers);
     if (c.method !== 'GET') headers[HEADERS.csrf] = '1';
     if (c.ifMatch !== undefined) headers['If-Match'] = `"${c.ifMatch}"`;
     const key = c.method === 'POST' && c.idempotent ? newIdempotencyKey() : undefined;
@@ -90,7 +96,7 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
           method: c.method,
           headers,
           credentials: 'same-origin',
-          body: c.body === undefined ? undefined : JSON.stringify(c.body),
+          body: c.raw ?? (c.body === undefined ? undefined : JSON.stringify(c.body)),
         });
       } catch {
         last = new ApiError('NETWORK', "Can't reach this machine. Check that EnclaveStack is running.", 0);
@@ -115,6 +121,8 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
   }
 
   const enc = encodeURIComponent;
+  /** Each folder of a key escaped, the "/" between them kept (L3-002 §14.1). */
+  const objectPath = (id: string, key: string) => `/resources/${enc(id)}/objects/${key.split('/').map(enc).join('/')}`;
   return {
     getSetupStatus: () => call<SetupStatus>({ method: 'GET', path: '/setup' }),
     setup: (input) => call<Session>({ method: 'POST', path: '/setup', body: input }),
@@ -189,6 +197,14 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
     listMessages: (id, limit = 20) => call<MessageList>({ method: 'GET', path: `/resources/${enc(id)}/messages?limit=${limit}` }),
     receiveMessages: async (id, max = 1, waitSeconds = 0) =>
       (await call<{ items: ReceivedMessage[] }>({ method: 'POST', path: `/resources/${enc(id)}/messages/receive`, body: { max, waitSeconds } })).items,
+    listObjects: (id, prefix, cursor) => call<ObjectList>({ method: 'GET',
+      path: `/resources/${enc(id)}/objects?prefix=${enc(prefix)}${cursor ? `&cursor=${enc(cursor)}` : ''}` }),
+    uploadObject: (id, key, file, tags = {}) => call<ObjectInfo>({ method: 'PUT', path: objectPath(id, key), raw: file,
+      headers: Object.fromEntries(Object.entries(tags).map(([k, v]) => [`${HEADERS.objectTagPrefix}${k}`, v])) }),
+    objectUrl: (id, key) => `${base}${objectPath(id, key)}`,
+    deleteObject: async (id, key) => {
+      await call<unknown>({ method: 'DELETE', path: objectPath(id, key) });
+    },
     deleteMessages: (id, receipts) => call<DeletedMessages>({ method: 'POST', path: `/resources/${enc(id)}/messages/delete`, body: { receipts } }),
     getDeliveries: (id) => call<DeliveryStats>({ method: 'GET', path: `/resources/${enc(id)}/deliveries` }),
     sendEmail: (id, email) => call<{ id: string }>({ method: 'POST', path: `/resources/${enc(id)}/emails`, body: email }),

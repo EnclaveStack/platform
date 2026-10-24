@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -586,6 +587,7 @@ func (a *app) bucketCmd() *cobra.Command {
 	update.Flags().BoolVar(&uver, "versioning", false, "keep old versions of objects")
 	update.Flags().BoolVar(&uwait, "wait", false, "wait until ready")
 	cmd.AddCommand(create, update)
+	cmd.AddCommand(a.bucketObjectCmds()...)
 	return cmd
 }
 
@@ -674,6 +676,7 @@ type jobFlags struct {
 	wait                                   bool
 	place                                  placementFlags
 	volumes                                []string
+	buckets                                []string
 }
 
 func (f *jobFlags) bind(cmd *cobra.Command) {
@@ -689,6 +692,28 @@ func (f *jobFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&f.wait, "wait", false, "wait until ready")
 	f.place.bind(cmd)
 	bindVolumes(cmd, &f.volumes)
+	bindBuckets(cmd, &f.buckets)
+}
+
+// bindBuckets adds --bucket to app and job commands (CLI-53, L2-011).
+func bindBuckets(cmd *cobra.Command, v *[]string) {
+	cmd.Flags().StringArrayVar(v, "bucket", nil, `bucket it reaches with keys of its own, NAME:read or NAME:readwrite (repeatable; on update the list replaces the old one, "" for none)`)
+}
+
+// parseBuckets reads --bucket values; a single "" is an empty list, which removes all access.
+func parseBuckets(list []string) ([]api.BucketGrant, error) {
+	out := []api.BucketGrant{}
+	if len(list) == 1 && list[0] == "" {
+		return out, nil
+	}
+	for _, s := range list {
+		name, level, ok := strings.Cut(s, ":")
+		if !ok || name == "" || !slices.Contains(api.BucketAccessLevels, level) {
+			return nil, usagef("--bucket needs NAME:read or NAME:readwrite, like media:read; got %q", s)
+		}
+		out = append(out, api.BucketGrant{Bucket: name, Access: level})
+	}
+	return out, nil
 }
 
 // bindVolumes adds --volume to app and job commands (CLI-26).
@@ -715,9 +740,13 @@ func (a *app) jobCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			buckets, err := parseBuckets(cf.buckets)
+			if err != nil {
+				return err
+			}
 			spec := api.JobSpec{Schedule: cf.schedule, TimeZone: cf.zone, App: cf.target, Image: cf.image, Command: args[1:], Env: env,
 				SecretEnv: senv, TimeoutSeconds: int(cf.timeout.Seconds()), Overlap: cf.overlap, MemoryMiB: cf.memory, Network: cf.place.network, Subnet: cf.place.subnet, Placed: cf.place.placed(),
-				Volumes: mounts}
+				Volumes: mounts, BucketAccess: buckets}
 			return a.create(cmd.Context(), api.KindJob, args[0], spec, cf.wait)
 		},
 	}
@@ -768,6 +797,13 @@ func (a *app) jobCmd() *cobra.Command {
 					return err
 				}
 				patch["volumes"] = mounts
+			}
+			if ch("bucket") {
+				buckets, err := parseBuckets(uf.buckets)
+				if err != nil {
+					return err
+				}
+				patch["bucketAccess"] = buckets
 			}
 			uf.place.patch(ch, patch)
 			return a.update(cmd.Context(), api.KindJob, args[0], patch, uf.wait)
@@ -1080,6 +1116,7 @@ type appFlags struct {
 	replicas                                int
 	place                                   placementFlags
 	volumes                                 []string
+	buckets                                 []string
 }
 
 var gitFlags = []string{"git", "ref", "dockerfile", "context", "git-credentials", "build-arg"}
@@ -1153,6 +1190,7 @@ func (f *appFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&f.replicas, "replicas", 0, "containers per revision, 1–10 (default 1; one when --publish)")
 	f.place.bind(cmd)
 	bindVolumes(cmd, &f.volumes)
+	bindBuckets(cmd, &f.buckets)
 }
 
 // healthCheck turns the --health flags into a check; nil when --health was not given.
@@ -1237,8 +1275,12 @@ func (a *app) appCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			buckets, err := parseBuckets(cf.buckets)
+			if err != nil {
+				return err
+			}
 			spec := api.AppSpec{Image: cf.image, Source: src, Port: cf.port, Env: env, SecretEnv: senv, Command: cf.command, Publish: cf.publish, MemoryMiB: cf.memory,
-				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts, Placed: cf.place.placed()}
+				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts, BucketAccess: buckets, Placed: cf.place.placed()}
 			return a.create(cmd.Context(), api.KindApp, args[0], spec, cf.wait)
 		},
 	}
@@ -1296,6 +1338,13 @@ func (a *app) appCmd() *cobra.Command {
 					return err
 				}
 				patch["volumes"] = mounts
+			}
+			if ch("bucket") {
+				buckets, err := parseBuckets(uf.buckets)
+				if err != nil {
+					return err
+				}
+				patch["bucketAccess"] = buckets
 			}
 			uf.place.patch(ch, patch)
 			hc, err := uf.healthCheck(ch)

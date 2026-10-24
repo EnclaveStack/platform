@@ -78,7 +78,12 @@ func (r *Reconciler) interruptTranscodes(ctx context.Context) {
 		if err != nil || res.Kind != api.KindTranscoder {
 			continue
 		}
-		r.finish(ctx, res, run, api.RunFailed, nil, nil, "Interrupted: EnclaveStack stopped while converting. Transcode the file again to retry.", r.Log)
+		if !r.finish(ctx, res, run, api.RunFailed, nil, nil, "Interrupted: EnclaveStack stopped while converting. Transcode the file again to retry.", r.Log) {
+			continue
+		}
+		if s, err := transcoderSpecOf(res); err == nil {
+			go r.notifyTranscode(context.WithoutCancel(ctx), res, s, run, transcodeResult{}, r.Log) // retries don't hold up the start
+		}
 	}
 }
 
@@ -163,16 +168,23 @@ func (r *Reconciler) watchOnce(ctx context.Context, res *domain.Resource, s api.
 	return nil
 }
 
-// runTranscode converts one object with every preset and uploads what FFmpeg wrote (TRN-02, TRN-05,
-// TRN-06). A file that isn't media fails its run; the transcoder stays ready.
+// runTranscode converts one object with every preset, rendition and rung, uploads what FFmpeg wrote with
+// the input's tags, and sends the run's message (TRN-02, TRN-05, TRN-06, L2-012 TRX-02 – TRX-07). A file
+// that isn't media fails its run; the transcoder stays ready.
 func (r *Reconciler) runTranscode(ctx context.Context, res *domain.Resource, run *domain.Run, log *slog.Logger) {
 	done := context.WithoutCancel(ctx)
-	fail := func(msg string) { r.finish(done, res, run, api.RunFailed, nil, nil, msg, log) }
 	s, err := transcoderSpecOf(res)
 	if err != nil {
-		fail("The transcoder's spec is unreadable.")
+		r.finish(done, res, run, api.RunFailed, nil, nil, "The transcoder's spec is unreadable.", log)
 		return
 	}
+	var got transcodeResult
+	end := func(status string, exit *int, output []byte, msg string) {
+		if r.finish(done, res, run, status, exit, output, msg, log) {
+			r.notifyTranscode(done, res, s, run, got, log)
+		}
+	}
+	fail := func(msg string) { end(api.RunFailed, nil, nil, msg) }
 	in, out, err := r.transcodeStores(ctx, res.Project, s)
 	if err != nil {
 		fail(err.Error())
@@ -188,6 +200,18 @@ func (r *Reconciler) runTranscode(ctx context.Context, res *domain.Resource, run
 		fail(fmt.Sprintf("The object %s no longer exists in %s.", run.Key, s.Input.Bucket))
 		return
 	}
+	got.inputSize = objects[i].Size
+	head, err := in.Head(ctx, run.Key)
+	if err != nil {
+		fail("The input can't be read: " + truncate(err.Error()))
+		return
+	}
+	got.tags = inputTags(head.Meta)
+	folder, err := transcode.RunFolder(s.Output.Prefix, s.Input.Prefix, run.Key, got.tags)
+	if err != nil {
+		fail("Nothing was converted: " + err.Error() + ".")
+		return
+	}
 	src, err := in.Get(ctx, run.Key)
 	if err != nil {
 		fail("The input can't be read: " + truncate(err.Error()))
@@ -196,29 +220,32 @@ func (r *Reconciler) runTranscode(ctx context.Context, res *domain.Resource, run
 	defer src.Close()
 	var written []string
 	upload := func(name string, size int64, body io.Reader) error {
-		key := transcode.OutputKey(s.Output.Prefix, s.Input.Prefix, run.Key, name)
-		if _, err := out.Put(ctx, key, body, map[string]string{"enclave-transcoder": res.Name, "enclave-run": run.ID, "enclave-source": run.Key}); err != nil {
+		key := folder + name
+		o, err := out.Put(ctx, key, body, outputMeta(got.tags, res, run))
+		if err != nil {
 			return fmt.Errorf("upload %s: %w", key, err)
 		}
 		written = append(written, key)
+		got.outputs = append(got.outputs, api.TranscodeObject{Bucket: s.Output.Bucket, Key: key, Size: o.Size})
 		return nil
 	}
 	timeout := time.Duration(s.TimeoutSeconds) * time.Second
 	result, err := r.Driver.Transcode(ctx, engine.TranscodeRun{RunID: run.ID, ResourceID: res.ID, Name: res.Name, InputName: transcode.InputName(run.Key),
-		InputSize: objects[i].Size, Presets: s.Presets, MemoryMiB: s.MemoryMiB, Timeout: timeout}, src, upload)
+		InputSize: objects[i].Size, Presets: s.Presets, Renditions: s.Renditions, HLS: s.HLS, MemoryMiB: s.MemoryMiB, Timeout: timeout}, src, upload)
 	run.Outputs = written
+	got.master = masterKey(s, folder, got.outputs)
 	exit := result.ExitCode
 	switch {
 	case ctx.Err() != nil:
 		return // failed as interrupted on the next start
 	case err != nil:
-		r.finish(done, res, run, api.RunFailed, nil, result.Output, "The conversion failed: "+truncate(err.Error()), log)
+		end(api.RunFailed, nil, result.Output, "The conversion failed: "+truncate(err.Error()))
 	case result.TimedOut:
-		r.finish(done, res, run, api.RunTimedOut, &exit, result.Output, fmt.Sprintf("Stopped after the timeout of %s.", timeout), log)
+		end(api.RunTimedOut, &exit, result.Output, fmt.Sprintf("Stopped after the timeout of %s.", timeout))
 	case exit != 0:
-		r.finish(done, res, run, api.RunFailed, &exit, result.Output, "FFmpeg couldn't convert "+run.Key+": "+lastLine(result.Output), log)
+		end(api.RunFailed, &exit, result.Output, "FFmpeg couldn't convert "+run.Key+": "+lastLine(result.Output))
 	default:
-		r.finish(done, res, run, api.RunSucceeded, &exit, result.Output, fmt.Sprintf("Converted %s into %d file%s.", run.Key, len(written), plural(len(written))), log)
+		end(api.RunSucceeded, &exit, result.Output, fmt.Sprintf("Converted %s into %d file%s.", run.Key, len(written), plural(len(written))))
 	}
 }
 

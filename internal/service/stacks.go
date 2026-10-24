@@ -349,6 +349,11 @@ func (s *Resources) updateStack(ctx context.Context, p Principal, st *domain.Res
 			}
 			if ch {
 				queued = append(queued, upd.ID)
+				pending, err := pendingOwned(ctx, q, upd.ID) // keys the change made (BKA-03)
+				if err != nil {
+					return err
+				}
+				queued = append(queued, pending...)
 			}
 		}
 		now := s.Now()

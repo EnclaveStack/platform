@@ -375,6 +375,9 @@ func (s *Server) driverCalls() map[string]handler {
 		"SetProjectStoreAccess": unary(func(ctx context.Context, a storeAccessArgs) (none, error) {
 			return done(d.SetProjectStoreAccess(ctx, a.User, a.Buckets, a.Root))
 		}),
+		"SetStoreUserAccess": unary(func(ctx context.Context, a storeUserArgs) (none, error) {
+			return done(d.SetStoreUserAccess(ctx, a.User, a.Grants, a.Root))
+		}),
 		"Stats": unary(func(ctx context.Context, a resourceArgs) ([]engine.ContainerStats, error) { return d.Stats(ctx, a.R) }),
 		"EdgeRequests": unary(func(ctx context.Context, _ none) (map[string]engine.RequestCounters, error) {
 			return d.EdgeRequests(ctx)

@@ -12,7 +12,7 @@ import (
 )
 
 // Stacks (ADR-048): a stack has no runtime of its own. Its phase follows its members: ready when every one
-// is, failed when one is (naming it), in progress otherwise (CAT-05). The service creates, changes and
+// is and every member it is removing is gone, failed when one is (naming it), in progress otherwise (CAT-05). The service creates, changes and
 // deletes the members; the reconciler only watches them.
 
 // errMembers means a stack waits for its members; it isn't an attempt.
@@ -24,7 +24,7 @@ const StackRetry = 2 * time.Second
 // ensureStack aggregates a stack's members into its outputs and phase.
 func (r *Reconciler) ensureStack(ctx context.Context, res *domain.Resource, rep engine.Reporter) (engine.Outputs, error) {
 	rep.Step("members", api.StepActive)
-	out, ready, total, failed, err := r.stackOutputs(ctx, res)
+	out, ready, total, removing, failed, err := r.stackOutputs(ctx, res)
 	if err != nil {
 		return nil, err
 	}
@@ -36,15 +36,21 @@ func (r *Reconciler) ensureStack(ctx context.Context, res *domain.Resource, rep 
 		res.Outputs = out
 		return nil, fmt.Errorf("%w: %d of %d are ready", errMembers, ready, total)
 	}
+	// A member an update dropped is still being deleted: not done until it is gone, so --wait waits for it.
+	if removing > 0 {
+		res.Outputs = out
+		return nil, fmt.Errorf("%w: removing %d", errMembers, removing)
+	}
 	rep.Step("members", api.StepDone)
 	return out, nil
 }
 
-// stackOutputs lists the members with their phases, keeping the template's facts.
-func (r *Reconciler) stackOutputs(ctx context.Context, res *domain.Resource) (engine.Outputs, int, int, *domain.Resource, error) {
+// stackOutputs lists the members with their phases, keeping the template's facts, and counts the members
+// being deleted (removing), which the list leaves out.
+func (r *Reconciler) stackOutputs(ctx context.Context, res *domain.Resource) (engine.Outputs, int, int, int, *domain.Resource, error) {
 	members, err := r.Store.StackMembers(ctx, res.ID)
 	if err != nil {
-		return nil, 0, 0, nil, err
+		return nil, 0, 0, 0, nil, err
 	}
 	out := engine.Outputs{}
 	for _, k := range []string{api.OutputTemplate, api.OutputTemplateVersion, api.OutputStackOutputs} {
@@ -53,10 +59,11 @@ func (r *Reconciler) stackOutputs(ctx context.Context, res *domain.Resource) (en
 		}
 	}
 	list := make([]api.StackMember, 0, len(members))
-	ready, total := 0, 0
+	ready, total, removing := 0, 0, 0
 	var failed *domain.Resource
 	for _, m := range members {
 		if m.Phase == api.PhaseDeleting {
+			removing++
 			continue
 		}
 		total++
@@ -71,7 +78,7 @@ func (r *Reconciler) stackOutputs(ctx context.Context, res *domain.Resource) (en
 		}
 	}
 	out[api.OutputMembers], out[api.OutputReady], out[api.OutputTotal] = list, ready, total
-	return out, ready, total, failed, nil
+	return out, ready, total, removing, failed, nil
 }
 
 // refreshStack looks at a member's stack again after the member changed phase.
@@ -87,7 +94,7 @@ func (r *Reconciler) refreshStack(ctx context.Context, member *domain.Resource) 
 	case api.PhaseDeleting:
 		r.Enqueue(st.ID) // it is removed after its last member
 	case api.PhaseReady, api.PhaseFailed:
-		out, ready, total, failed, err := r.stackOutputs(ctx, st)
+		out, ready, total, removing, failed, err := r.stackOutputs(ctx, st)
 		if err != nil {
 			return
 		}
@@ -97,7 +104,7 @@ func (r *Reconciler) refreshStack(ctx context.Context, member *domain.Resource) 
 			if st.SetPhase(api.PhaseFailed, fmt.Sprintf("the %s %s failed: %s", failed.Kind, failed.Name, failed.Message), now) == nil {
 				r.event(ctx, st, "failed", st.Message)
 			}
-		case failed == nil && (st.Phase == api.PhaseFailed || ready < total):
+		case failed == nil && (st.Phase == api.PhaseFailed || ready < total || removing > 0):
 			_ = st.SetPhase(api.PhaseProvisioning, "", now) // and its ensure decides
 			r.Enqueue(st.ID)
 		}

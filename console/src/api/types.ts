@@ -1,6 +1,6 @@
 // Wire shapes of L3-002. Kinds, phases, error codes and rules come from generated.ts (from pkg/api) —
 // they are never re-declared here (ADR-002).
-import type { ErrorCode, FieldCode, Kind, MetricUnit, Phase, ROLES, StepState } from './generated';
+import type { ErrorCode, FieldCode, Kind, MetricUnit, Phase, ROLES, RULES, StepState } from './generated';
 
 export type { ErrorCode, FieldCode, Kind, MetricUnit, Phase, StepState } from './generated';
 
@@ -69,6 +69,8 @@ export interface AppSpec extends Placed {
   replicas?: number;
   /** Filesystem volumes mounted into every container (ADR-027). */
   volumes?: VolumeMount[];
+  /** Buckets it reaches with keys of its own (L2-011); the list replaces the old one. */
+  bucketAccess?: BucketGrant[];
 }
 export type TlsMode = 'auto' | 'internal' | 'off';
 
@@ -101,6 +103,8 @@ export interface JobSpec extends Placed {
   network?: string;
   subnet?: string;
   volumes?: VolumeMount[];
+  /** A job from an image only; a job with app uses the app's (L2-011 BKA-05). */
+  bucketAccess?: BucketGrant[];
 }
 
 /** Scheduled dumps of a database or cache (ADR-018, L3-002 §6.2). Exactly one source, one destination. */
@@ -256,6 +260,14 @@ export interface RecordSpec {
 // v0.5 (L3-002 §8.2).
 
 /** A filesystem volume mounted into an app's or job's containers. */
+/** One bucket an app or job reaches, and how (L2-011, L3-002 §12). */
+export interface BucketGrant {
+  bucket: string;
+  access: BucketAccessLevel;
+}
+
+export type BucketAccessLevel = (typeof RULES.bucketAccessLevels)[number];
+
 export interface VolumeMount {
   volume: string;
   path: string;
@@ -328,11 +340,45 @@ export interface BucketFolder {
 export interface TranscoderSpec {
   input: BucketFolder;
   output: BucketFolder;
-  presets: Preset[];
+  presets?: Preset[];
   watch?: boolean;
   timeoutSeconds?: number;
   concurrency?: number;
   memoryMiB?: number;
+  /** Outputs of the user's own and the "done" message (L2-012). */
+  renditions?: Rendition[];
+  hls?: HLSLadder;
+  notify?: TranscodeNotify;
+}
+export type RenditionContainer = 'mp4' | 'webm';
+/** One file of a chosen size and bitrate: <name>.<container> in the run's folder (TRX-02). */
+export interface Rendition {
+  name: string;
+  container: RenditionContainer;
+  maxWidth: number;
+  maxHeight: number;
+  videoKbps: number;
+  audioKbps?: number;
+  gopSeconds?: number;
+}
+export interface HLSRung {
+  name: string;
+  maxWidth: number;
+  maxHeight: number;
+  videoKbps: number;
+}
+/** An adaptive stream: <name>/master.m3u8 and each rung's playlist and segments (TRX-03). */
+export interface HLSLadder {
+  name?: string;
+  segmentSeconds?: number;
+  gopSeconds?: number;
+  audioKbps?: number;
+  rungs: HLSRung[];
+}
+/** Where a run's message goes when it ends (TRX-05). */
+export interface TranscodeNotify {
+  webhook?: { url: string; secret?: string };
+  topic?: string;
 }
 /** A cache in front of app/<name> or bucket/<name>, on a hostname served like a domain's. */
 export interface CDNSpec {
@@ -928,4 +974,20 @@ export interface NotificationRecord {
   lastError: string;
   createdAt: string;
   sentAt: string | null;
+}
+
+/** A file in a bucket (L2-013 OBJ-01). */
+export interface ObjectInfo {
+  key: string;
+  size: number;
+  modified: string;
+  contentType: string;
+  tags?: Record<string, string>;
+}
+/** One folder of a bucket, one page at a time. */
+export interface ObjectList {
+  prefix: string;
+  folders: string[];
+  items: ObjectInfo[];
+  nextCursor: string | null;
 }

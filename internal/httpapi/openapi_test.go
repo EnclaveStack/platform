@@ -46,7 +46,7 @@ func TestOpenAPIMatchesTheServerRoutes(t *testing.T) {
 	}
 	var routes []string
 	for _, m := range regexp.MustCompile(`s\.route\(mux, "([A-Z]+ /[^"]*)"`).FindAllStringSubmatch(string(src), -1) {
-		routes = append(routes, m[1])
+		routes = append(routes, strings.ReplaceAll(m[1], "...}", "}")) // OpenAPI has no "rest of the path" wildcard
 	}
 	routes = append(routes, "GET /metrics") // registered with mux.Handle
 	slices.Sort(spec)

@@ -28,29 +28,31 @@ type appModel struct {
 	Name    types.String `tfsdk:"name"`
 	Project types.String `tfsdk:"project"`
 	placementModel
-	Image        types.String    `tfsdk:"image"`
-	Source       *sourceGitModel `tfsdk:"source"`
-	BuiltCommit  types.String    `tfsdk:"built_commit"`
-	Port         types.Int64     `tfsdk:"port"`
-	Command      types.List      `tfsdk:"command"`
-	Env          types.Map       `tfsdk:"env"`
-	SecretEnv    types.Map       `tfsdk:"secret_env"`
-	Publish      types.Bool      `tfsdk:"publish"`
-	MemoryMiB    types.Int64     `tfsdk:"memory_mib"`
-	Host         types.String    `tfsdk:"host"`
-	HostPort     types.Int64     `tfsdk:"host_port"`
-	InternalHost types.String    `tfsdk:"internal_host"`
-	InternalPort types.Int64     `tfsdk:"internal_port"`
-	Strategy     types.String    `tfsdk:"strategy"`
-	HealthCheck  *healthModel    `tfsdk:"health_check"`
-	Serving      types.Int64     `tfsdk:"serving_revision"`
-	Network      types.String    `tfsdk:"network"`
-	Subnet       types.String    `tfsdk:"subnet"`
-	Replicas     types.Int64     `tfsdk:"replicas"`
-	PrivateIP    types.String    `tfsdk:"private_ip"`
-	PrivateDNS   types.String    `tfsdk:"private_dns"`
-	Volumes      []mountModel    `tfsdk:"volumes"`
-	Timeouts     timeouts.Value  `tfsdk:"timeouts"`
+	Image        types.String       `tfsdk:"image"`
+	Source       *sourceGitModel    `tfsdk:"source"`
+	BuiltCommit  types.String       `tfsdk:"built_commit"`
+	Port         types.Int64        `tfsdk:"port"`
+	Command      types.List         `tfsdk:"command"`
+	Env          types.Map          `tfsdk:"env"`
+	SecretEnv    types.Map          `tfsdk:"secret_env"`
+	Publish      types.Bool         `tfsdk:"publish"`
+	MemoryMiB    types.Int64        `tfsdk:"memory_mib"`
+	Host         types.String       `tfsdk:"host"`
+	HostPort     types.Int64        `tfsdk:"host_port"`
+	InternalHost types.String       `tfsdk:"internal_host"`
+	InternalPort types.Int64        `tfsdk:"internal_port"`
+	Strategy     types.String       `tfsdk:"strategy"`
+	HealthCheck  *healthModel       `tfsdk:"health_check"`
+	Serving      types.Int64        `tfsdk:"serving_revision"`
+	Network      types.String       `tfsdk:"network"`
+	Subnet       types.String       `tfsdk:"subnet"`
+	Replicas     types.Int64        `tfsdk:"replicas"`
+	PrivateIP    types.String       `tfsdk:"private_ip"`
+	PrivateDNS   types.String       `tfsdk:"private_dns"`
+	Volumes      []mountModel       `tfsdk:"volumes"`
+	BucketAccess []bucketGrantModel `tfsdk:"bucket_access"`
+	BucketCreds  types.String       `tfsdk:"bucket_credentials_secret"`
+	Timeouts     timeouts.Value     `tfsdk:"timeouts"`
 }
 
 // healthModel mirrors api.HealthCheck. Fields the user leaves unset stay null in state; the server's
@@ -150,12 +152,14 @@ func (r *appResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 			"serving_revision": schema.Int64Attribute{Computed: true, Description: "The revision receiving traffic."},
 			"replicas": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(api.ReplicasDefault),
 				Description: "Containers per revision (1–10); a published app runs one.", Validators: []validator.Int64{int64validator.Between(api.ReplicasMin, api.ReplicasMax)}},
-			"network":     placementNetworkAttr(),
-			"subnet":      placementSubnetAttr(),
-			"private_ip":  schema.StringAttribute{Computed: true, Description: "The serving revision's address in its network."},
-			"private_dns": stableString("Name the app answers to inside its network: <name>.app.internal."),
-			"volumes":     volumesAttr(),
-			"timeouts":    timeoutsAttr(ctx),
+			"network":                   placementNetworkAttr(),
+			"subnet":                    placementSubnetAttr(),
+			"private_ip":                schema.StringAttribute{Computed: true, Description: "The serving revision's address in its network."},
+			"private_dns":               stableString("Name the app answers to inside its network: <name>.app.internal."),
+			"volumes":                   volumesAttr(),
+			"bucket_access":             bucketAccessAttr("the app"),
+			"bucket_credentials_secret": bucketCredentialsAttr(),
+			"timeouts":                  timeoutsAttr(ctx),
 		},
 	}
 }
@@ -163,7 +167,7 @@ func (r *appResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 func (m *appModel) spec(ctx context.Context) (api.AppSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	s := api.AppSpec{Image: m.Image.ValueString(), Port: int(m.Port.ValueInt64()), Publish: m.Publish.ValueBool(), MemoryMiB: int(m.MemoryMiB.ValueInt64()),
-		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Replicas: int(m.Replicas.ValueInt64()), Volumes: mountsOf(m.Volumes), Placed: m.placed()}
+		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Replicas: int(m.Replicas.ValueInt64()), Volumes: mountsOf(m.Volumes), BucketAccess: grantsOf(m.BucketAccess), Placed: m.placed()}
 	if g := m.Source; g != nil {
 		s.Source = &api.GitSource{Git: g.Git.ValueString(), Ref: g.Ref.ValueString(), Dockerfile: g.Dockerfile.ValueString(), Context: g.Context.ValueString(),
 			CredentialsSecret: g.CredentialsSecret.ValueString()}
@@ -273,6 +277,7 @@ func (m *appModel) fill(r api.Resource) {
 	m.Replicas = types.Int64Value(int64(max(s.Replicas, 1)))
 	m.PrivateIP, m.PrivateDNS = outString(r, "privateIp"), outString(r, "privateDns")
 	m.Volumes = mountModels(s.Volumes, m.Volumes)
+	m.BucketAccess, m.BucketCreds = grantModels(s.BucketAccess), credentialsSecretOf(r)
 }
 
 func listOrNull(v []string, prior types.List) types.List {
@@ -351,7 +356,8 @@ func (r *appResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	patch := map[string]any{"image": nilIfEmptyString(spec.Image), "source": spec.Source, "publish": spec.Publish, "memoryMiB": spec.MemoryMiB,
 		"port": nilIfZero(spec.Port), "command": nilIfEmpty(spec.Command), "env": nilIfEmptyMap(spec.Env), "secretEnv": nilIfEmptyMap(spec.SecretEnv),
 		"strategy": spec.Strategy, "healthCheck": spec.HealthCheck, // a nil check encodes as null: cleared
-		"network": nilIfEmptyString(spec.Network), "subnet": nilIfEmptyString(spec.Subnet), "replicas": spec.Replicas, "volumes": nilIfNoMounts(spec.Volumes)}
+		"network": nilIfEmptyString(spec.Network), "subnet": nilIfEmptyString(spec.Subnet), "replicas": spec.Replicas, "volumes": nilIfNoMounts(spec.Volumes),
+		"bucketAccess": nilIfNoGrants(spec.BucketAccess)}
 	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {

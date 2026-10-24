@@ -56,7 +56,7 @@ func friendly(err error) error {
 func (s *s3Store) Put(ctx context.Context, key string, r io.Reader, meta map[string]string) (Object, error) {
 	h := newHashingReader(r)
 	// Unknown length: minio-go uploads in parts and aborts the multipart upload when the reader fails.
-	info, err := s.c.PutObject(ctx, s.bucket, key, h, -1, minio.PutObjectOptions{PartSize: partSize, UserMetadata: meta, ContentType: "application/octet-stream"})
+	info, err := s.c.PutObject(ctx, s.bucket, key, h, -1, minio.PutObjectOptions{PartSize: partSize, UserMetadata: meta, ContentType: ContentType(key)})
 	if err != nil {
 		return Object{}, friendly(err)
 	}
@@ -72,6 +72,39 @@ func (s *s3Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, friendly(err)
 	}
 	return o, nil
+}
+
+func (s *s3Store) Head(ctx context.Context, key string) (ObjectHead, error) {
+	info, err := s.c.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		return ObjectHead{}, friendly(err)
+	}
+	meta := make(map[string]string, len(info.UserMetadata))
+	for k, v := range info.UserMetadata {
+		meta[strings.ToLower(k)] = v
+	}
+	return ObjectHead{Object: Object{Key: key, Size: info.Size, Modified: info.LastModified}, ContentType: info.ContentType, Meta: meta}, nil
+}
+
+func (s *s3Store) Browse(ctx context.Context, prefix, after string, max int) ([]string, []Object, bool, error) {
+	var folders []string
+	var objects []Object
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops the listing once a page is full
+	for o := range s.c.ListObjects(cctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, StartAfter: after}) {
+		if o.Err != nil {
+			return nil, nil, false, friendly(o.Err)
+		}
+		if len(folders)+len(objects) == max {
+			return folders, objects, true, nil
+		}
+		if strings.HasSuffix(o.Key, "/") {
+			folders = append(folders, o.Key)
+		} else {
+			objects = append(objects, Object{Key: o.Key, Size: o.Size, Modified: o.LastModified})
+		}
+	}
+	return folders, objects, false, nil
 }
 
 func (s *s3Store) List(ctx context.Context, prefix string) ([]Object, error) {

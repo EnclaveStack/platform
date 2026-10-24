@@ -61,7 +61,7 @@ func Start(t testing.TB, opts ...Option) *Env {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := server.Config{Listen: "127.0.0.1:0", DataDir: dir, Driver: "fake", LogLevel: "debug",
-		PollInterval: 50 * time.Millisecond, DriftEvery: time.Hour, CertWait: 300 * time.Millisecond, SchedulerTick: 50 * time.Millisecond, TranscodeWatch: 100 * time.Millisecond, RateLimit: 10000, ShutdownGrace: 5 * time.Second,
+		PollInterval: 50 * time.Millisecond, DriftEvery: time.Hour, CertWait: 300 * time.Millisecond, SchedulerTick: 50 * time.Millisecond, TranscodeWatch: 100 * time.Millisecond, NotifyBackoff: []time.Duration{0, 50 * time.Millisecond, 100 * time.Millisecond}, RateLimit: 10000, ShutdownGrace: 5 * time.Second,
 		ManualMonitor: true, // tests drive the monitor (Env.Monitor) with their own clock
 		MachineCheck:  100 * time.Millisecond, MachineOffline: 500 * time.Millisecond}
 	for _, o := range opts {

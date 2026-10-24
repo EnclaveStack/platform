@@ -1,13 +1,17 @@
 import {
-  Alert, Button, buttonClass, Card, Chip, Choice, Code, CodeBlock, ConfirmDialog, DetailBody, DetailProgress, Disclosure, Drawer, EmptyState, Fact,
-  Field, Fieldset, Form, FormRow, Grid, Icons, Inline, Input, PageHeader, Row, Rows, SegmentedTabs, Skeleton, Stack, StageTrack, Table, TabPanel,
+  Alert, Button, buttonClass, Card, Chip, Choice, Code, CodeBlock, ConfirmDialog, DetailBody, DetailList, DetailProgress, Disclosure, Drawer, EmptyState,
+  Field, Fieldset, Form, FormRow, Icons, Inline, Input, PageHeader, Row, Rows, SegmentedTabs, Skeleton, Stack, StageTrack, Table, TabPanel,
   Terminal, TerminalLine, TerminalText, Text, useToast, VisuallyHidden,
 } from '@enclavestack/ui';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
 import { MANAGED } from '../api/generated';
+import { DETAIL_HELP, isCopyable, isMono, isSecretLabel, OUTPUT_LABELS, withHelp } from '../lib/details';
 import { ApiError, type AppSpec, type BackupSpec, type BucketSpec, type CacheSpec, type CDNSpec, type DatabaseSpec, type EmailSpec, type QueueSpec, type SearchSpec, type TopicSpec, type TranscoderSpec, type DomainSpec, type FirewallSpec, type JobSpec, type Kind, type LoadBalancerSpec, type NetworkSpec, type RecordSpec, type Resource, type Run, type SnapshotSpec, type VMSpec, type VolumeSpec, type ZoneSpec } from '../api/types';
+import { BucketAccessCard } from '../components/AccessFields';
+import { TranscodeOutputsCards } from '../components/TranscodeFields';
+import { BucketObjects } from '../components/BucketObjects';
 import { IMAGE_TITLES } from '../components/ComputeFields';
 import { ConnectCard, EmailMessages, QueueMessages, TopicDeliveries, TranscodeDialog } from '../components/DataPanels';
 import { DashboardCharts, ResourceMetrics } from '../components/MetricsPanel';
@@ -30,32 +34,12 @@ import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { ResourceForm } from './ResourceForm';
 
-type Tab = 'overview' | 'metrics' | 'logs' | 'build' | 'env' | 'runs' | 'backups' | 'records' | 'messages' | 'deliveries' | 'emails' | 'incidents' | 'notifications' | 'events';
+type Tab = 'overview' | 'objects' | 'metrics' | 'logs' | 'build' | 'env' | 'runs' | 'backups' | 'records' | 'messages' | 'deliveries' | 'emails' | 'incidents' | 'notifications' | 'events';
 
 /** A drawer that creates a related resource: a snapshot of this one, or a volume or VM from this snapshot. */
 type Spawn = { kind: Kind; title: string; snapshot?: string; source?: string };
 const POLL_MS = 1000;
 const REVEAL_MS = 30_000;
-
-const OUTPUT_LABELS: Record<string, string> = {
-  machine: 'Machine', host: 'Host', port: 'Port', internalHost: 'Internal host', internalPort: 'Internal port', database: 'Database', username: 'Username',
-  passwordSecret: 'Password secret', endpoint: 'S3 endpoint', internalEndpoint: 'Internal S3 endpoint', bucket: 'Bucket',
-  credentialsSecret: 'Credentials secret', version: 'Version', valueUpdatedAt: 'Value updated',
-  servingRevision: 'Serving revision', lastDeploy: 'Last deploy', builtCommit: 'Built commit', builtImage: 'Built image', lastBuild: 'Last build',
-  nextRunAt: 'Next run', lastRunAt: 'Last run', lastRunStatus: 'Last run result', lastSuccessAt: 'Last successful backup', restoredFrom: 'Restored from',
-  url: 'URL', certificateState: 'Certificate', certificateExpiresAt: 'Certificate expires', certificateIssuer: 'Issued by', publicAddress: 'Public address',
-  privateIp: 'Private IP', privateDns: 'Private DNS name', runningReplicas: 'Running replicas', dockerNetwork: 'Engine network', gateway: 'Gateway',
-  appliedContainers: 'Containers protected', appliedAt: 'Rules applied', targets: 'Replicas found', healthyTargets: 'Healthy replicas',
-  zoneId: 'Zone ID', nameServers: 'Name servers', provider: 'Provider', fqdn: 'Full name', values: 'Values at the provider',
-  power: 'Power', sshAddress: 'SSH address', sshUser: 'SSH user', imageSha256: 'Image SHA-256', attachedTo: 'Attached to', sizeGiB: 'Size',
-  usedBytes: 'Space used', filledFrom: 'Started from snapshot', type: 'Type', sizeBytes: 'Size on disk', takenAt: 'Taken', inUse: 'Copied while in use',
-  engine: 'Engine', nativePort: 'Native port', internalNativePort: 'Internal native port', internalUrl: 'Internal URL', subject: 'Subject', stream: 'Stream',
-  consumer: 'Consumer', messages: 'Messages waiting (about)', inFlight: 'In flight (about)', subscriptions: 'Subscriptions', smtpPort: 'SMTP port (internal)',
-  webUrl: 'Message viewer', mode: 'Mode', origin: 'Fetches from', cachedBytes: 'Cached', watching: 'Watching', input: 'Watches',
-  state: 'State', since: 'Since', lastEvaluatedAt: 'Last checked', lastDeliveryStatus: 'Last delivery', lastDeliveryAt: 'Last delivered',
-  linesSent: 'Lines sent', bytesSent: 'Sent', lagSeconds: 'Behind by', lastSentAt: 'Last sent', lastError: 'Last error', checkedAt: 'Credentials checked',
-  syncedSecrets: 'Secrets synced', syncedAt: 'Last synced', store: 'Store', key: 'Key', widgets: 'Widgets',
-};
 
 const RUN_LABEL: Record<string, string> = { running: 'Running', succeeded: 'Succeeded', failed: 'Failed', timed_out: 'Timed out', skipped: 'Skipped' };
 const RUN_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'neutral' | 'accent'> = { running: 'accent', succeeded: 'ok', failed: 'bad', timed_out: 'bad', skipped: 'neutral' };
@@ -195,6 +179,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
   const viewOnly = needRole('editor', r.project);
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: r.kind === 'dashboard' ? 'Graphs' : 'Overview' },
+    ...(r.kind === 'bucket' && r.status.phase === 'ready' ? [{ id: 'objects' as const, label: 'Objects' }] : []),
     ...(metricsOf(r.kind).length ? [{ id: 'metrics' as const, label: 'Metrics' }] : []),
     ...(hasLogs ? [{ id: 'logs' as const, label: r.kind === 'vm' ? 'Boot console' : 'Logs' }] : []),
     ...(r.kind === 'app' && (r.spec as AppSpec).source ? [{ id: 'build' as const, label: 'Build log' }] : []),
@@ -323,6 +308,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
         </div>
         <TabPanel id={tab}>
           {tab === 'overview' && (r.kind === 'dashboard' ? <DashboardCharts dashboard={r as Resource<'dashboard'>} /> : r.kind === 'stack' ? <StackOverview stack={r as Resource<'stack'>} /> : <Overview r={r} canReveal={canEdit} />)}
+          {tab === 'objects' && <BucketObjects bucket={r} canEdit={canEdit} />}
           {tab === 'metrics' && <ResourceMetrics resource={r} />}
           {tab === 'incidents' && <Incidents alert={r} />}
           {tab === 'notifications' && <ChannelDeliveries channel={r} version={String(r.outputs.lastDeliveryAt ?? '')} />}
@@ -487,21 +473,25 @@ function StackOverview({ stack }: { stack: Resource<'stack'> }) {
   const newer = entry.data && entry.data.version !== version ? entry.data.version : '';
   return (
     <Stack gap={4}>
-      <Grid min="sm">
-        <Card><Fact label="Template" value={st.template ?? 'Its own'} /></Card>
-        <Card><Fact label="Version" mono value={`${version}${newer ? ` (${newer} available)` : ''}`} /></Card>
-        <Card><Fact label="Members ready" value={`${String(stack.outputs.ready ?? 0)} of ${String(stack.outputs.total ?? 0)}`} /></Card>
-      </Grid>
+      <Card as="section" title="Details">
+        <DetailList items={withHelp([
+          { label: 'Template', value: st.template ?? 'Its own' },
+          { label: 'Template version', mono: true, value: `${version}${newer ? ` (${newer} available)` : ''}` },
+          { label: 'Members ready', value: `${String(stack.outputs.ready ?? 0)} of ${String(stack.outputs.total ?? 0)}` },
+        ])} />
+      </Card>
       {Object.keys(st.parameters ?? {}).length > 0 && (
-        <Card title="Parameters">
-          <Grid min="sm">{Object.entries(st.parameters ?? {}).map(([k, v]) => <Fact key={k} label={k} mono value={String(v)} />)}</Grid>
+        <Card as="section" title="Parameters">
+          <DetailList label="Parameters" items={Object.entries(st.parameters ?? {}).map(([k, v]) => {
+            const p = entry.data?.parameters.find((x) => x.name === k);
+            return { label: p?.title ?? k, hint: p?.description, mono: true, value: String(v), copy: String(v) };
+          })} />
         </Card>
       )}
       {Object.keys(outs).length > 0 && (
-        <Card title="Outputs">
-          <Grid min="sm">
-            {Object.entries(outs).map(([k, v]) => <Fact key={k} label={k} mono value={/^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer">{v}</a> : v} />)}
-          </Grid>
+        <Card as="section" title="Outputs">
+          <DetailList label="Outputs" items={Object.entries(outs).map(([k, v]) => ({ label: k, hint: DETAIL_HELP['Stack output'], mono: true, copy: v,
+            value: /^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer">{v}</a> : v }))} />
         </Card>
       )}
       <Card title="Members"><StackMembers stack={stack} /></Card>
@@ -649,6 +639,9 @@ function MachineSettingsCard() {
 
 /** Created and last-changed times, beside the title. */
 function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
+  const api = useApi();
+  const secrets = useLoad(`detail-secrets:${r.project}:${r.updatedAt}`, () => api.listResources('secret', r.project));
+  const secretIds = new Map((secrets.data ?? []).map((x) => [x.name, x.id]));
   const facts: [string, string][] = Object.entries(r.outputs)
     .filter(([k]) => !HIDDEN_OUTPUTS.has(k))
     .map(([k, v]) => [OUTPUT_LABELS[k] ?? k, outputText(k, v)]);
@@ -688,7 +681,7 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
     }
     case 'transcoder': {
       const t = r.spec as TranscoderSpec;
-      facts.unshift(['Output', `${t.output.bucket}/${t.output.prefix ?? ''}`], ['Presets', t.presets.join(', ')],
+      facts.unshift(['Output', `${t.output.bucket}/${t.output.prefix ?? ''}`], ['Presets', t.presets?.length ? t.presets.join(', ') : 'None'],
         ['Limits', `${t.concurrency ?? 1} at once · ${t.memoryMiB ?? RULES.transcodeMemoryDefault} MiB · ${t.timeoutSeconds ?? RULES.transcodeTimeoutDefault} s per file`]);
       break;
     }
@@ -785,15 +778,10 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
   facts.push(['Created', new Date(r.createdAt).toLocaleString()]);
   return (
     <Stack gap={4}>
-      {facts.length > 0 && (
-        <Grid min="sm">
-          {facts.map(([k, v]) => (
-            <Card key={k} padding="tight">
-              <Fact label={k} value={v} mono={/host|endpoint|image|secret|bucket|username|database/i.test(k)} />
-            </Card>
-          ))}
-        </Grid>
-      )}
+      <Card as="section" title="Details">
+        <DetailList items={facts.map(([k, v]) => ({ label: k, hint: DETAIL_HELP[k], mono: isMono(k), copy: v && isCopyable(k) ? v : undefined,
+          value: isSecretLabel(k) && secretIds.get(v) ? <Link to={`/secrets/${secretIds.get(v) ?? ''}`}>{v}</Link> : v }))} />
+      </Card>
       {r.kind === 'alert' && <AlertSummary alert={r} />}
       {r.kind === 'logexport' && <LogExportCard r={r} />}
       {r.kind === 'secret' && (r.spec as { source?: unknown }).source !== undefined && <SyncedSecretCard r={r} />}
@@ -804,6 +792,8 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
       {['database', 'queue', 'topic', 'search', 'email'].includes(r.kind) && r.status.phase === 'ready' && <ConnectCard r={r} />}
       {r.kind === 'cdn' && <DomainCards r={r} />}
       {(r.kind === 'app' || r.kind === 'database' || r.kind === 'cache' || r.kind === 'loadbalancer' || r.kind === 'vm') && <FirewallsCard r={r} />}
+      {(r.kind === 'app' || r.kind === 'job') && <BucketAccessCard r={r} />}
+      {r.kind === 'transcoder' && <TranscodeOutputsCards spec={r.spec as TranscoderSpec} />}
       {r.ownerId === null && (
         <Card>
           <Disclosure summary={<><Icons.Terminal /> Use from code</>}>
@@ -1054,6 +1044,13 @@ function RunOutput({ id, runId, onClose }: { id: string; runId: string; onClose:
               <Chip>{TRIGGER_LABEL[d.trigger] ?? d.trigger}</Chip>
               {d.message && <Text tone="muted">{d.message}</Text>}
             </Inline>
+            {d.outputs && d.outputs.length > 0 && (
+              <Rows aria-label="Files written">
+                {[...d.outputs].sort((a, b) => Number(b.endsWith('/master.m3u8')) - Number(a.endsWith('/master.m3u8'))).map((k) => (
+                  <Row key={k}><Text mono size="sm">{k}</Text>{k.endsWith('/master.m3u8') && <Chip tone="accent">Master playlist</Chip>}</Row>
+                ))}
+              </Rows>
+            )}
             <Terminal label="Run output">
               {d.outputTail ? d.outputTail.split('\n').map((line, i) => <TerminalLine key={i}>{line}</TerminalLine>)
                 : <TerminalLine><TerminalText level="dim">{d.status === 'running' ? 'Running…' : 'No output.'}</TerminalText></TerminalLine>}
@@ -1115,12 +1112,12 @@ function BackupRuns({ backup }: { backup: Resource }) {
             </Inline>
             {details.message && <Text as="p" tone="muted">{details.message}</Text>}
             {details.artifact && (
-              <Stack gap={0}>
-                <Fact label="Object" value={details.artifact.key} mono />
-                <Fact label="Stored in" value={details.artifact.destination} mono />
-                <Fact label="Size" value={formatBytes(details.artifact.sizeBytes)} />
-                <Fact label="SHA-256" value={details.artifact.sha256} mono />
-              </Stack>
+              <DetailList label="Backup file" items={withHelp([
+                { label: 'Backup file', value: details.artifact.key, mono: true, copy: details.artifact.key },
+                { label: 'Stored in', value: details.artifact.destination, mono: true },
+                { label: 'Size', value: formatBytes(details.artifact.sizeBytes) },
+                { label: 'SHA-256', value: details.artifact.sha256, mono: true, copy: details.artifact.sha256 },
+              ])} />
             )}
           </Stack>
         </Drawer>

@@ -150,6 +150,8 @@ type AppSpec struct {
 	Replicas int `json:"replicas,omitempty"`
 	// Volumes mounts filesystem volumes into every container (ADR-027).
 	Volumes []VolumeMount `json:"volumes,omitempty"`
+	// BucketAccess gives the app keys of its own for these buckets (L2-011, ADR-049).
+	BucketAccess []BucketGrant `json:"bucketAccess,omitempty"`
 	// Placed chooses the machine it runs on (ADR-044).
 	Placed
 }
@@ -261,6 +263,9 @@ type JobSpec struct {
 	Subnet  string `json:"subnet,omitempty"`
 	// Volumes mounts filesystem volumes into each run's container (ADR-027).
 	Volumes []VolumeMount `json:"volumes,omitempty"`
+	// BucketAccess gives a job from an image keys of its own for these buckets; a job with app uses the
+	// app's (L2-011 BKA-05).
+	BucketAccess []BucketGrant `json:"bucketAccess,omitempty"`
 	// Placed chooses the machine it runs on (ADR-044).
 	Placed
 }

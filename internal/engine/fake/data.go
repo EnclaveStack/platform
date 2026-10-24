@@ -145,8 +145,9 @@ func (d *Driver) BucketPublic(bucket string) bool {
 // that isn't media.
 const NotMedia = "NOT MEDIA"
 
-// Transcode implements engine.Driver: every preset writes a small file named as FFmpeg's would be, with
-// the input's size in it; HLS writes a playlist and one segment.
+// Transcode implements engine.Driver: every preset and rendition writes a small file named as FFmpeg's
+// would be, with the input's size in it; HLS writes a playlist and one segment, and a ladder each rung's
+// and a master playlist listing the rungs at their box sizes.
 func (d *Driver) Transcode(ctx context.Context, run engine.TranscodeRun, src io.Reader, out func(name string, size int64, r io.Reader) error) (engine.JobResult, error) {
 	if err := d.Ping(ctx); err != nil {
 		return engine.JobResult{}, err
@@ -161,22 +162,45 @@ func (d *Driver) Transcode(ctx context.Context, run engine.TranscodeRun, src io.
 	if err := d.sleep(ctx); err != nil {
 		return engine.JobResult{}, err
 	}
-	var log strings.Builder
+	type step struct {
+		label string
+		files []string
+	}
+	var steps []step
 	for _, p := range run.Presets {
-		fmt.Fprintf(&log, "== %s\n", p)
-		if bytes.HasPrefix(in, []byte(NotMedia)) {
-			fmt.Fprintf(&log, "%s/%s: Invalid data found when processing input\n", transcode.InDir, run.InputName)
-			return engine.JobResult{ExitCode: 1, Output: []byte(log.String())}, nil
-		}
 		files := []string{transcode.File(p)}
 		if strings.HasSuffix(files[0], ".m3u8") {
 			files = append(files, strings.TrimSuffix(files[0], "index.m3u8")+"segment-000.ts")
 		}
-		for _, f := range files {
-			body := fmt.Sprintf("%s of %d bytes\n", p, len(in))
-			if err := out(f, int64(len(body)), strings.NewReader(body)); err != nil {
+		steps = append(steps, step{p, files})
+	}
+	for _, r := range run.Renditions {
+		steps = append(steps, step{r.Name, []string{transcode.RenditionFile(r)}})
+	}
+	master := "#EXTM3U\n#EXT-X-VERSION:3\n"
+	if h := run.HLS; h != nil {
+		for _, r := range h.Rungs {
+			steps = append(steps, step{h.Name + "/" + r.Name, []string{h.Name + "/" + r.Name + "/index.m3u8", h.Name + "/" + r.Name + "/segment-000.ts"}})
+			master += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\n%s/index.m3u8\n", (r.VideoKbps+h.AudioKbps)*1000, r.MaxWidth, r.MaxHeight, r.Name)
+		}
+	}
+	var log strings.Builder
+	write := func(f, body string) error { return out(f, int64(len(body)), strings.NewReader(body)) }
+	for _, st := range steps {
+		fmt.Fprintf(&log, "== %s\n", st.label)
+		if bytes.HasPrefix(in, []byte(NotMedia)) {
+			fmt.Fprintf(&log, "%s/%s: Invalid data found when processing input\n", transcode.InDir, run.InputName)
+			return engine.JobResult{ExitCode: 1, Output: []byte(log.String())}, nil
+		}
+		for _, f := range st.files {
+			if err := write(f, fmt.Sprintf("%s of %d bytes\n", st.label, len(in))); err != nil {
 				return engine.JobResult{}, err
 			}
+		}
+	}
+	if run.HLS != nil {
+		if err := write(transcode.MasterPlaylist(run.HLS), master); err != nil {
+			return engine.JobResult{}, err
 		}
 	}
 	return engine.JobResult{Output: []byte(log.String())}, nil

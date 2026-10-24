@@ -42,19 +42,6 @@ export function Card({ as: As = 'div', padding = 'normal', tone = 'plain', title
   );
 }
 
-/** One labelled value: "Host — 127.0.0.1". */
-export function Fact({ label, value, mono, action }: { label: string; value: ReactNode; mono?: boolean; action?: ReactNode }) {
-  return (
-    <div className="es-fact">
-      <span className="es-fact-label">{label}</span>
-      <div className="es-fact-row">
-        <span className={cx('es-fact-value', mono && 'es-mono')}>{value}</span>
-        {action}
-      </div>
-    </div>
-  );
-}
-
 /** Centered empty or placeholder state, optionally with an icon and action. */
 export function EmptyState({ icon, title, children, action, full, role }: { icon?: ReactNode; title?: ReactNode; children?: ReactNode; action?: ReactNode; full?: boolean; role?: 'status' }) {
   return (

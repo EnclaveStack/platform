@@ -16,6 +16,7 @@ import (
 type operateState struct {
 	mu       sync.Mutex
 	access   map[string][]string              // project store user → buckets
+	grants   map[string][]api.BucketGrant     // app or job store user → its grants (ADR-049)
 	stats    map[string]engine.ContainerStats // by resource ID; set by tests, else made up
 	ticks    map[string]int                   // Stats calls per resource, for counters that grow
 	requests map[string]engine.RequestCounters
@@ -24,7 +25,7 @@ type operateState struct {
 
 func (d *Driver) op() *operateState {
 	d.opOnce.Do(func() {
-		d.v7 = &operateState{access: map[string][]string{}, stats: map[string]engine.ContainerStats{}, ticks: map[string]int{},
+		d.v7 = &operateState{access: map[string][]string{}, grants: map[string][]api.BucketGrant{}, stats: map[string]engine.ContainerStats{}, ticks: map[string]int{},
 			requests: map[string]engine.RequestCounters{}, logs: map[string][]engine.ContainerLogLine{}}
 	})
 	return d.v7
@@ -158,6 +159,30 @@ func (d *Driver) SetProjectStoreAccess(ctx context.Context, user engine.ObjectSt
 	}
 	o.access[user.AccessKey] = slices.Sorted(slices.Values(buckets))
 	return nil
+}
+
+// SetStoreUserAccess implements engine.Driver.
+func (d *Driver) SetStoreUserAccess(ctx context.Context, user engine.ObjectStore, grants []api.BucketGrant, _ engine.ObjectStore) error {
+	if err := d.Ping(ctx); err != nil {
+		return err
+	}
+	o := d.op()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(grants) == 0 {
+		delete(o.grants, user.AccessKey)
+		return nil
+	}
+	o.grants[user.AccessKey] = append([]api.BucketGrant(nil), grants...)
+	return nil
+}
+
+// StoreUserAccess returns what an app's or job's store user reaches (nil: no such user).
+func (d *Driver) StoreUserAccess(user string) []api.BucketGrant {
+	o := d.op()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.grants[user]
 }
 
 // ProjectStoreAccess returns the buckets a project store user reaches (nil: no such user).

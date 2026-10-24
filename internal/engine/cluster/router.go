@@ -400,6 +400,11 @@ func (rt *Router) SetProjectStoreAccess(ctx context.Context, user engine.ObjectS
 	return rt.main().SetProjectStoreAccess(ctx, user, buckets, root)
 }
 
+// SetStoreUserAccess goes to the main machine, where the object store runs, wherever the app runs (ADR-049).
+func (rt *Router) SetStoreUserAccess(ctx context.Context, user engine.ObjectStore, grants []api.BucketGrant, root engine.ObjectStore) error {
+	return rt.main().SetStoreUserAccess(ctx, user, grants, root)
+}
+
 func (rt *Router) Stats(ctx context.Context, r *domain.Resource) ([]engine.ContainerStats, error) {
 	d, err := rt.of(r)
 	if err != nil {

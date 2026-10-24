@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"mime"
 	"path"
 	"regexp"
 	"slices"
@@ -38,11 +39,46 @@ type Object struct {
 	Modified time.Time
 }
 
+// ObjectHead is what Head returns.
+type ObjectHead struct {
+	Object
+	ContentType string
+	Meta        map[string]string
+}
+
+// ContentType is the media type stored for a key: by its extension, so players and browsers handle
+// media a transcoder wrote; anything unknown is bytes.
+func ContentType(key string) string {
+	switch path.Ext(key) {
+	case ".m3u8":
+		return "application/vnd.apple.mpegurl"
+	case ".ts":
+		return "video/mp2t"
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	}
+	if t := mime.TypeByExtension(path.Ext(key)); t != "" {
+		return t
+	}
+	return "application/octet-stream"
+}
+
 // Store reads and writes backup objects in one bucket.
 type Store interface {
 	// Put streams r to key and returns its size and SHA-256. A failed upload leaves nothing behind.
 	Put(ctx context.Context, key string, r io.Reader, meta map[string]string) (Object, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	// Head returns an object's size, media type and user metadata (x-amz-meta-*, names in lowercase).
+	Head(ctx context.Context, key string) (ObjectHead, error)
+	// Browse lists one folder ("/" separates folders) in key order: its subfolders and objects after
+	// the key `after`, at most max entries in all; more reports whether there are others.
+	Browse(ctx context.Context, prefix, after string, max int) (folders []string, objects []Object, more bool, err error)
 	List(ctx context.Context, prefix string) ([]Object, error)
 	Delete(ctx context.Context, key string) error
 }

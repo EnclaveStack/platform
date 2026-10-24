@@ -93,7 +93,7 @@ func TestOnlyTheReconcilerWritesThroughTheEngine(t *testing.T) {
 	writes := []string{".Ensure(", ".Delete(ctx, r,", ".Restart(ctx, r", ".ConfigureEdge(", ".StartJob(", ".WaitJob(", ".Build(ctx", ".RemoveBuiltImages(",
 		".EnsureNetwork(", ".DeleteNetwork(", ".ApplyFirewall(", ".EnsureVolume(", ".SnapshotVolume(", ".RestoreVolume(", ".EnsureVMLink(", ".DeleteVMLink("}
 	hypervisorWrites := []string{".EnsureVM(", ".StopVM(", ".DeleteVM(", ".EnsureDisk(", ".DeleteDisk(", ".SnapshotDisk(", ".CopyDisk("}
-	writes = append(writes, ".ConfigureBroker(", ".PurgeCache(", ".SetBucketPublicRead(", ".Transcode(", ".SetProjectStoreAccess(")
+	writes = append(writes, ".ConfigureBroker(", ".PurgeCache(", ".SetBucketPublicRead(", ".Transcode(", ".SetProjectStoreAccess(", ".SetStoreUserAccess(")
 	// The broker's control and delivery methods belong to the reconciler too (ADR-029); services send,
 	// receive, delete, peek, publish and read stats.
 	brokerWrites := []string{".EnsureQueue(", ".DeleteQueue(", ".PurgeQueue(", ".EnsureTopic(", ".DeleteTopic(", ".Fetch(", ".DeadLetters(", ".MoveToDeadLetter("}

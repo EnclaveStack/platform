@@ -63,17 +63,18 @@ type Config struct {
 	LogText        bool
 	RateLimit      float64
 	SecureCookies  bool
-	PollInterval   time.Duration // reconciler poll; 0 = default
-	DriftEvery     time.Duration // drift check; 0 = default
-	CertWait       time.Duration // one wait for a domain certificate; 0 = default
-	SchedulerTick  time.Duration // how often due job runs are claimed; 0 = default
-	RecordCheck    time.Duration // how often DNS records are compared with their provider; 0 = default
-	TranscodeWatch time.Duration // how often transcoders list their input folders; 0 = default
-	ShutdownGrace  time.Duration // 0 = 15 s
-	MetricInterval time.Duration // how often metrics are sampled and alerts evaluated; 0 = 30 s (ADR-037)
-	TelegramAPI    string        // Telegram Bot API base URL for alert channels; "" = https://api.telegram.org
-	ConsoleURL     string        // the address people open the console at, for links in alerts and invites; "" = none
-	ManualMonitor  bool          // tests: don't run the monitor's loops; they call it directly
+	PollInterval   time.Duration   // reconciler poll; 0 = default
+	DriftEvery     time.Duration   // drift check; 0 = default
+	CertWait       time.Duration   // one wait for a domain certificate; 0 = default
+	SchedulerTick  time.Duration   // how often due job runs are claimed; 0 = default
+	RecordCheck    time.Duration   // how often DNS records are compared with their provider; 0 = default
+	TranscodeWatch time.Duration   // how often transcoders list their input folders; 0 = default
+	NotifyBackoff  []time.Duration // when a transcoder's webhook is tried; empty = default (L2-012 TRX-08)
+	ShutdownGrace  time.Duration   // 0 = 15 s
+	MetricInterval time.Duration   // how often metrics are sampled and alerts evaluated; 0 = 30 s (ADR-037)
+	TelegramAPI    string          // Telegram Bot API base URL for alert channels; "" = https://api.telegram.org
+	ConsoleURL     string          // the address people open the console at, for links in alerts and invites; "" = none
+	ManualMonitor  bool            // tests: don't run the monitor's loops; they call it directly
 	// v0.8 (ADR-046): how often machines are checked and how long one may stay silent; 0 = 10 s and 30 s.
 	MachineCheck   time.Duration
 	MachineOffline time.Duration
@@ -271,6 +272,7 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	if cfg.TranscodeWatch > 0 {
 		rec.TranscodeWatch = cfg.TranscodeWatch
 	}
+	rec.NotifyBackoff = cfg.NotifyBackoff
 	if memGit != nil {
 		rec.Git = memGit
 	}
@@ -285,7 +287,7 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	authSvc := &service.Auth{Store: st, Throttle: auth.NewThrottle(5, 15*time.Minute, time.Now), Now: time.Now, Log: log}
 	authSvc.ConsoleURL = func(context.Context) string { return cfg.ConsoleURL } // invite links (IAM-04)
 	resSvc := &service.Resources{Store: st, Box: box, Engine: router, Hypervisor: router, SnapshotDir: rec.SnapshotDir, Queue: rec, Now: time.Now, Log: log,
-		Messaging: rec.Broker, Mail: mailClient, Metrics: metrics}
+		Messaging: rec.Broker, Mail: mailClient, Metrics: metrics, Objects: opener}
 	authSvc.SendMail = resSvc.SendSystemEmail // invite links (IAM-04)
 	resSvc.MachineOnline = mgr.Online
 	idem := &service.Idempotency{Store: st, Now: time.Now}

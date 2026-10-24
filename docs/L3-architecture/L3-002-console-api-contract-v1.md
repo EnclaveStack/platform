@@ -6,9 +6,9 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v22 |
+| Version | v25 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -1095,6 +1095,131 @@ Between the control plane and an agent only, over mutual TLS (ADR-042, ADR-043);
 
 Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'no_ca' | 'transient', message }`, with HTTP status 422, 503, 503, 404, 404 and 500 in that order.
 
+## 12 · Per-app bucket access (2026-10-24, `L2-011`)
+
+### 12.1 Spec fields
+
+```ts
+interface BucketGrant { bucket: string; access: 'read' | 'readwrite' }
+interface AppSpec { /* earlier fields */ bucketAccess?: BucketGrant[] }   // 0 – 10; a bucket once
+interface JobSpec { /* earlier fields */ bucketAccess?: BucketGrant[] }   // only with image (not app)
+```
+
+An update replaces the whole list (as `volumes`); `[]` or absent removes all access.
+
+### 12.2 Outputs
+
+An app or a job with bucket access has `bucketCredentialsSecret` (the managed secret `<name>-bucket-credentials`, owned by the resource, value `{"accessKey","secretKey"}`). Without access the output is absent. The spec carries the grants; the console and CLI read them from there.
+
+### 12.3 What the container receives
+
+| Variable | Value |
+|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the resource's own keys |
+| `AWS_REGION` | `us-east-1` |
+| `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL` | `http://es-system-objectstore:9000` (path-style) |
+
+A job that runs as an app receives its app's.
+
+### 12.4 Validation rules
+
+| Field | Rule |
+|---|---|
+| `spec.bucketAccess` | 0 – 10 entries; each `bucket` an existing bucket of the project, not `deleting` (`NOT_FOUND`); each bucket once (`NOT_ALLOWED`); `access` `read` or `readwrite` (`NOT_ALLOWED`) |
+| job `spec.bucketAccess` | not allowed with `app` (`NOT_ALLOWED`: "A job that runs as an app uses the app's bucket access.") |
+| `spec.env`, `spec.secretEnv` | with bucket access, none of the five names of §12.3 (`NOT_ALLOWED`) |
+
+### 12.5 Dependencies (CP-12)
+
+Each grant is a reference from the app or job to the bucket (field `spec.bucketAccess[i].bucket`): deleting the bucket is refused with `409 RESOURCE_IN_USE` naming the app or job.
+
+### 12.6 Engine
+
+`Driver.SetStoreUserAccess(ctx, user ObjectStore, grants []BucketGrant, root ObjectStore)` makes the user reach exactly `grants` (or removes it, and its policy, when `grants` is empty). It runs on the main machine, like `SetProjectStoreAccess`, which now shares its implementation.
+
+## 13 · Transcoder renditions, notifications and tags (2026-10-24, `L2-012`)
+
+### 13.1 Spec fields
+
+```ts
+interface Rendition { name: string; container: 'mp4' | 'webm'; maxWidth: number; maxHeight: number; videoKbps: number; audioKbps?: number; gopSeconds?: number }
+interface HLSRung   { name: string; maxWidth: number; maxHeight: number; videoKbps: number }
+interface HLSLadder { name?: string; segmentSeconds?: number; gopSeconds?: number; audioKbps?: number; rungs: HLSRung[] }
+interface TranscodeNotify { webhook?: { url: string; secret?: string }; topic?: string }
+interface TranscoderSpec { /* earlier fields; presets now optional */ renditions?: Rendition[]; hls?: HLSLadder; notify?: TranscodeNotify }
+```
+
+Defaults: `audioKbps` 128, `gopSeconds` 2, ladder `name` `hls`, `segmentSeconds` 6. An update replaces each of `renditions`, `hls` and `notify` whole; `null` clears.
+
+### 13.2 Output keys
+
+| Output | Key under the run's folder |
+|---|---|
+| Preset | as TRN-06 |
+| Rendition | `<name>.mp4` or `<name>.webm` |
+| Ladder | `<name>/master.m3u8`; `<name>/<rung>/index.m3u8`; `<name>/<rung>/segment-NNN.ts` |
+
+The run's folder is `<output prefix><input name>/`, or, when the output prefix holds `{name}` or `{meta:<tag>}`, the prefix with those filled in. Every output object carries the input's tags and `enclave-transcoder`, `enclave-run` and `enclave-source`.
+
+### 13.3 The message
+
+As `L2-012` §4. `outputs` lists every object written; `hlsMaster` is null without a ladder; `metadata` holds the input's tags with lowercase names.
+
+### 13.4 Validation rules
+
+| Field | Rule |
+|---|---|
+| `spec` | at least one of `presets`, `renditions`, `hls` |
+| `renditions` | 0 – 8; `name` `^[a-z0-9][a-z0-9-]{0,31}$`, unique; `container` `mp4` or `webm`; `maxWidth`, `maxHeight` 16 – 7680 and even; `videoKbps` 100 – 50 000; `audioKbps` 32 – 512; `gopSeconds` 1 – 10 |
+| `hls` | `name` as a rendition's; `segmentSeconds` 2 – 10 and a multiple of `gopSeconds`; `gopSeconds` 1 – 10; `audioKbps` 32 – 512; `rungs` 1 – 6, each `name` unique, box and `videoKbps` as a rendition's |
+| names | a rendition's file, the ladder's folder and a preset's file never coincide |
+| `output.prefix` | the folder rules of TRN-01 after `{name}` and `{meta:<tag>}` (tag `^[a-z0-9][a-z0-9-]{0,62}$`) are set aside; no other braces |
+| `notify` | at least one of `webhook`, `topic`; `webhook.url` as a topic webhook (TOP-03); `webhook.secret` and `topic` existing resources of the project (`NOT_FOUND`) |
+
+### 13.5 Dependencies (CP-12)
+
+The transcoder references `notify.webhook.secret` and `notify.topic`: deleting either is refused with `409 RESOURCE_IN_USE`.
+
+### 13.6 Engine
+
+`TranscodeRun` gains `Renditions` and `HLS`; `Driver.Transcode` runs the script `internal/transcode` builds from them. The backup store gains `Stat(key)`, which returns an object's tags.
+
+## 14 · Bucket objects (2026-10-24, `L2-013` OBJ-*)
+
+### 14.1 Routes (editor or owner of the bucket's project)
+
+| Method and path | Request | Answer |
+|---|---|---|
+| `GET /api/v1/resources/{id}/objects?prefix=&cursor=&limit=` | `prefix` a folder (`""` or ending in `/`), `limit` 1 – 1000 (default 1000), `cursor` from the last page | `200 ObjectList` |
+| `PUT /api/v1/resources/{id}/objects/{key...}` | the bytes; `X-Enclave-Tag-<name>: <value>` per tag | `201 ObjectInfo` |
+| `GET /api/v1/resources/{id}/objects/{key...}` | — | `200` the bytes, `Content-Type`, `Content-Length`, `Content-Disposition: attachment`, `X-Enclave-Tag-<name>` per tag |
+| `DELETE /api/v1/resources/{id}/objects/{key...}` | — | `204` |
+
+```ts
+interface ObjectInfo { key: string; size: number; modified: string; contentType: string; tags?: Record<string, string> }
+interface ObjectList { prefix: string; folders: string[]; items: ObjectInfo[]; nextCursor: string | null }
+```
+
+Errors: not a bucket → `409 ACTION_NOT_SUPPORTED`; not ready → `409 ACTION_NOT_SUPPORTED` ("Wait until the bucket is ready"); a bad key, prefix or tag → `422`; an upload over 5 GiB → `413 PAYLOAD_TOO_LARGE`; a missing object on `GET` → `404 NOT_FOUND`.
+
+### 14.2 Rules
+
+| Field | Rule |
+|---|---|
+| `key` | 1 – 1024 bytes, UTF-8, no CR or LF, no leading `/`, no empty, `.` or `..` segment, no trailing `/` |
+| `prefix` | `""` or a key-like folder ending in `/` |
+| tags | at most 10; names `^[a-z0-9][a-z0-9-]{0,62}$`; values 1 – 256 printable characters |
+
+The media type is the key's extension's (`video/mp4`, `application/vnd.apple.mpegurl`, `image/jpeg`, …; otherwise `application/octet-stream`). Object routes lift the server's read and write deadlines for their own request, so a large transfer finishes.
+
+### 14.3 Events
+
+`object_uploaded` ("Uploaded incoming/clip.mov (48.2 MB)") and `object_deleted` on the bucket.
+
+## 15 · Detail explanations (2026-10-24, `L2-013` DET-*)
+
+The console's detail list reads each label's explanation from one table (`console/src/lib/details.ts`), the source the user guide's reference (`L5-004` §14) is checked against by a test.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1121,3 +1246,6 @@ Errors are `{ class: 'permanent' | 'unavailable' | 'no_vms' | 'job_missing' | 'n
 | v20 | 2026-10-22 | Soupler | §11 v0.8 contract (planned): machines and joining, placement, moving, catalogue, template format, stacks, error codes, validation, dependencies, agent protocol |
 | v21 | 2026-10-22 | Soupler | §11 as built: `UpdateMachine.labels` `{}` clears; per-machine metrics (disk only on the main machine); the §11.6 example without a size on a folder volume; the catalogue by name; API tokens are `es_pat_…` (were still `hc_pat_…` after the rename) |
 | v22 | 2026-10-23 | Soupler | `GET /machine` gains `id` (mch_…) and `handle` (the name commands use) for the main machine. MCH-10: `GET /setup` returns `suggestedMachineName`; `PATCH /machines/{name}` takes `title` (the display name, main machine only, MCH-10). The main machine gets a generated ID and a computer-derived name, with no `main` alias (MCH-01); `RULES.mainMachine` is removed from the contract |
+| v23 | 2026-10-24 | Soupler | §12 per-app bucket access: `bucketAccess` on apps and jobs, `bucketCredentialsSecret`, the five variables, validation, references, `Driver.SetStoreUserAccess` (L2-011) |
+| v24 | 2026-10-24 | Soupler | §13 transcoder renditions, HLS ladder, notify and tags: fields, output keys, the message, validation, references, engine (L2-012) |
+| v25 | 2026-10-24 | Soupler | §14 bucket object routes, rules and events; §15 detail explanations (L2-013) |
