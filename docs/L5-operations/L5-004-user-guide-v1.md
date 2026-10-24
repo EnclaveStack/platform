@@ -6,9 +6,9 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v5 |
+| Version | v6 |
 | Created | 2026-10-23 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -1211,6 +1211,60 @@ The certificate is a normal Let's Encrypt one, made and kept at home. The server
 | Tailscale link opens on your laptop but not a friend's phone | It's **private** | Make it **public** (behind the gate), or invite them to your tailnet |
 | Edge machine **Waiting for the server** | The join command hasn't run, or a port is closed | Run the command on the server; check TCP 7071 is open to the internet |
 
+## 16 · Use a service that runs elsewhere, like Supabase
+
+> *`L2-015`. Everything here works from the console, the CLI and OpenTofu.*
+
+Your apps can use services that run somewhere else, such as a hosted Supabase project. EnclaveStack doesn't run them. It keeps their address and keys as secrets, so you paste them once and attach them to any app. The catalogue's **Connections** group holds these.
+
+### 16.1 Connect Supabase
+
+1. In the Supabase dashboard, copy the **Project URL** (like `https://abcd.supabase.co`) and the **anon** key. Copy the **service_role** key too if a server app needs it. If an app talks to Postgres directly, copy the **pooler** connection string under **Connect**: the direct one needs IPv6, which many home networks don't have.
+2. Open **Catalogue › Connections › Supabase › Install**. Name it, for example `supabase`, and paste the address without `https://` and the keys. Leave out the keys you don't need.
+3. The stack's page lists under **Outputs** which secret holds each variable:
+
+| Variable | Secret |
+|---|---|
+| `SUPABASE_URL` | `supabase-url` |
+| `SUPABASE_ANON_KEY` | `supabase-anonkey` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `supabase-servicekey` (if you gave it) |
+| `DATABASE_URL` | `supabase-dburl` (if you gave it) |
+
+From the CLI:
+
+```sh
+enclave stack create supabase --template supabase --param project=abcd.supabase.co \
+  --secret-param anonKey=… --secret-param serviceKey=…
+enclave stack get supabase          # the outputs
+```
+
+In OpenTofu:
+
+```hcl
+resource "enclave_stack" "supabase" {
+  name              = "supabase"
+  template          = "supabase"
+  parameters        = { project = "abcd.supabase.co" }
+  secret_parameters = { anonKey = var.supabase_anon_key, serviceKey = var.supabase_service_key }
+}
+```
+
+### 16.2 Use it from an app
+
+Give the app the secrets as secret environment variables:
+
+```sh
+enclave app create api --image ghcr.io/you/api:1.0 --port 8080 \
+  --secret-env SUPABASE_URL=supabase-url \
+  --secret-env SUPABASE_SERVICE_ROLE_KEY=supabase-servicekey
+```
+
+The app reads them like any other variable. Keep the `service_role` key on servers only: it skips row-level security.
+
+### 16.3 Change a key
+
+Open the stack, choose **Edit parameters**, paste the new key and save (keys you leave empty stay as they are). Then restart the apps that use it, since an app reads its variables when it starts. You can't delete the stack while an app still uses one of its secrets.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1220,3 +1274,4 @@ The certificate is a normal Let's Encrypt one, made and kept at home. The server
 | v3 | 2026-10-24 | Soupler | §9 transcoders: presets, renditions, HLS ladder, output folders from tags, the done message, signature check, CLI and OpenTofu, moving from MediaConvert (L2-012) |
 | v4 | 2026-10-24 | Soupler | §9 files in a bucket (console, CLI, OpenTofu); §14 what each detail means (L2-013) |
 | v5 | 2026-10-24 | Soupler | §15 reach your apps from the internet: how a visit works, NAT and CGNAT, the tunnel, the ways in from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, your own server), why it's safe, a quick link, Tailscale private and public, ngrok and custom, stage beside prod on AWS with Cloudflare (moving DNS, token, commands), more environments as subdomain zones, DNS at GoDaddy or another provider, your own server with Route 53, troubleshooting; glossary words (L2-014) |
+| v6 | 2026-10-25 | Soupler | §16 use a service that runs elsewhere: connect Supabase, use it from an app, change a key (L2-015) |

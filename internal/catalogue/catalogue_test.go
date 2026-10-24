@@ -2,6 +2,7 @@ package catalogue
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 
 // Every built-in renders, and every member it renders is a valid API spec (CAT-02, CAT-08).
 func TestEveryBuiltinRendersValidSpecs(t *testing.T) {
-	if len(Builtins()) != 12 {
+	if len(Builtins()) != 13 {
 		t.Fatalf("%d built-ins", len(Builtins()))
 	}
 	// What an installer would give the Public access entries' required parameters (L2-014 TUN-15).
@@ -210,7 +211,7 @@ func TestBuiltinsAreByName(t *testing.T) {
 	for _, b := range Builtins() {
 		names = append(names, b.Name)
 	}
-	if strings.Join(names, ",") != "cloudflare-tunnel,custom-tunnel,ghost,gitea,n8n,ngrok,own-server,plausible,quick-link,tailscale,uptime-kuma,wordpress" {
+	if strings.Join(names, ",") != "cloudflare-tunnel,custom-tunnel,ghost,gitea,n8n,ngrok,own-server,plausible,quick-link,supabase,tailscale,uptime-kuma,wordpress" {
 		t.Errorf("%v", names)
 	}
 }
@@ -226,7 +227,7 @@ func TestPublicAccessCategory(t *testing.T) {
 			if len(e.Members) != 1 || e.Members[0].Kind != api.KindTunnel || e.Description == "" {
 				t.Errorf("%s: %+v", e.Name, e)
 			}
-		case api.CategoryApps:
+		case api.CategoryApps, api.CategoryConnections:
 		default:
 			t.Errorf("%s: category %q", e.Name, e.Category)
 		}
@@ -236,5 +237,88 @@ func TestPublicAccessCategory(t *testing.T) {
 	}
 	if _, err := Parse([]byte("name: x-y\ntitle: X\nversion: 1.0.0\ncategory: games\nresources: [{kind: secret, name: a, generate: 16}]\n")); err == nil {
 		t.Error("an unknown category must be refused")
+	}
+}
+
+// Supabase is a connection: its address and keys as secrets, and outputs naming the secret behind each
+// variable, without the keys left empty (L2-015 CNX-02 – CNX-05).
+func TestSupabaseConnection(t *testing.T) {
+	tpl, ok := Builtin("supabase")
+	if !ok {
+		t.Fatal("no supabase entry")
+	}
+	if e := tpl.Entry(true, []string{tpl.Version}); e.Category != api.CategoryConnections || !strings.HasPrefix(e.Signup, "https://") {
+		t.Fatalf("entry %+v", e)
+	}
+	for _, m := range tpl.Members {
+		if m.Kind != api.KindSecret {
+			t.Errorf("a connection runs nothing, but has a %s", m.Kind)
+		}
+	}
+	if _, err := tpl.Render("supa", "shop", map[string]any{"project": "abcd.supabase.co"}, nil); err == nil || !strings.Contains(err.Error(), "anonKey") {
+		t.Errorf("the anon key is required: %v", err)
+	}
+	if _, err := tpl.Render("supa", "shop", map[string]any{"project": "https://abcd.supabase.co"}, map[string]string{"anonKey": "a"}); err == nil {
+		t.Error("the project address is a host name")
+	}
+
+	r, err := tpl.Render("supa", "shop", map[string]any{"project": "abcd.supabase.co"}, map[string]string{"anonKey": "anon-value"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Members) != 1 || r.Members[0].Name != "supa-url" || r.Members[0].Value != "https://abcd.supabase.co" {
+		t.Errorf("members %+v", r.Members)
+	}
+	if len(r.SecretParams) != 1 || r.SecretParams["supa-anonkey"] != "anon-value" {
+		t.Errorf("secrets %v", r.SecretParams)
+	}
+	want := map[string]string{"SUPABASE_URL": "supa-url", "SUPABASE_ANON_KEY": "supa-anonkey"}
+	if fmt.Sprint(r.Outputs) != fmt.Sprint(want) {
+		t.Errorf("outputs %v, want %v: keys not given are left out", r.Outputs, want)
+	}
+
+	r, err = tpl.Render("supa", "shop", map[string]any{"project": "abcd.supabase.co"},
+		map[string]string{"anonKey": "a", "serviceKey": "s", "dbUrl": "postgresql://u:p@pooler.supabase.com:6543/postgres"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Outputs["SUPABASE_SERVICE_ROLE_KEY"] != "supa-servicekey" || r.Outputs["DATABASE_URL"] != "supa-dburl" || len(r.SecretParams) != 3 {
+		t.Errorf("outputs %v, secrets %v", r.Outputs, r.SecretParams)
+	}
+	for _, v := range r.Outputs {
+		if v == "a" || v == "s" || strings.Contains(v, "u:p@") {
+			t.Errorf("an output shows a secret's value: %v", r.Outputs)
+		}
+	}
+}
+
+// Any template's output that uses an empty secret parameter is left out; others still render (CNX-05).
+func TestOutputsSkipEmptySecretParameters(t *testing.T) {
+	tpl, err := Parse([]byte(`
+name: own
+title: Own
+version: 1.0.0
+parameters:
+  - { name: token, type: secret }
+  - { name: host, type: string, default: "" }
+resources: [{ kind: secret, name: a, generate: 16 }]
+outputs:
+  token: "${param:token}"
+  host: "${param:host}"
+  both: "${name:a} and ${param:token}"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := tpl.Render("s", "default", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Outputs["host"]; !ok || len(r.Outputs) != 1 {
+		t.Errorf("outputs %v: only host, which is no secret, stays when empty", r.Outputs)
+	}
+	// A secret kept from an earlier version of the stack counts as given.
+	if r, _ := tpl.Render("s", "default", nil, map[string]string{"token": "kept"}); r.Outputs["both"] != "s-a and s-token" {
+		t.Errorf("outputs %v", r.Outputs)
 	}
 }

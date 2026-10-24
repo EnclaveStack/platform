@@ -35,6 +35,8 @@ func (t *Template) Render(stack, project string, values map[string]any, secrets 
 	var ps Problems
 	params := map[string]any{}
 	types := map[string]string{}
+	// unset are the secret parameters with no secret: outputs that use one are left out (CNX-05).
+	unset := map[string]bool{}
 	out := Rendered{Outputs: map[string]string{}, SecretParams: map[string]string{}}
 	for _, p := range t.Parameters {
 		types[p.Name] = p.Type
@@ -47,6 +49,8 @@ func (t *Template) Render(stack, project string, values map[string]any, secrets 
 			params[p.Name] = name
 			if given {
 				out.SecretParams[name] = v
+			} else {
+				unset[p.Name] = true
 			}
 			continue
 		}
@@ -131,12 +135,25 @@ func (t *Template) Render(stack, project string, values map[string]any, secrets 
 		out.Members = append(out.Members, rm)
 	}
 	for _, k := range t.outputOrder {
+		if usesUnset(t.Outputs[k], unset) {
+			continue
+		}
 		out.Outputs[k] = fmt.Sprint(resolve(t.Outputs[k], stack, project, params, t, full))
 	}
 	if len(ps) > 0 {
 		return Rendered{}, ps
 	}
 	return out, nil
+}
+
+// usesUnset reports whether s names one of the unset secret parameters.
+func usesUnset(s string, unset map[string]bool) bool {
+	for _, m := range placeholder.FindAllStringSubmatch(s, -1) {
+		if m[1] == "param" && unset[m[2]] {
+			return true
+		}
+	}
+	return false
 }
 
 func zero(typ string) any {

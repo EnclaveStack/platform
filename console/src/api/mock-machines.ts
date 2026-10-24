@@ -10,7 +10,7 @@ const domainParam = (required: boolean, description: string) => ({ name: 'domain
 const member = (kind: Kind, name: string, optional = false): TemplateMember => ({ kind, name: name ? `<stack>-${name}` : '<stack>', optional });
 
 const appParam = { name: 'app', title: 'App', description: 'The app to make public.', type: 'string' as const, required: true };
-const secretParam = (name: string, title: string, description: string) => ({ name, title, description, type: 'secret' as const, required: true });
+const secretParam = (name: string, title: string, description: string, required = true) => ({ name, title, description, type: 'secret' as const, ...(required ? { required: true } : {}) });
 
 /** The ways in from the internet (L2-014 TUN-15): the catalogue's Public access category. */
 const PUBLIC_ACCESS = [
@@ -38,7 +38,23 @@ const PUBLIC_ACCESS = [
     parameters: [{ name: 'machine', title: 'Edge machine', description: 'The edge machine the relay runs on (Machines › Add an edge machine).', type: 'string' as const, required: true }] },
 ].map((e) => ({ ...e, category: 'public-access' as const, members: [member('tunnel', '')], outputs: [] as string[] }));
 
-/** The twelve built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
+/** Outside services apps use (L2-015 CNX-02): the catalogue's Connections category. */
+const CONNECTIONS = [
+  { name: 'supabase', title: 'Supabase', signup: 'https://supabase.com/dashboard/sign-up',
+    description: "Your hosted Supabase project's address and keys, kept as secrets for your apps to use. It runs nothing here: your apps reach Supabase over the internet.",
+    parameters: [
+      { name: 'project', title: 'Project address', description: "Your project's address without https://, like abcd.supabase.co: the Project URL in your project's settings.", type: 'hostname' as const, required: true },
+      secretParam('anonKey', 'anon key', 'The anon key, or the newer publishable key (sb_publishable_…), under Project Settings › API Keys. Safe to use in browsers.'),
+      secretParam('serviceKey', 'service_role key', 'The service_role key, or the newer secret key (sb_secret_…), under Project Settings › API Keys. For servers only: it bypasses row-level security.', false),
+      secretParam('dbUrl', 'Database connection string', "For apps that use Postgres directly: the pooler's connection string with your password in it, under Connect. The direct one needs IPv6.", false),
+    ],
+    members: [member('secret', 'url')], outputs: ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'] },
+].map((e) => ({ ...e, category: 'connections' as const }));
+
+/** The secret parameter each connection output names (L3-002 §17); outputs of keys not given are left out (CNX-05). */
+const CONNECTION_OUTPUTS: Record<string, string> = { SUPABASE_URL: '', SUPABASE_ANON_KEY: 'anonKey', SUPABASE_SERVICE_ROLE_KEY: 'serviceKey', DATABASE_URL: 'dbUrl' };
+
+/** The thirteen built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
 export const BUILTIN_CATALOGUE: CatalogueEntry[] = ([
   { name: 'wordpress', title: 'WordPress', description: 'A WordPress site with its MySQL database and a volume for uploads, themes and plugins.',
     parameters: [domainParam(false, 'Serve the site at this host name, with HTTPS.'), { name: 'memoryMiB', title: 'Memory (MiB)', type: 'number' as const, default: 512 }],
@@ -60,7 +76,7 @@ export const BUILTIN_CATALOGUE: CatalogueEntry[] = ([
     members: [member('database', 'db'), member('database', 'events'), member('secret', 'key'), member('secret', 'database-url'), member('secret', 'events-url'), member('app', ''), member('domain', 'site')],
     outputs: ['url'] },
 ].map((e) => ({ ...e, category: 'apps' as const })) as Omit<CatalogueEntry, 'version' | 'versions' | 'builtIn'>[])
-  .concat(PUBLIC_ACCESS).map((e) => ({ ...e, version: '1.0.0', versions: ['1.0.0'], builtIn: true })).sort((a, b) => a.name.localeCompare(b.name));
+  .concat(PUBLIC_ACCESS, CONNECTIONS).map((e) => ({ ...e, version: '1.0.0', versions: ['1.0.0'], builtIn: true })).sort((a, b) => a.name.localeCompare(b.name));
 
 /** A member as the mock creates it. */
 export interface MockMember {
@@ -109,7 +125,8 @@ export function renderStack(entry: CatalogueEntry, stack: string, params: Record
         members.push({ kind: m.kind, name, spec: { type: 'filesystem' } });
         break;
       case 'secret':
-        members.push({ kind: m.kind, name, spec: {}, value: Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) });
+        members.push({ kind: m.kind, name, spec: {}, value: entry.category === 'connections' ? `https://${String(value('project') ?? '').toLowerCase()}`
+          : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) });
         break;
       case 'domain':
         members.push({ kind: m.kind, name, spec: { hostname: domain, app: stack, tls: 'auto', redirectHttp: true } });
@@ -126,6 +143,14 @@ export function renderStack(entry: CatalogueEntry, stack: string, params: Record
   }
   for (const [k, v] of Object.entries(secrets)) members.unshift({ kind: 'secret', name: `${stack}-${k.toLowerCase()}`, spec: {}, value: v });
   const outputs: Record<string, string> = {};
+  if (entry.category === 'connections') {
+    for (const o of entry.outputs) {
+      const p = CONNECTION_OUTPUTS[o];
+      if (p === '') outputs[o] = `${stack}-url`;
+      else if (p && secrets[p]) outputs[o] = `${stack}-${p.toLowerCase()}`;
+    }
+    return { members, outputs };
+  }
   for (const o of entry.outputs) outputs[o] = o === 'admin' ? `https://${domain}${entry.name === 'ghost' ? '/ghost/' : '/wp-admin/'}` : o === 'app' ? stack : `https://${domain}`;
   return { members, outputs };
 }
