@@ -102,13 +102,13 @@ func TestZoneAccount(t *testing.T) {
 	ctx := context.Background()
 	f := NewFake("tok", "acct")
 	defer f.Close()
-	f.AddZone("galiaraa.com", "acct")
+	f.AddZone("example.com", "acct")
 	c := New(f.URL(), Credentials{APIToken: "tok", AccountID: "acct"})
-	if a, err := c.ZoneAccount(ctx, "galiaraa.com"); err != nil || a != "acct" {
+	if a, err := c.ZoneAccount(ctx, "example.com"); err != nil || a != "acct" {
 		t.Fatalf("%q %v", a, err)
 	}
 	f.Allow("tunnel")
-	if a, err := c.ZoneAccount(ctx, "galiaraa.com"); err != nil || a != "" {
+	if a, err := c.ZoneAccount(ctx, "example.com"); err != nil || a != "" {
 		t.Fatalf("without zone read the check is skipped: %q %v", a, err)
 	}
 }

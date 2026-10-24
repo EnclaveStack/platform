@@ -38,10 +38,10 @@ resource "enclave_tunnel" "demo" {
   app             = enclave_app.web.name
   %s
 }
-resource "enclave_zone" "galiaraa" {
-  name               = "galiaraa"
+resource "enclave_zone" "example" {
+  name               = "example"
   dns_provider       = "cloudflare"
-  zone               = "galiaraa.com"
+  zone               = "example.com"
   credentials_secret = enclave_secret.cf.name
 }
 resource "enclave_tunnel" "home" {
@@ -52,9 +52,9 @@ resource "enclave_tunnel" "home" {
 }
 resource "enclave_domain" "stage" {
   name     = "stage"
-  hostname = "stage.galiaraa.com"
+  hostname = "stage.example.com"
   app      = enclave_app.web.name
-  zone     = enclave_zone.galiaraa.name
+  zone     = enclave_zone.example.name
   tunnel   = enclave_tunnel.home.name
   %s
 }
@@ -63,8 +63,8 @@ resource "enclave_domain" "stage" {
 
 func TestAccTunnelsAndPublicDomains(t *testing.T) {
 	env, c := boot(t)
-	env.DNS.AddZone("galiaraa.com")
-	env.Cloudflare.AddZone("galiaraa.com", accountID)
+	env.DNS.AddZone("example.com")
+	env.Cloudflare.AddZone("example.com", accountID)
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: factories,
 		Steps: []resource.TestStep{
@@ -76,12 +76,12 @@ func TestAccTunnelsAndPublicDomains(t *testing.T) {
 					resource.TestCheckNoResourceAttr("enclave_tunnel.demo", "gate"),
 					resource.TestMatchResourceAttr("enclave_tunnel.home", "tunnel_id", regexp.MustCompile(`.+`)),
 					resource.TestCheckResourceAttr("enclave_domain.stage", "public", "true"),
-					resource.TestCheckResourceAttr("enclave_domain.stage", "url", "https://stage.galiaraa.com"),
+					resource.TestCheckResourceAttr("enclave_domain.stage", "url", "https://stage.example.com"),
 					resource.TestCheckResourceAttr("enclave_domain.stage", "dns_record.type", "CNAME"),
 					resource.TestCheckResourceAttr("enclave_domain.stage", "dns_record.state", "created"),
 					resource.TestCheckResourceAttr("enclave_domain.stage", "cloudflare_access.emails.0", "sunny@example.com"),
 					func(*terraform.State) error {
-						if _, ok := env.Cloudflare.AccessApps()["stage.galiaraa.com"]; !ok {
+						if _, ok := env.Cloudflare.AccessApps()["stage.example.com"]; !ok {
 							return fmt.Errorf("no Access application: %+v", env.Cloudflare.AccessApps())
 						}
 						return nil
@@ -123,7 +123,7 @@ func TestAccTunnelsAndPublicDomains(t *testing.T) {
 					return fmt.Errorf("tunnel %s survived destroy", r.Name)
 				}
 			}
-			if rec := env.DNS.Lookup("stage.galiaraa.com", "CNAME"); rec != nil {
+			if rec := env.DNS.Lookup("stage.example.com", "CNAME"); rec != nil {
 				return fmt.Errorf("the domain's record survived destroy: %+v", rec)
 			}
 			return nil

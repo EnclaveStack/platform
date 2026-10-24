@@ -272,7 +272,7 @@ func cloudflareAccessAttr() schema.SingleNestedAttribute {
 		Description: "Through a cloudflare tunnel: Cloudflare Access also checks visitors before the gate, letting in these addresses.",
 		Attributes: map[string]schema.Attribute{
 			"emails":        schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Email addresses let in (up to 50)."},
-			"email_domains": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Email domains let in, like galiaraa.com (up to 10)."},
+			"email_domains": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Email domains let in, like example.com (up to 10)."},
 		}}
 }
 

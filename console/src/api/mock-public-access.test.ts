@@ -57,21 +57,21 @@ describe('mock api, public access', () => {
     const api = await signedIn();
     await api.createResource('app', 'web', { image: 'nginx:1.27-alpine', port: 80 } as never);
     await api.createResource('secret', 'cf-token', { value: '{"apiToken":"t"}' } as never);
-    await api.createResource('zone', 'galiaraa', { provider: 'cloudflare', zone: 'galiaraa.com', credentialsSecret: 'cf-token' } as never);
+    await api.createResource('zone', 'example', { provider: 'cloudflare', zone: 'example.com', credentialsSecret: 'cf-token' } as never);
     const home = await api.createResource('tunnel', 'home', { provider: 'cloudflare', credentialsSecret: 'cf-token', accountId: '0123456789ABCDEF0123456789abcdef' } as TunnelSpec);
     await settle();
     expect((await api.getResource(home.id)).spec).toMatchObject({ accountId: '0123456789abcdef0123456789abcdef' });
 
     // A Cloudflare tunnel needs the zone; Access only through Cloudflare; an app link can't carry a domain.
-    expect((await fails(api.createResource('domain', 'stage', { hostname: 'stage.galiaraa.com', app: 'web', tunnel: 'home' } as DomainSpec)))?.details.some((d) => d.field === 'spec.zone')).toBe(true);
+    expect((await fails(api.createResource('domain', 'stage', { hostname: 'stage.example.com', app: 'web', tunnel: 'home' } as DomainSpec)))?.details.some((d) => d.field === 'spec.zone')).toBe(true);
     await api.createResource('tunnel', 'demo', { provider: 'quick', app: 'web' } as TunnelSpec);
-    expect((await fails(api.createResource('domain', 'via-link', { hostname: 'x.galiaraa.com', app: 'web', zone: 'galiaraa', tunnel: 'demo' } as DomainSpec)))?.details.some((d) => d.field === 'spec.tunnel')).toBe(true);
+    expect((await fails(api.createResource('domain', 'via-link', { hostname: 'x.example.com', app: 'web', zone: 'example', tunnel: 'demo' } as DomainSpec)))?.details.some((d) => d.field === 'spec.tunnel')).toBe(true);
 
-    const d = await api.createResource('domain', 'stage', { hostname: 'stage.galiaraa.com', app: 'web', zone: 'galiaraa', tunnel: 'home', cloudflareAccess: { emails: ['sunny@example.com'] } } as DomainSpec);
+    const d = await api.createResource('domain', 'stage', { hostname: 'stage.example.com', app: 'web', zone: 'example', tunnel: 'home', cloudflareAccess: { emails: ['sunny@example.com'] } } as DomainSpec);
     await settle();
     const got = await api.getResource(d.id);
-    expect(got.outputs).toMatchObject({ public: true, url: 'https://stage.galiaraa.com', certificateState: 'edge', gate: 'signin', accessApplicationId: 'acc-stage' });
-    expect(got.outputs.dnsRecord).toMatchObject({ type: 'CNAME', name: 'stage.galiaraa.com', state: 'created' });
+    expect(got.outputs).toMatchObject({ public: true, url: 'https://stage.example.com', certificateState: 'edge', gate: 'signin', accessApplicationId: 'acc-stage' });
+    expect(got.outputs.dnsRecord).toMatchObject({ type: 'CNAME', name: 'stage.example.com', state: 'created' });
     expect(String((got.outputs.dnsRecord as unknown as { value: string }).value)).toMatch(/\.cfargotunnel\.com$/);
 
     const used = await fails(api.deleteResource(home.id));

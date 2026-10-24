@@ -221,7 +221,7 @@ function validateAccess(a: CloudflareAccess): FieldErrors {
     if (validateEmail(x)) e[`spec.cloudflareAccess.emails[${i}]`] = 'Enter an email address like you@example.com.';
   });
   domains.forEach((x, i) => {
-    if (validateHostname(x.replace(/^@/, '').toLowerCase())) e[`spec.cloudflareAccess.emailDomains[${i}]`] = 'Enter a domain like galiaraa.com.';
+    if (validateHostname(x.replace(/^@/, '').toLowerCase())) e[`spec.cloudflareAccess.emailDomains[${i}]`] = 'Enter a domain like example.com.';
   });
   return e;
 }
@@ -261,7 +261,7 @@ export function validateTunnel(s: TunnelSpec): FieldErrors {
   }
   if (s.provider === 'tailscale') {
     if (s.mode && !(RULES.tailscaleModes as readonly string[]).includes(s.mode)) e['spec.mode'] = 'Choose private or public.';
-    if (s.hostname && !hostLabel.test(s.hostname)) e['spec.hostname'] = 'Use lowercase letters, digits and hyphens, at most 63, like galiaraa-stage.';
+    if (s.hostname && !hostLabel.test(s.hostname)) e['spec.hostname'] = 'Use lowercase letters, digits and hyphens, at most 63, like example-stage.';
   }
   if (s.provider === 'ngrok' && s.domain && validateHostname(s.domain)) e['spec.domain'] = 'Use a domain reserved in your ngrok account, like stage.ngrok.app.';
   if (s.provider === 'custom') {

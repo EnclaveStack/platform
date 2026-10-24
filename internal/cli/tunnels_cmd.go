@@ -186,7 +186,7 @@ func (p *publicDomainFlags) register(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.StringVar(&p.tunnel, "tunnel", "", "make it public through this cloudflare or relay tunnel (empty on update: back to this machine only)")
 	f.StringArrayVar(&p.accessEmails, "access-email", nil, "cloudflare: also put Cloudflare Access in front, letting in this address (repeat)")
-	f.StringArrayVar(&p.accessDomain, "access-email-domain", nil, "cloudflare: Cloudflare Access lets in addresses at this domain, e.g. galiaraa.com (repeat)")
+	f.StringArrayVar(&p.accessDomain, "access-email-domain", nil, "cloudflare: Cloudflare Access lets in addresses at this domain, e.g. example.com (repeat)")
 	p.gate.register(cmd)
 }
 

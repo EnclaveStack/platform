@@ -210,7 +210,7 @@ func validateTunnel(s TunnelSpec) []FieldError {
 			notAllowed("spec.mode", "Choose private or public.")
 		}
 		if s.Hostname != "" && !tailscaleHostPattern.MatchString(s.Hostname) {
-			errs = append(errs, FieldError{Field: "spec.hostname", Code: FieldInvalidFormat, Message: "Use lowercase letters, digits and hyphens, at most 63, like galiaraa-stage."})
+			errs = append(errs, FieldError{Field: "spec.hostname", Code: FieldInvalidFormat, Message: "Use lowercase letters, digits and hyphens, at most 63, like example-stage."})
 		}
 	} else {
 		if s.Mode != "" {
@@ -313,7 +313,7 @@ func validateAccess(a CloudflareAccess) []FieldError {
 	}
 	for i, d := range a.EmailDomains {
 		if ValidateHostname(d) != nil {
-			errs = append(errs, FieldError{Field: fmt.Sprintf("spec.cloudflareAccess.emailDomains[%d]", i), Code: FieldInvalidFormat, Message: "Enter a domain like galiaraa.com."})
+			errs = append(errs, FieldError{Field: fmt.Sprintf("spec.cloudflareAccess.emailDomains[%d]", i), Code: FieldInvalidFormat, Message: "Enter a domain like example.com."})
 		}
 	}
 	return errs

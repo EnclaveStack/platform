@@ -17,7 +17,7 @@ func TestConnectorsAreHardenedNamedAndHashed(t *testing.T) {
 	cases := map[string]engine.Connector{
 		"quick":      Quick(id, 11000),
 		"cloudflare": Cloudflare(id, "run-token"),
-		"tailscale":  Tailscale(id, "tskey-auth-x", "galiaraa-stage-web", true, 11000),
+		"tailscale":  Tailscale(id, "tskey-auth-x", "example-stage-web", true, 11000),
 		"ngrok":      Ngrok(id, "ngrok-token", "stage.ngrok.app", 11000),
 		"custom":     Custom(id, "ghcr.io/acme/tunnel:1", []string{"run"}, map[string]string{"K": "v"}, 11000),
 	}
@@ -36,7 +36,7 @@ func TestConnectorsAreHardenedNamedAndHashed(t *testing.T) {
 		t.Errorf("the run token goes in the environment, never the command line: %+v", c)
 	}
 	ts := cases["tailscale"]
-	if ts.Env["TS_USERSPACE"] != "true" || ts.StateVolume != "es-tunnel-abcdefghijkl-state" || ts.Env["TS_HOSTNAME"] != "galiaraa-stage-web" {
+	if ts.Env["TS_USERSPACE"] != "true" || ts.StateVolume != "es-tunnel-abcdefghijkl-state" || ts.Env["TS_HOSTNAME"] != "example-stage-web" {
 		t.Errorf("tailscale: %+v", ts)
 	}
 	var serve map[string]any

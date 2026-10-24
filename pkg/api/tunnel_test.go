@@ -94,12 +94,12 @@ func TestTunnelImmutableFields(t *testing.T) {
 }
 
 func TestPublicDomainValidation(t *testing.T) {
-	s, errs := normalize(t, KindDomain, `{"hostname":"Stage.Galiaraa.com","app":"web","tunnel":"home","zone":"galiaraa","cloudflareAccess":{"emails":["Sunny@Example.com"],"emailDomains":["@galiaraa.com"]}}`)
+	s, errs := normalize(t, KindDomain, `{"hostname":"Stage.Example.com","app":"web","tunnel":"home","zone":"example","cloudflareAccess":{"emails":["Sunny@Example.com"],"emailDomains":["@example.com"]}}`)
 	if len(errs) != 0 {
 		t.Fatalf("public domain refused: %v", errs)
 	}
 	d := s.(DomainSpec)
-	if !d.IsPublic() || d.TLS != TLSAuto || d.GateOrDefault().Mode != GateSignin || d.CloudflareAccess.Emails[0] != "sunny@example.com" || d.CloudflareAccess.EmailDomains[0] != "galiaraa.com" {
+	if !d.IsPublic() || d.TLS != TLSAuto || d.GateOrDefault().Mode != GateSignin || d.CloudflareAccess.Emails[0] != "sunny@example.com" || d.CloudflareAccess.EmailDomains[0] != "example.com" {
 		t.Errorf("defaults or normalisation missing: %+v %+v", d, d.CloudflareAccess)
 	}
 	if s, _ := normalize(t, KindDomain, `{"hostname":"api.example.com","app":"web"}`); s.(DomainSpec).IsPublic() {

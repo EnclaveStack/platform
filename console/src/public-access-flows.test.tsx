@@ -61,22 +61,22 @@ describe('public access in the console', () => {
     await signIn(user);
     await api.createResource('app', 'web', { image: 'nginx:1.27-alpine', port: 80 });
     await api.createResource('secret', 'cf-token', { value: '{"apiToken":"t"}' });
-    await api.createResource('zone', 'galiaraa', { provider: 'cloudflare', zone: 'galiaraa.com', credentialsSecret: 'cf-token' });
+    await api.createResource('zone', 'example', { provider: 'cloudflare', zone: 'example.com', credentialsSecret: 'cf-token' });
     await api.createResource('tunnel', 'home', { provider: 'cloudflare', credentialsSecret: 'cf-token', accountId: '0123456789abcdef0123456789abcdef' });
     await user.click((await screen.findAllByRole('button', { name: 'New domain' }))[0]!);
     const panel = await screen.findByRole('dialog', { name: 'New domain' });
     await user.type(within(panel).getByLabelText('Name'), 'stage');
-    await user.type(within(panel).getByLabelText('Hostname'), 'stage.galiaraa.com');
+    await user.type(within(panel).getByLabelText('Hostname'), 'stage.example.com');
     await user.selectOptions(within(panel).getByLabelText('App'), 'web');
     await user.click(within(panel).getByRole('radio', { name: /From the internet/ }));
     await user.selectOptions(within(panel).getByLabelText('Tunnel'), 'home');
-    await user.selectOptions(within(panel).getByLabelText('Zone'), 'galiaraa');
+    await user.selectOptions(within(panel).getByLabelText('Zone'), 'example');
     await user.click(within(panel).getByRole('button', { name: 'Create domain' }));
     expect(await screen.findByRole('heading', { name: 'stage' })).toBeInTheDocument();
     expect(screen.getByText('Public via home')).toBeInTheDocument();
     const card = await screen.findByRole('region', { name: 'Public access' });
     await waitFor(() => expect(within(card).getByText('Served by Cloudflare')).toBeInTheDocument(), { timeout: 3000 });
-    expect(within(card).getByText(/CNAME stage\.galiaraa\.com → .+\.cfargotunnel\.com · Created/)).toBeInTheDocument();
+    expect(within(card).getByText(/CNAME stage\.example\.com → .+\.cfargotunnel\.com · Created/)).toBeInTheDocument();
     expect(within(card).getByText('Sign in')).toBeInTheDocument();
   });
 

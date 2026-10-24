@@ -26,12 +26,12 @@ func TestConnectorCallsCrossTheWire(t *testing.T) {
 	}
 
 	// Exec and fetch carry their results and their failures.
-	ts := tunnel.Tailscale("tun_ts00000000001", "tskey-auth-x", "galiaraa-stage", false, 80)
+	ts := tunnel.Tailscale("tun_ts00000000001", "tskey-auth-x", "example-stage", false, 80)
 	if _, err := p.remote.EnsureConnector(ctx, ts); err != nil {
 		t.Fatal(err)
 	}
 	out, code, err := p.remote.ConnectorExec(ctx, ts, []string{"tailscale", "status", "--json"})
-	if err != nil || code != 0 || !strings.Contains(out, "galiaraa-stage") {
+	if err != nil || code != 0 || !strings.Contains(out, "example-stage") {
 		t.Errorf("exec: %q %d %v", out, code, err)
 	}
 	if out, code, err := p.remote.ConnectorExec(ctx, ts, []string{"sh"}); err != nil || code != 127 || out != "unknown command" {

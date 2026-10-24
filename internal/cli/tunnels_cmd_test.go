@@ -58,18 +58,18 @@ func TestTunnelsFromTheCLI(t *testing.T) {
 	if r := h.run("tunnel", "create", "edge", "--provider", "relay", "--machine", "vps1", "--gate", "signin"); r.code != cli.ExitUsage || !strings.Contains(r.err, "app links") {
 		t.Errorf("--gate on a domain tunnel: %d %q", r.code, r.err)
 	}
-	h.env.DNS.AddZone("galiaraa.com")
-	h.env.Cloudflare.AddZone("galiaraa.com", "0123456789abcdef0123456789abcdef")
+	h.env.DNS.AddZone("example.com")
+	h.env.Cloudflare.AddZone("example.com", "0123456789abcdef0123456789abcdef")
 	h.stdin = `{"apiToken":"t"}` + "\n"
 	h.ok("secret", "create", "cf-token", "--from-stdin", "--wait")
-	h.ok("zone", "create", "galiaraa", "--provider", "cloudflare", "--zone", "galiaraa.com", "--credentials", "cf-token", "--wait")
+	h.ok("zone", "create", "example", "--provider", "cloudflare", "--zone", "example.com", "--credentials", "cf-token", "--wait")
 	h.ok("tunnel", "create", "home", "--provider", "cloudflare", "--credentials", "cf-token", "--account-id", "0123456789abcdef0123456789abcdef", "--wait")
-	r = h.ok("domain", "create", "stage", "--hostname", "stage.galiaraa.com", "--app", "web", "--zone", "galiaraa", "--tunnel", "home",
+	r = h.ok("domain", "create", "stage", "--hostname", "stage.example.com", "--app", "web", "--zone", "example", "--tunnel", "home",
 		"--access-email", "sunny@example.com", "--wait")
-	if !strings.Contains(r.out, "https://stage.galiaraa.com") {
+	if !strings.Contains(r.out, "https://stage.example.com") {
 		t.Fatalf("public domain: %q", r.out)
 	}
-	if _, ok := h.env.Cloudflare.AccessApps()["stage.galiaraa.com"]; !ok {
+	if _, ok := h.env.Cloudflare.AccessApps()["stage.example.com"]; !ok {
 		t.Errorf("no Cloudflare Access application: %+v", h.env.Cloudflare.AccessApps())
 	}
 	h.ok("domain", "update", "stage", "--access-email", "", "--gate", "password", "--gate-password-secret", "stage-pass", "--wait")

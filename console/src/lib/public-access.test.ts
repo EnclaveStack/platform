@@ -59,7 +59,7 @@ describe('public access from code', () => {
   });
 
   it('shows a public domain with its tunnel and Access', () => {
-    const d = { ...base, kind: 'domain', name: 'stage', spec: { hostname: 'stage.galiaraa.com', app: 'web', zone: 'galiaraa', tunnel: 'home', cloudflareAccess: { emails: ['me@example.com'] } } } as Resource;
+    const d = { ...base, kind: 'domain', name: 'stage', spec: { hostname: 'stage.example.com', app: 'web', zone: 'example', tunnel: 'home', cloudflareAccess: { emails: ['me@example.com'] } } } as Resource;
     expect(cliCommand(d)).toContain('--tunnel home');
     expect(cliCommand(d)).toContain('--access-email me@example.com');
     expect(tofuBlock(d)).toContain('tunnel = "home"');

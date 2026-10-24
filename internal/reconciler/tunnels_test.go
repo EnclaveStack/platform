@@ -137,14 +137,14 @@ func TestConnectorDownIsRestarted(t *testing.T) {
 func TestCloudflareTunnelAndPublicDomain(t *testing.T) {
 	env, c := publicEnv(t)
 	ctx := context.Background()
-	env.DNS.AddZone("galiaraa.com")
-	env.Cloudflare.AddZone("galiaraa.com", "0123456789abcdef0123456789abcdef")
+	env.DNS.AddZone("example.com")
+	env.Cloudflare.AddZone("example.com", "0123456789abcdef0123456789abcdef")
 	for name, value := range map[string]string{"cf-token": `{"apiToken":"t"}`} {
 		if _, err := c.CreateResource(ctx, api.KindSecret, name, api.SecretSpec{Value: value}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	z, err := c.CreateResource(ctx, api.KindZone, "galiaraa", api.ZoneSpec{Provider: api.ProviderCloudflare, Zone: "galiaraa.com", CredentialsSecret: "cf-token"})
+	z, err := c.CreateResource(ctx, api.KindZone, "example", api.ZoneSpec{Provider: api.ProviderCloudflare, Zone: "example.com", CredentialsSecret: "cf-token"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,34 +163,34 @@ func TestCloudflareTunnelAndPublicDomain(t *testing.T) {
 	}
 
 	// A Cloudflare tunnel needs the zone at Cloudflare (PUB-02).
-	if _, err := c.CreateResource(ctx, api.KindDomain, "stage", api.DomainSpec{Hostname: "stage.galiaraa.com", App: "web", Tunnel: "home"}); !isField(err, "spec.zone") {
+	if _, err := c.CreateResource(ctx, api.KindDomain, "stage", api.DomainSpec{Hostname: "stage.example.com", App: "web", Tunnel: "home"}); !isField(err, "spec.zone") {
 		t.Fatalf("no zone: %v", err)
 	}
-	d, err := c.CreateResource(ctx, api.KindDomain, "stage", api.DomainSpec{Hostname: "stage.galiaraa.com", App: "web", Tunnel: "home", Zone: "galiaraa",
+	d, err := c.CreateResource(ctx, api.KindDomain, "stage", api.DomainSpec{Hostname: "stage.example.com", App: "web", Tunnel: "home", Zone: "example",
 		CloudflareAccess: &api.CloudflareAccess{Emails: []string{"sunny@example.com"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dr := waitReadyWithin(t, c, d.ID, 15*time.Second)
-	if dr.Outputs["public"] != true || dr.Outputs["url"] != "https://stage.galiaraa.com" || dr.Outputs["certificateState"] != "edge" || dr.Outputs["certificateIssuer"] != "Cloudflare" {
+	if dr.Outputs["public"] != true || dr.Outputs["url"] != "https://stage.example.com" || dr.Outputs["certificateState"] != "edge" || dr.Outputs["certificateIssuer"] != "Cloudflare" {
 		t.Fatalf("domain outputs %v", dr.Outputs)
 	}
-	rec := env.DNS.Lookup("stage.galiaraa.com", "CNAME")
+	rec := env.DNS.Lookup("stage.example.com", "CNAME")
 	if rec == nil || rec.Values[0] != cloudflare.TunnelTarget(id) || !rec.Proxied || rec.Owner != d.ID {
 		t.Fatalf("CNAME at the provider: %+v", rec)
 	}
-	if got := env.Cloudflare.IngressOf(id); len(got) != 2 || got[0].Hostname != "stage.galiaraa.com" || got[1].Service != "http_status:404" {
+	if got := env.Cloudflare.IngressOf(id); len(got) != 2 || got[0].Hostname != "stage.example.com" || got[1].Service != "http_status:404" {
 		t.Fatalf("routing rules %+v", got)
 	}
-	if app, ok := env.Cloudflare.AccessApps()["stage.galiaraa.com"]; !ok || !slices.Contains(app.Emails, "sunny@example.com") {
+	if app, ok := env.Cloudflare.AccessApps()["stage.example.com"]; !ok || !slices.Contains(app.Emails, "sunny@example.com") {
 		t.Fatalf("Access application %+v", env.Cloudflare.AccessApps())
 	}
 	l, _ := listenerOf(env, tun.ID)
-	if l.Kind != engine.ListenerCloudflare || len(l.Routes) != 1 || l.Routes[0].Hostname != "stage.galiaraa.com" || l.Routes[0].Gate.Mode != api.GateSignin || l.Routes[0].Target != d.ID {
+	if l.Kind != engine.ListenerCloudflare || len(l.Routes) != 1 || l.Routes[0].Hostname != "stage.example.com" || l.Routes[0].Gate.Mode != api.GateSignin || l.Routes[0].Target != d.ID {
 		t.Fatalf("listener %+v", l)
 	}
 	for _, r := range env.Fake.EdgeRoutes() {
-		if r.Hostname == "stage.galiaraa.com" {
+		if r.Hostname == "stage.example.com" {
 			t.Fatal("a public domain must not be served on the machine's own ports (PUB-01)")
 		}
 	}
@@ -205,8 +205,8 @@ func TestCloudflareTunnelAndPublicDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := waitReadyWithin(t, c, d.ID, 15*time.Second)
-	if local.Outputs["public"] != nil || env.DNS.Lookup("stage.galiaraa.com", "CNAME") != nil || len(env.Cloudflare.AccessApps()) != 0 {
-		t.Fatalf("leftovers after going local: %v %+v %+v", local.Outputs, env.DNS.Lookup("stage.galiaraa.com", "CNAME"), env.Cloudflare.AccessApps())
+	if local.Outputs["public"] != nil || env.DNS.Lookup("stage.example.com", "CNAME") != nil || len(env.Cloudflare.AccessApps()) != 0 {
+		t.Fatalf("leftovers after going local: %v %+v %+v", local.Outputs, env.DNS.Lookup("stage.example.com", "CNAME"), env.Cloudflare.AccessApps())
 	}
 	if got := env.Cloudflare.IngressOf(id); len(got) != 1 {
 		t.Fatalf("the routing rule should be gone: %+v", got)
@@ -439,10 +439,10 @@ func TestGate(t *testing.T) {
 func TestGateOnlyLetsProjectMembersIn(t *testing.T) {
 	env, c := publicEnv(t)
 	ctx := context.Background()
-	if _, err := c.CreateProject(ctx, api.CreateProject{Name: "galiaraa-stage"}); err != nil {
+	if _, err := c.CreateProject(ctx, api.CreateProject{Name: "example-stage"}); err != nil {
 		t.Fatal(err)
 	}
-	stage := c.InProject("galiaraa-stage")
+	stage := c.InProject("example-stage")
 	if _, err := stage.CreateResource(ctx, api.KindApp, "web", api.AppSpec{Image: "nginx:1.27-alpine", Port: 80}); err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestGateOnlyLetsProjectMembersIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	role := api.RoleViewer
-	if _, err := c.UpdateUser(ctx, u.ID, false, nil, map[string]*string{"galiaraa-stage": &role}); err != nil {
+	if _, err := c.UpdateUser(ctx, u.ID, false, nil, map[string]*string{"example-stage": &role}); err != nil {
 		t.Fatal(err)
 	}
 	r = g.signin(t, viewer, "viewer-password-1", "/", "")
@@ -479,7 +479,7 @@ func TestGateOnlyLetsProjectMembersIn(t *testing.T) {
 		t.Fatalf("a viewer of the project: %d", r.StatusCode)
 	}
 	cookie := r.Cookies()[0].Value
-	if _, err := c.UpdateUser(ctx, u.ID, false, nil, map[string]*string{"galiaraa-stage": nil}); err != nil {
+	if _, err := c.UpdateUser(ctx, u.ID, false, nil, map[string]*string{"example-stage": nil}); err != nil {
 		t.Fatal(err)
 	}
 	env.Gate().Now = func() time.Time { return time.Now().Add(time.Minute) }

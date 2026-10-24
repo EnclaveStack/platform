@@ -318,7 +318,7 @@ export function useDomainPublic(existing: Resource | undefined, initialTunnel?: 
                 <ListEditor idPrefix="f-access-email" label="Emails" rows={emails} onChange={setEmails} errors={errors} errorField={(i) => `spec.cloudflareAccess.emails[${i}]`}
                   addLabel="Add email" emptyHint="Addresses Cloudflare lets in." placeholder="sunny@example.com" max={RULES.accessEmailsMax} />
                 <ListEditor idPrefix="f-access-domain" label="Email domains" rows={emailDomains} onChange={setEmailDomains} errors={errors}
-                  errorField={(i) => `spec.cloudflareAccess.emailDomains[${i}]`} addLabel="Add email domain" emptyHint="Everyone with an address at these domains." placeholder="galiaraa.com"
+                  errorField={(i) => `spec.cloudflareAccess.emailDomains[${i}]`} addLabel="Add email domain" emptyHint="Everyone with an address at these domains." placeholder="example.com"
                   max={RULES.accessEmailDomainsMax} />
                 {errors['spec.cloudflareAccess'] && <Text size="sm" tone="bad">{errors['spec.cloudflareAccess']}</Text>}
               </Fieldset>
