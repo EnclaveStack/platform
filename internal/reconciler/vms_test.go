@@ -98,6 +98,8 @@ func TestVMsRunPowerAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, 10*time.Second, func() bool { return slices.Contains(env.FakeHypervisor.VM(vm.ID).Reasons, "restart") })
+	// The restart must finish first: a change made while it runs is applied by that same restart.
+	waitReadyWithin(t, c, vm.ID, 10*time.Second)
 	if _, err := c.UpdateResource(ctx, vm.ID, map[string]any{"cpus": 4}, nil); err != nil {
 		t.Fatal(err)
 	}
