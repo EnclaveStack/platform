@@ -129,6 +129,11 @@ func New(a *service.Auth, res *service.Resources, idem *service.Idempotency, rea
 	s.route(mux, "POST /api/v1/resources/{id}/emails", editor, s.sendEmail)
 	s.route(mux, "GET /api/v1/resources/{id}/emails", editor, s.listEmails)
 	s.route(mux, "GET /api/v1/resources/{id}/emails/{emailId}", editor, s.getEmail)
+	// Bucket objects (L3-002 §14): contents need an editor, as message bodies do.
+	s.route(mux, "GET /api/v1/resources/{id}/objects", editor, s.listObjects)
+	s.route(mux, "PUT /api/v1/resources/{id}/objects/{key...}", editor, s.putObject)
+	s.route(mux, "GET /api/v1/resources/{id}/objects/{key...}", editor, s.getObject)
+	s.route(mux, "DELETE /api/v1/resources/{id}/objects/{key...}", editor, s.deleteObject)
 	// v0.7 (L3-002 §10.4, §10.5).
 	s.route(mux, "GET /api/v1/resources/{id}/metrics", viewer, s.resourceMetrics)
 	s.route(mux, "GET /api/v1/resources/{id}/incidents", viewer, s.incidents)

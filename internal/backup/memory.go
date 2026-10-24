@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -14,14 +15,16 @@ import (
 // MemoryOpener keeps objects in memory, per endpoint and bucket. It backs the fake engine (tests, demos),
 // where there is no object store to talk to.
 type MemoryOpener struct {
-	mu      sync.Mutex
-	buckets map[string]map[string][]byte
-	refuse  map[string]string // target → error message
+	mu       sync.Mutex
+	buckets  map[string]map[string][]byte
+	meta     map[string]map[string]map[string]string // target → key → user metadata
+	modified map[string]map[string]time.Time
+	refuse   map[string]string // target → error message
 }
 
 // NewMemoryOpener returns an empty in-memory store.
 func NewMemoryOpener() *MemoryOpener {
-	return &MemoryOpener{buckets: map[string]map[string][]byte{}, refuse: map[string]string{}}
+	return &MemoryOpener{buckets: map[string]map[string][]byte{}, meta: map[string]map[string]map[string]string{}, modified: map[string]map[string]time.Time{}, refuse: map[string]string{}}
 }
 
 // Refuse makes every call to a target fail with msg ("" clears it): e.g. rejected credentials.
@@ -57,13 +60,29 @@ func (m *MemoryOpener) Corrupt(t Target, key string) {
 }
 
 // Put stores bytes directly (tests: objects written by other tools).
-func (m *MemoryOpener) Put(t Target, key string, b []byte) {
+func (m *MemoryOpener) Put(t Target, key string, b []byte) { m.PutWithMeta(t, key, b, nil) }
+
+// PutWithMeta stores bytes with user metadata, as an uploader setting x-amz-meta-* would.
+func (m *MemoryOpener) PutWithMeta(t Target, key string, b []byte, meta map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.buckets[t.Describe()] == nil {
-		m.buckets[t.Describe()] = map[string][]byte{}
+	m.store(t.Describe(), key, b, meta)
+}
+
+// Meta returns an object's user metadata.
+func (m *MemoryOpener) Meta(t Target, key string) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return maps.Clone(m.meta[t.Describe()][key])
+}
+
+func (m *MemoryOpener) store(id, key string, b []byte, meta map[string]string) {
+	if m.buckets[id] == nil {
+		m.buckets[id], m.meta[id], m.modified[id] = map[string][]byte{}, map[string]map[string]string{}, map[string]time.Time{}
 	}
-	m.buckets[t.Describe()][key] = b
+	m.buckets[id][key] = b
+	m.meta[id][key] = maps.Clone(meta)
+	m.modified[id][key] = time.Now().UTC()
 }
 
 // Open implements Opener.
@@ -83,7 +102,7 @@ func (s *memStore) check() error {
 	return nil
 }
 
-func (s *memStore) Put(_ context.Context, key string, r io.Reader, _ map[string]string) (Object, error) {
+func (s *memStore) Put(_ context.Context, key string, r io.Reader, meta map[string]string) (Object, error) {
 	h := newHashingReader(r)
 	b, err := io.ReadAll(h)
 	if err != nil {
@@ -94,11 +113,8 @@ func (s *memStore) Put(_ context.Context, key string, r io.Reader, _ map[string]
 	if err := s.check(); err != nil {
 		return Object{}, err
 	}
-	if s.m.buckets[s.id] == nil {
-		s.m.buckets[s.id] = map[string][]byte{}
-	}
-	s.m.buckets[s.id][key] = b
-	return Object{Key: key, Size: int64(len(b)), SHA256: h.sum(), Modified: time.Now()}, nil
+	s.m.store(s.id, key, b, meta)
+	return Object{Key: key, Size: int64(len(b)), SHA256: h.sum(), Modified: s.m.modified[s.id][key]}, nil
 }
 
 func (s *memStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
@@ -112,6 +128,55 @@ func (s *memStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
 		return nil, ErrNotFound
 	}
 	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func (s *memStore) Head(_ context.Context, key string) (ObjectHead, error) {
+	s.m.mu.Lock()
+	defer s.m.mu.Unlock()
+	if err := s.check(); err != nil {
+		return ObjectHead{}, err
+	}
+	b, ok := s.m.buckets[s.id][key]
+	if !ok {
+		return ObjectHead{}, ErrNotFound
+	}
+	return ObjectHead{Object: Object{Key: key, Size: int64(len(b)), Modified: s.m.modified[s.id][key]}, ContentType: ContentType(key), Meta: maps.Clone(s.m.meta[s.id][key])}, nil
+}
+
+func (s *memStore) Browse(_ context.Context, prefix, after string, max int) ([]string, []Object, bool, error) {
+	s.m.mu.Lock()
+	defer s.m.mu.Unlock()
+	if err := s.check(); err != nil {
+		return nil, nil, false, err
+	}
+	entries := map[string]Object{} // a folder ends in "/"
+	for k, b := range s.m.buckets[s.id] {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		if i := strings.Index(k[len(prefix):], "/"); i >= 0 {
+			entries[k[:len(prefix)+i+1]] = Object{}
+		} else {
+			entries[k] = Object{Key: k, Size: int64(len(b)), Modified: s.m.modified[s.id][k]}
+		}
+	}
+	keys := slices.Sorted(maps.Keys(entries))
+	var folders []string
+	var objects []Object
+	for _, k := range keys {
+		if k <= after {
+			continue
+		}
+		if len(folders)+len(objects) == max {
+			return folders, objects, true, nil
+		}
+		if strings.HasSuffix(k, "/") {
+			folders = append(folders, k)
+		} else {
+			objects = append(objects, entries[k])
+		}
+	}
+	return folders, objects, false, nil
 }
 
 func (s *memStore) List(_ context.Context, prefix string) ([]Object, error) {
@@ -136,5 +201,7 @@ func (s *memStore) Delete(_ context.Context, key string) error {
 		return err
 	}
 	delete(s.m.buckets[s.id], key)
+	delete(s.m.meta[s.id], key)
+	delete(s.m.modified[s.id], key)
 	return nil
 }

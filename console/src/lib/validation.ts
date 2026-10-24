@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 import { validateAlert, validateChannel, validateDashboard, validateLogExport, validateSecretSource, validateSecretStore } from './operate';
 import { parseCron } from './schedule';
 
@@ -52,7 +52,7 @@ export function validateApp(s: AppSpec): FieldErrors {
   const replicas = s.replicas ?? RULES.replicasDefault;
   if (!inRange(replicas, RULES.replicasMin, RULES.replicasMax)) e['spec.replicas'] = `Use ${RULES.replicasMin}–${RULES.replicasMax} replicas.`;
   else if (replicas > 1 && s.publish) e['spec.replicas'] = 'An app that publishes a host port runs one replica. Use a load balancer or a domain to serve several.';
-  return { ...e, ...validateMounts(s.volumes) };
+  return { ...e, ...validateMounts(s.volumes), ...validateBucketAccess(s.bucketAccess, s.env, s.secretEnv) };
 }
 
 /** The same rules as pkg/api validatePlacement; existence is checked by the server. */
@@ -218,6 +218,8 @@ export function validateJob(s: JobSpec): FieldErrors {
   for (const [k, v] of Object.entries(envErrors)) if (k.startsWith('spec.env') || k.startsWith('spec.secretEnv')) e[k] = v;
   if (s.app && s.network) e['spec.network'] = "A job that runs with an app's image runs in that app's network.";
   else Object.assign(e, validatePlacement(s.network, s.subnet));
+  if (s.app && (s.bucketAccess ?? []).length) e['spec.bucketAccess'] = "A job that runs as an app uses the app's bucket access.";
+  else Object.assign(e, validateBucketAccess(s.bucketAccess, s.env, s.secretEnv));
   return { ...e, ...validateMounts(s.volumes) };
 }
 
@@ -607,21 +609,89 @@ export function normalizePrefix(p: string | undefined): string {
 
 const prefixChars = /^[A-Za-z0-9!_.*'()/ +=,@-]*$/;
 
+/** {name} and {meta:<tag>} in an output folder (L2-012 TRX-07). */
+const placeholder = /\{(name|meta:([^{}]*))\}/g;
+const outputName = new RegExp(RULES.outputNamePattern);
+const tagName = new RegExp(RULES.tagNamePattern);
+
 export function validateTranscoder(s: TranscoderSpec): FieldErrors {
   const e: FieldErrors = {};
   const input = normalizePrefix(s.input?.prefix);
   const output = normalizePrefix(s.output?.prefix || RULES.transcodeOutputDefault);
-  for (const [field, f, p] of [['spec.input', s.input, input], ['spec.output', s.output, output]] as const) {
+  const outputPlain = output.replace(placeholder, 'x');
+  const outputStatic = output.includes('{') ? output.slice(0, output.indexOf('{')) : output;
+  for (const [field, f, p] of [['spec.input', s.input, input], ['spec.output', s.output, outputPlain]] as const) {
     if (!f?.bucket) e[`${field}.bucket`] = 'Choose a bucket.';
     if (p.length > RULES.prefixMax || !prefixChars.test(p) || p.split('/').includes('..') || p.includes('//'))
       e[`${field}.prefix`] = 'Use a folder like videos/ or media/2026/: letters, digits and - _ . / only, up to 255 characters.';
   }
-  if (s.input?.bucket && s.input.bucket === s.output?.bucket && (input.startsWith(output) || output.startsWith(input)))
+  for (const m of output.matchAll(placeholder)) {
+    if (m[1] !== 'name' && !tagName.test(m[2] ?? '')) e['spec.output.prefix'] = 'A tag name uses lowercase letters, digits and hyphens: {meta:video-id}.';
+  }
+  if (/[{}]/.test(output.replace(placeholder, ''))) e['spec.output.prefix'] = 'Use {name} or {meta:<tag>} in the folder; no other braces.';
+  if (s.input?.bucket && s.input.bucket === s.output?.bucket && (input.startsWith(outputStatic) || outputStatic.startsWith(input)))
     e['spec.output.prefix'] = "On the same bucket, the output folder can't be inside the input folder or contain it; the transcoder would convert its own files.";
-  if (!s.presets?.length) e['spec.presets'] = 'Choose at least one preset.';
+  if (!s.presets?.length && !s.renditions?.length && !s.hls) e['spec.presets'] = 'Choose at least one preset, rendition or HLS ladder.';
+  Object.assign(e, validateTranscodeOutputs(s));
   if (!inRange(s.timeoutSeconds, RULES.transcodeTimeoutMin, RULES.transcodeTimeoutMax)) e['spec.timeoutSeconds'] = 'Use 60 seconds to 24 hours.';
   if (!inRange(s.concurrency, RULES.concurrencyMin, RULES.concurrencyMax)) e['spec.concurrency'] = 'Use 1–4 files at once.';
   if (!inRange(s.memoryMiB, RULES.transcodeMemoryMin, RULES.transcodeMemoryMax)) e['spec.memoryMiB'] = `Use ${RULES.transcodeMemoryMin}–${RULES.transcodeMemoryMax} MiB.`;
+  return e;
+}
+
+/** Renditions, the HLS ladder and notify, as pkg/api validateTranscodeOutputs (L3-002 §13.4). */
+export function validateTranscodeOutputs(s: Pick<TranscoderSpec, 'presets' | 'renditions' | 'hls' | 'notify'>): FieldErrors {
+  const e: FieldErrors = {};
+  const box = (f: string, w: number, h: number, kbps: number) => {
+    for (const [k, v] of [['maxWidth', w], ['maxHeight', h]] as const)
+      if (!Number.isInteger(v) || v < RULES.dimensionMin || v > RULES.dimensionMax || v % 2 !== 0) e[`${f}.${k}`] = `Use an even number from ${RULES.dimensionMin} to ${RULES.dimensionMax}.`;
+    if (!Number.isInteger(kbps) || kbps < RULES.videoKbpsMin || kbps > RULES.videoKbpsMax) e[`${f}.videoKbps`] = `Use ${RULES.videoKbpsMin}–${RULES.videoKbpsMax} kbps.`;
+  };
+  const name = (f: string, n: string) => {
+    if (!outputName.test(n)) e[f] = 'Use lowercase letters, digits and hyphens, up to 32 characters.';
+  };
+  const files = new Map<string, string>(); // file or folder → what writes it
+  for (const p of s.presets ?? []) files.set(RULES.presetFiles[p].split('/')[0] ?? '', `The preset ${p}`);
+  const renditions = s.renditions ?? [];
+  if (renditions.length > RULES.renditionsMax) e['spec.renditions'] = `Use at most ${RULES.renditionsMax} renditions.`;
+  renditions.forEach((r, i) => {
+    const f = `spec.renditions[${i}]`;
+    name(`${f}.name`, r.name);
+    if (!(RULES.renditionContainers as readonly string[]).includes(r.container)) e[`${f}.container`] = 'Choose mp4 or webm.';
+    box(f, r.maxWidth, r.maxHeight, r.videoKbps);
+    if (!inRange(r.audioKbps, RULES.audioKbpsMin, RULES.audioKbpsMax)) e[`${f}.audioKbps`] = `Use ${RULES.audioKbpsMin}–${RULES.audioKbpsMax} kbps.`;
+    if (!inRange(r.gopSeconds, RULES.gopSecondsMin, RULES.gopSecondsMax)) e[`${f}.gopSeconds`] = `Use ${RULES.gopSecondsMin}–${RULES.gopSecondsMax} seconds.`;
+    const file = `${r.name}.${r.container}`;
+    const who = files.get(file);
+    if (who) e[`${f}.name`] = `${who} also writes ${file}; choose another name.`;
+    else if (renditions.findIndex((o) => o.name === r.name) < i) e[`${f}.name`] = 'Another rendition has this name.';
+    files.set(file, `The rendition ${r.name}`);
+  });
+  const h = s.hls;
+  if (h) {
+    const hName = h.name || RULES.hlsNameDefault;
+    const gop = h.gopSeconds ?? RULES.gopSecondsDefault;
+    const seg = h.segmentSeconds ?? RULES.segmentSecondsDefault;
+    name('spec.hls.name', hName);
+    const who = files.get(hName);
+    if (who) e['spec.hls.name'] = `${who} also writes ${hName}; choose another name.`;
+    if (!inRange(gop, RULES.gopSecondsMin, RULES.gopSecondsMax)) e['spec.hls.gopSeconds'] = `Use ${RULES.gopSecondsMin}–${RULES.gopSecondsMax} seconds.`;
+    if (!inRange(seg, RULES.segmentSecondsMin, RULES.segmentSecondsMax)) e['spec.hls.segmentSeconds'] = `Use ${RULES.segmentSecondsMin}–${RULES.segmentSecondsMax} seconds.`;
+    else if (gop > 0 && seg % gop !== 0) e['spec.hls.segmentSeconds'] = 'Use a whole number of keyframe intervals, so every segment starts on a keyframe.';
+    if (!inRange(h.audioKbps, RULES.audioKbpsMin, RULES.audioKbpsMax)) e['spec.hls.audioKbps'] = `Use ${RULES.audioKbpsMin}–${RULES.audioKbpsMax} kbps.`;
+    if (h.rungs.length === 0 || h.rungs.length > RULES.hlsRungsMax) e['spec.hls.rungs'] = `Use 1–${RULES.hlsRungsMax} rungs.`;
+    h.rungs.forEach((r, i) => {
+      const f = `spec.hls.rungs[${i}]`;
+      name(`${f}.name`, r.name);
+      if (h.rungs.findIndex((o) => o.name === r.name) < i) e[`${f}.name`] = 'Another rung has this name.';
+      box(f, r.maxWidth, r.maxHeight, r.videoKbps);
+    });
+  }
+  const n = s.notify;
+  if (n) {
+    if (!n.webhook && !n.topic) e['spec.notify'] = 'Name a webhook, a topic or both.';
+    if (n.webhook && !validWebhookUrl(n.webhook.url.trim())) e['spec.notify.webhook.url'] = 'Use an https:// URL (http:// only to localhost).';
+  }
   return e;
 }
 
@@ -751,6 +821,25 @@ export function validateSnapshot(s: SnapshotSpec): FieldErrors {
   return {};
 }
 
+/** An app's or job's bucket access (L3-002 §12.4), as pkg/api validateBucketAccess; the server checks the buckets exist. */
+export function validateBucketAccess(grants: BucketGrant[] | undefined, env?: Record<string, string>, secretEnv?: Record<string, string>): FieldErrors {
+  const e: FieldErrors = {};
+  const gs = grants ?? [];
+  if (gs.length > RULES.bucketAccessMax) e['spec.bucketAccess'] = `Name at most ${RULES.bucketAccessMax} buckets.`;
+  gs.forEach((g, i) => {
+    const f = `spec.bucketAccess[${i}]`;
+    if (validateName(g.bucket)) e[`${f}.bucket`] = 'Name an existing bucket.';
+    else if (gs.findIndex((o) => o.bucket === g.bucket) < i) e[`${f}.bucket`] = 'This bucket is already in the list.';
+    if (!(RULES.bucketAccessLevels as readonly string[]).includes(g.access)) e[`${f}.access`] = 'Choose read or readwrite.';
+  });
+  if (!gs.length) return e;
+  for (const k of RULES.bucketAccessEnv) {
+    if (env && k in env) e[`spec.env.${k}`] = 'With bucket access, EnclaveStack sets this variable.';
+    if (secretEnv && k in secretEnv) e[`spec.secretEnv.${k}`] = 'With bucket access, EnclaveStack sets this variable.';
+  }
+  return e;
+}
+
 /** An app's or job's mounts (L3-002 §8.4); the server checks the volumes exist and are filesystems. */
 export function validateMounts(mounts: VolumeMount[] | undefined): FieldErrors {
   const e: FieldErrors = {};
@@ -776,4 +865,25 @@ export function validatePassword(pw: string): string | undefined {
 export function validateEmail(email: string): string | undefined {
   const at = email.indexOf('@');
   return at < 1 || at === email.length - 1 || email.length > RULES.emailMax || /\s/.test(email) ? 'Enter an email address like you@example.com.' : undefined;
+}
+
+/** An object key, as pkg/api ValidateObjectKey (L2-013 OBJ-04). */
+export function validateObjectKey(key: string): string | undefined {
+  if (!key) return "Give the file's key, like videos/intro.mov.";
+  if (new TextEncoder().encode(key).length > RULES.objectKeyMax || /[\r\n]/.test(key)) return 'Use a key of up to 1024 characters on one line.';
+  if (key.startsWith('/') || key.endsWith('/')) return "A key doesn't start or end with /: use videos/intro.mov.";
+  if (key.split('/').some((p) => p === '' || p === '.' || p === '..')) return 'A key has no empty, . or .. folder.';
+  return undefined;
+}
+
+/** Tags of an upload, as pkg/api ValidateObjectTags (OBJ-02). */
+export function validateObjectTags(tags: Record<string, string>): FieldErrors {
+  const e: FieldErrors = {};
+  const entries = Object.entries(tags);
+  if (entries.length > RULES.objectTagsMax) e.tags = `Use at most ${RULES.objectTagsMax} tags.`;
+  for (const [k, v] of entries) {
+    if (!tagName.test(k)) e[`tags.${k}`] = 'A tag name uses lowercase letters, digits and hyphens, like video-id.';
+    else if (!v || v.length > RULES.objectTagValueMax || [...v].some((c) => c < ' ' || c === '\u007f')) e[`tags.${k}`] = `A tag value is 1–${RULES.objectTagValueMax} printable characters.`;
+  }
+  return e;
 }

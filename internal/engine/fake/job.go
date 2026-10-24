@@ -42,6 +42,14 @@ func (d *Driver) StartedJobs() []engine.JobRun {
 	return out
 }
 
+// JobRunOf returns what a run started with, also after it ended.
+func (d *Driver) JobRunOf(runID string) (engine.JobRun, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r, ok := d.jobRuns[runID]
+	return r, ok
+}
+
 // StartJob implements engine.Driver.
 func (d *Driver) StartJob(ctx context.Context, run engine.JobRun) error {
 	if err := d.Ping(ctx); err != nil {
@@ -60,6 +68,10 @@ func (d *Driver) StartJob(ctx context.Context, run engine.JobRun) error {
 		d.jobImages = map[string]string{}
 	}
 	d.jobImages[run.RunID] = run.Image
+	if d.jobRuns == nil {
+		d.jobRuns = map[string]engine.JobRun{}
+	}
+	d.jobRuns[run.RunID] = run
 	d.jobStarts[run.RunID]++
 	return nil
 }

@@ -6,7 +6,7 @@
 | Document ID | L2-010-v0-8-many-machines-prd-v1 |
 | Layer | L2 — Product |
 | Status | Draft |
-| Version | v3 |
+| Version | v4 |
 | Created | 2026-10-22 |
 | Last Updated | 2026-10-23 |
 | Owner | Soupler |
@@ -136,7 +136,7 @@ Engineering: `L3-002` §11, `L3-003` ADR-042 – ADR-048, `L3-004` DAR-034 – D
 | CAT-02 | Built-in entries: **WordPress** (MySQL, a volume for uploads), **Ghost** (MySQL, a volume), **n8n** (PostgreSQL, a volume), **Uptime Kuma** (a volume), **Gitea** (PostgreSQL, a volume) and **Plausible Analytics** (PostgreSQL, ClickHouse). Images are pinned by version. Each takes an optional `domain` parameter that adds a domain with HTTPS | Must |
 | CAT-03 | A machine admin **adds their own template** from a YAML or JSON file in the same format (`L3-002` §11.6), and removes it. Own templates are listed next to the built-ins, marked as such. A template with an error is refused with the line and the reason | Must |
 | CAT-04 | **Installing** creates a `stack` in a project with a name, the template (a catalogue entry, or a template given inline) and parameter values. The stack creates each member as an ordinary resource of the project, named `<stack>` or `<stack>-<member>`, in dependency order. A `secret` parameter, and every password a member needs, becomes a secret of the stack | Must |
-| CAT-05 | A stack shows its members with their phases, and the template's outputs (an address, an admin URL). It is `ready` when every member is, `failed` when one fails (its message names it), and in progress otherwise | Must |
+| CAT-05 | A stack shows its members with their phases, and the template's outputs (an address, an admin URL). It is `ready` when every member is and every member it is removing (after an update dropped it) is gone, `failed` when one fails (its message names it), and in progress otherwise, so `--wait` on an update returns only once removed members are gone | Must |
 | CAT-06 | Members can be restarted, redeployed and read like any resource, but not changed or deleted on their own: that is refused, naming the stack. Changing the stack's parameters, or moving it to a newer version of its template, changes, adds and removes members to match | Must |
 | CAT-07 | **Deleting a stack** deletes its members, dependents first. Members with data (databases, volumes) are listed when the console or CLI asks to confirm | Must |
 | CAT-08 | A template can only do what its installer could do by hand: every member is checked as if created by them, with the same validation, roles, quotas and placement | Must |
@@ -193,3 +193,4 @@ Machines are not a kind: like projects, they are machine-wide objects with their
 | v1 | 2026-10-22 | Soupler | v0.8 scope: machines and the agent, placement, networks across machines, offline machines, moving, catalogue and stacks (MCH, PLC, XNET, FAIL, MOVE, CAT requirements). Networks spanning machines, restarting apps on machine loss, and built-in plus own templates as grouped stacks decided with the owner |
 | v2 | 2026-10-22 | Soupler | Delivery status: built on every surface; as-built differences; what is not yet walked |
 | v3 | 2026-10-23 | Soupler | MCH-01 reworded: the main machine gets a generated ID and a name from the computer's name, with no `main` alias; MCH-10: display name defaults to the computer's name, admins rename it, the ID is shown in grey |
+| v4 | 2026-10-23 | Soupler | CAT-05: a stack is not ready while a member it removes is still being deleted |

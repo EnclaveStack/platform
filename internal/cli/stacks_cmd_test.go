@@ -37,7 +37,11 @@ func TestCatalogueAndStacksFromTheCLI(t *testing.T) {
 	if r := h.run("app", "delete", "blog", "--yes"); r.code == 0 || !strings.Contains(r.err, "stack") {
 		t.Errorf("deleting a member: %d %q", r.code, r.err)
 	}
+	// Removing the domain is slow (the edge takes its route away on a slow reload, as on a busy machine):
+	// --wait still waits until it is gone (CAT-05).
+	h.env.Fake.SetEdgeDelay(4 * time.Second)
 	h.ok("stack", "update", "blog", "--param", "domain=", "--wait")
+	h.env.Fake.SetEdgeDelay(0)
 	if r := h.run("get", "domain", "blog-site"); r.code == 0 {
 		t.Errorf("the domain survived clearing its parameter: %s", r.out)
 	}

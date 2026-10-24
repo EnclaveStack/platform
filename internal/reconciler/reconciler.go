@@ -102,6 +102,8 @@ type Reconciler struct {
 	HTTP           *http.Client
 	DeliveryTick   time.Duration
 	TranscodeWatch time.Duration
+	// NotifyBackoff is when a transcoder's webhook is tried (DefaultNotifyBackoff, L2-012 TRX-08).
+	NotifyBackoff []time.Duration
 	// Machines places resources on machines (ADR-044); nil keeps everything on the main machine.
 	Machines Directory
 	// MeshEvery is how often the mesh is synced (DefaultMeshEvery, ADR-045); RescheduleAfter how long a
@@ -505,6 +507,11 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	done := r.Now()
 	prevLatest, _ := asInt64(res.Outputs[engine.OutputLatestRevision])
 	res.Outputs = r.withMachine(ctx, res, outputs)
+	if res.Kind == api.KindApp || res.Kind == api.KindJob {
+		if spec, _, err := api.NormalizeSpec(res.Kind, res.Spec); err == nil {
+			res.Outputs = withBucketAccess(res, spec)
+		}
+	}
 	if res.Kind == api.KindApp {
 		res.Outputs = withOutput(res.Outputs, engine.OutputLastDeploy, engine.DeploySucceeded)
 		if n, ok := asInt64(outputs[engine.OutputServingRevision]); ok {
@@ -586,6 +593,13 @@ func (r *Reconciler) inputs(ctx context.Context, res *domain.Resource) (engine.E
 			if err != nil {
 				return in, err
 			}
+			in.Env[k] = v
+		}
+		access, err := r.bucketAccessEnv(ctx, res, s)
+		if err != nil {
+			return in, err
+		}
+		for k, v := range access { // after env and secretEnv, which may not use these names (BKA-04)
 			in.Env[k] = v
 		}
 	case api.DatabaseSpec, api.SearchSpec:
@@ -726,6 +740,11 @@ func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog
 		}
 		if err := r.Driver.Delete(ctx, res, os); err != nil {
 			return err
+		}
+		if res.Kind == api.KindApp || res.Kind == api.KindJob {
+			if err := r.revokeBucketAccess(ctx, res); err != nil {
+				return err
+			}
 		}
 		if res.Kind == api.KindBucket {
 			if err := r.syncProjectStore(ctx, res.ProjectName(), res.ID); err != nil {

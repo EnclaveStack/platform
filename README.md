@@ -177,14 +177,14 @@ Then, from the repo: `make tofu DIR=path/to/that/folder CMD=plan` to see what wo
 | **Apps** | Any container image, or a Git repository with a Dockerfile. Replicas and zero-downtime deploys with health checks | ECS / Cloud Run |
 | **Databases** | PostgreSQL, MySQL, MongoDB or ClickHouse, with a managed password | RDS |
 | **Caches** | Redis, persisted to disk | ElastiCache |
-| **Buckets** | S3-compatible object storage | S3 |
+| **Buckets** | S3-compatible object storage; browse, upload and download files from the console, CLI or OpenTofu; each app or job can get keys of its own that reach only the buckets it needs, read-only or read-write | S3 + IAM roles for each service |
 | **Secrets** | Encrypted values your apps get as environment variables, or read from Vault, 1Password, AWS, Doppler or Infisical | Secrets Manager |
 | **Domains** | Hostnames with automatic HTTPS (Let's Encrypt, or a local CA) | ALB + ACM |
 | **Jobs and backups** | Scheduled commands, and scheduled dumps with one-click restore | EventBridge + AWS Backup |
 | **Networks and firewalls** | Private networks with subnets and private DNS, and allow rules between resources | VPC + security groups |
 | **Load balancers and DNS** | HTTP or TCP balancing across replicas, and DNS zones and records at Cloudflare or Route 53 | ELB + Route 53 |
 | **VMs, volumes and snapshots** | Whole machines on QEMU with SSH, plus disks and folders that outlive what uses them | EC2 + EBS |
-| **Queues, topics, search, email, CDN and transcoding** | NATS JetStream, OpenSearch, SMTP with a message viewer, a caching edge and FFmpeg | SQS, SNS, OpenSearch, SES, CloudFront, MediaConvert |
+| **Queues, topics, search, email, CDN and transcoding** | NATS JetStream, OpenSearch, SMTP with a message viewer, a caching edge and FFmpeg; transcoders make presets, renditions of your size and bitrate and adaptive HLS ladders, and send a signed webhook or topic message when each file is done | SQS, SNS, OpenSearch, SES, CloudFront, MediaConvert |
 | **Operate** | Projects, people and roles, metrics and dashboards, alerts (email, Slack, Discord, Telegram or webhooks) and log export | IAM + CloudWatch |
 | **Catalogue** | WordPress, Ghost, n8n, Uptime Kuma, Gitea and Plausible, or your own template, installed as one stack | Marketplace |
 

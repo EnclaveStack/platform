@@ -6,9 +6,9 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v1 |
+| Version | v4 |
 | Created | 2026-10-23 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -523,7 +523,140 @@ enclave app create api --image acme/api:1 --port 8080 --publish \
 
 `--env` sets a plain value; `--secret-env KEY=SECRET_NAME` sets `KEY` to the secret's value when the container starts, without the value ever appearing in commands, logs or the console. In OpenTofu the same is `env = { … }` and `secret_env = { … }` (§8.4).
 
-**A bucket.** Its page shows an S3 endpoint and access keys. Any S3 client or SDK works with that endpoint.
+**A bucket.** Its page shows an S3 endpoint. Any S3 client or SDK works with that endpoint. There are two ways to give an app keys for it; prefer the first.
+
+- **Keys of its own (bucket access).** Give the app (or a job) bucket access: each bucket it needs, and whether it only **reads** it or **reads and writes**. EnclaveStack makes the app an object store user of its own that reaches exactly those buckets at those levels and nothing else, and gives its containers the keys in the standard AWS variables, so S3 code works unchanged:
+
+  | Variable | Value |
+  |---|---|
+  | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the app's own keys |
+  | `AWS_REGION` | `us-east-1` |
+  | `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL` | `http://es-system-objectstore:9000` |
+
+  Use **path-style** addresses in your S3 client (`forcePathStyle: true` in the AWS SDK for JavaScript, `addressing_style = path` in boto3; the AWS CLI does this by itself with a custom endpoint).
+
+  ```bash
+  enclave app create uploader --image acme/uploader:1 --port 8080 --bucket media:readwrite --wait
+  enclave app create storefront --image acme/shop:1 --port 80 --bucket media:read --wait
+  enclave job create billing --schedule "0 1 * * *" --image acme/billing:1 --bucket invoices:readwrite --wait
+  enclave app update storefront --bucket media:read --bucket invoices:read   # the list replaces the old one
+  enclave app update storefront --bucket ""                                 # take all access away
+  ```
+
+  In the console it is **Bucket access** in the app and job forms, and a **Bucket access** card on their pages. In OpenTofu:
+
+  ```hcl
+  resource "enclave_app" "storefront" {
+    name          = "storefront"
+    image         = "acme/shop:1"
+    port          = 80
+    bucket_access = [{ bucket = enclave_bucket.media.name, access = "read" }]
+  }
+  ```
+
+  Rules: up to 10 buckets, each once, in the app's own project. The keys are kept in the secret `<app>-bucket-credentials` (read it with `enclave secret get <app>-bucket-credentials --reveal`). Changing the list keeps the keys; removing all access, or deleting the app, removes its user and its keys stop working at once. A bucket an app can access can't be deleted until the access is removed. With bucket access, the app's own `env` and `secretEnv` can't set the five variables. A job that runs as an app (`--app`) uses that app's access; a job from an image has its own.
+- **Files in a bucket.** A bucket's page has an **Objects** tab: open folders, **Upload** files (several at once, into the folder shown or one you type, with optional tags such as `video-id`), **New folder**, **Download** and **Delete**. Only editors and owners of the project can see or change files. Uploads through EnclaveStack are up to 5 GiB; use an S3 client for bigger files. From the terminal:
+
+  ```bash
+  enclave bucket upload media ./clip.mov incoming/ --tag video-id=v42   # KEY ending in / is a folder; the file keeps its name
+  enclave bucket objects media                     # folders and files at the top
+  enclave bucket objects media incoming/ --recursive
+  enclave bucket download media incoming/clip.mov ./copy.mov   # - writes to standard output
+  enclave bucket delete-object media incoming/clip.mov --yes
+  ```
+
+  (`enclave bucket ls`, `get` and `rm` are about the bucket itself.) In OpenTofu a file is `enclave_bucket_object`:
+
+  ```hcl
+  resource "enclave_bucket_object" "intro" {
+    bucket      = enclave_bucket.media.name
+    key         = "videos/intro.mp4"
+    source      = "${path.module}/intro.mp4"
+    source_hash = filesha256("${path.module}/intro.mp4")   # a changed file is uploaded again
+    tags        = { video-id = "intro" }
+  }
+  ```
+
+  Use `content = "..."` instead of `source` for text. Destroying it deletes the file; import one with `tofu import enclave_bucket_object.intro media/videos/intro.mp4`.
+- **The project's shared key.** The secret `objectstore-credentials` reaches every bucket of the project. EnclaveStack's own services use it; give it to an app only when it really needs every bucket.
+
+**A transcoder: videos converted for you, and a message when each is done.** A transcoder watches a folder of a bucket and converts every file that lands there with FFmpeg. It writes three kinds of output, in any mix:
+
+| Output | What you get | Set it with |
+|---|---|---|
+| **Presets** | Ready-made files: `mp4-480p`, `mp4-720p`, `mp4-1080p`, `webm-720p`, `hls-720p`, `mp3`, `thumbnail` | `--preset`, `presets` |
+| **Renditions** | A file of the size and bitrate you choose, `<name>.mp4` (H.264 and AAC) or `<name>.webm` (VP9 and Opus) | `--rendition NAME:mp4:WIDTHxHEIGHT:KBPS[:AUDIO_KBPS[:KEYFRAME_SECONDS]]`, `renditions` |
+| **An HLS ladder** | An adaptive stream: `<name>/master.m3u8` (what players load), and for each rung `<name>/<rung>/index.m3u8` and its segments. Every rung has a keyframe at the same moments, so a player can switch quality at any segment | `--hls-rung NAME:WIDTHxHEIGHT:KBPS` (repeatable), `--hls-segment`, `--hls-gop`, `--hls-audio`, `--hls-name`; `hls = { rungs = [...] }` |
+
+Sizes are a box: the video keeps its shape, fits inside it and is never made larger than the original. 9:16 boxes (`720x1280`) suit phone video; 16:9 boxes (`1280x720`) suit landscape video. Defaults: audio 128 kbps, a keyframe every 2 seconds, 6-second segments (a whole number of keyframe intervals), ladder folder `hls`.
+
+**Where outputs go.** Normally under `<output folder>/<file name>/`. Put `{name}` (the file's name without its extension) or `{meta:<tag>}` (a tag the uploader set, see below) in the output folder to choose it yourself: `processed/{meta:video-id}/` puts the outputs of a file tagged `video-id: v42` under `processed/v42/`. A file without the tag isn't converted; its run fails saying which tag is missing.
+
+**Tags.** Set metadata on the upload the S3 way (`x-amz-meta-video-id: v42`; `Metadata={"video-id": "v42"}` in boto3, `Metadata: { "video-id": "v42" }` in the AWS SDK for JavaScript). Tag names are lowercase letters, digits and hyphens. The tags are copied onto every output, with `enclave-transcoder`, `enclave-run` and `enclave-source` (the input's key), and sent in the message.
+
+**Being told when a file is done.** Give a webhook, a topic or both. When each file's run ends (succeeded, failed or timed out), EnclaveStack sends this JSON:
+
+```json
+{
+  "event": "transcode.finished",
+  "transcoder": "videos",
+  "project": "default",
+  "runId": "run_k3x…",
+  "status": "succeeded",
+  "message": "Converted incoming/v42.mov into 7 files.",
+  "input": { "bucket": "media", "key": "incoming/v42.mov", "size": 48211337 },
+  "outputs": [ { "bucket": "media", "key": "processed/v42/hls/master.m3u8", "size": 412 } ],
+  "hlsMaster": "processed/v42/hls/master.m3u8",
+  "metadata": { "video-id": "v42" },
+  "startedAt": "2026-10-24T10:00:00Z",
+  "finishedAt": "2026-10-24T10:01:12Z"
+}
+```
+
+A webhook gets it as a POST with `Content-Type: application/json`, `X-Enclave-Event: transcode.finished`, `X-Enclave-Transcoder`, `X-Enclave-Run-Id` and, with a signing secret, `X-Enclave-Signature: sha256=<hex HMAC-SHA256 of the body with the secret's value>`. Check it before trusting the body:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+const expected = 'sha256=' + createHmac('sha256', process.env.HOOK_SECRET).update(rawBody).digest('hex');
+const ok = timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-enclave-signature'] ?? ''));
+```
+
+A webhook that doesn't answer with a 2xx is tried 3 times (at once, after 2 and after 8 seconds); then an event on the transcoder says it failed, and the run keeps its own result. The URL must be `https://`, or `http://` to `localhost` or `127.0.0.1`. A topic gets the same body with the attributes `event` and `status`; subscribe a queue to it to process messages at your own pace. The secret and the topic a transcoder names can't be deleted while it does.
+
+```bash
+enclave secret create hook-key --value "$(openssl rand -hex 32)"
+enclave transcoder create videos --input media/incoming/ --output 'media/processed/{meta:video-id}/' \
+  --hls-rung 360p:360x640:600 --hls-rung 480p:480x854:1000 --hls-rung 720p:720x1280:2000 --hls-rung 1080p:1080x1920:4000 \
+  --rendition selfie:mp4:720x1280:2500 \
+  --notify-webhook https://video.example.com/hooks/transcode --notify-secret hook-key --wait
+enclave transcoder update videos --hls-gop 3 --hls-segment 9    # the rungs and notify stay
+enclave transcoder update videos --notify-topic video-events     # also publish to a topic
+enclave transcoder update videos --no-hls --rendition ""         # remove the ladder and the renditions
+enclave transcoder runs videos                                   # each file, its status and files written
+```
+
+```hcl
+resource "enclave_transcoder" "videos" {
+  name   = "videos"
+  input  = { bucket = enclave_bucket.media.name, prefix = "incoming/" }
+  output = { bucket = enclave_bucket.media.name, prefix = "processed/{meta:video-id}/" }
+  renditions = [{ name = "selfie", container = "mp4", max_width = 720, max_height = 1280, video_kbps = 2500 }]
+  hls = {
+    rungs = [
+      { name = "360p", max_width = 360, max_height = 640, video_kbps = 600 },
+      { name = "720p", max_width = 720, max_height = 1280, video_kbps = 2000 },
+    ]
+  }
+  notify = {
+    webhook_url    = "https://video.example.com/hooks/transcode"
+    webhook_secret = enclave_secret.hook.name
+  }
+}
+```
+
+In the console these are **Renditions**, **HLS ladder** and **Notify when a file is done** in the transcoder form, with a card for each on its page; a run's **Output** lists the files it wrote, the master playlist first. Outputs are stored with media types (`application/vnd.apple.mpegurl`, `video/mp2t`, `video/mp4`), so a CDN in front of the bucket serves them to players as they are.
+
+**Moving from AWS Elemental MediaConvert.** There is no job API to call: write the upload to the transcoder's input folder (with your ID as a tag) instead of creating a job, and handle the webhook or topic message instead of the EventBridge `COMPLETE`/`ERROR` event. The message's `hlsMaster` is the playlist to store against your ID.
 
 **A cache.** The page shows `redis://` host and port the same way.
 
@@ -612,8 +745,224 @@ If a problem is not here, `enclave events <kind> <name>`, `enclave logs <kind> <
 | **Machine** | A computer EnclaveStack runs resources on. The one you started it on is the *main machine*; you can add more |
 | **Stack** | A product installed from the catalogue as one unit: an app with its database, storage and domain |
 
+## 14 · What each detail means
+
+Every page in the console shows a resource's **Details**: each line is a label, its value and, under the label, what it is for. Values you are likely to paste somewhere (addresses, names of secrets, keys) have a **Copy** button, and a secret's name links to that secret. This is the same list, so you can look a detail up here too. `enclave get <kind> <name>` shows the same values.
+
+
+**Reaching it**
+
+| Detail | What it means |
+|---|---|
+| Host | The address to use from this computer (your scripts, a database client). |
+| Port | The port on this computer. It is chosen once and stays the same. |
+| Internal host | The name apps inside EnclaveStack use to reach it. Prefer this between your apps. |
+| Internal port | The port apps inside EnclaveStack use with the internal host. |
+| Native port | The engine’s own protocol port on this computer (ClickHouse native clients). |
+| Internal native port | The native protocol port apps inside EnclaveStack use. |
+| URL | Open this in a browser, or call it from code. |
+| Internal URL | The address apps inside EnclaveStack use. |
+| S3 endpoint | The S3 address for code and tools on this computer (AWS CLI, SDKs with path-style addressing). |
+| Internal S3 endpoint | The S3 address apps inside EnclaveStack use. It is what AWS_ENDPOINT_URL is set to. |
+| Public address | The address on the internet that points at this machine. |
+| Private IP | Its address inside its network. |
+| Private DNS name | A name that resolves to it inside its network. |
+| SSH address | Where to connect with ssh; the SSH card shows the full command. |
+| SSH user | The user to log in as. |
+| Message viewer | A page that shows every message this email service caught. |
+| SMTP port (internal) | The port apps inside EnclaveStack send mail to. |
+| Fetches from | Where the CDN gets what it caches. |
+| Gateway | The address traffic leaves the network through. |
+| Engine network | The Docker network that carries this network’s traffic. |
+| Name servers | Set these at your domain registrar so the zone answers for your domain. |
+
+**Secrets and keys**
+
+| Detail | What it means |
+|---|---|
+| Password secret | The secret that holds the password. Read it with “enclave secret get NAME --reveal”, or give it to an app as a secret environment variable. |
+| Credentials secret | The secret holding the keys ({"accessKey", "secretKey"}). This shared key reaches every bucket in the project; give apps keys of their own with bucket access instead. |
+| Bucket keys | The secret holding this app’s own keys, which reach only the buckets in its bucket access. |
+| Username | The user to sign in as. |
+| Database | The database name to connect to. |
+| Bucket | The bucket’s name, as S3 clients use it. |
+| Value updated | When the secret’s value last changed. |
+| Credentials checked | When EnclaveStack last checked it can sign in to the store. |
+| Store | The secret store this value comes from. |
+| Key | The name of the value in the secret store. |
+| Secrets synced | How many secrets are kept in step with this store. |
+| Last synced | When the value was last read from the store. |
+
+**What it is**
+
+| Detail | What it means |
+|---|---|
+| Engine | The software that runs it, and its version. |
+| Version | The version that runs now. |
+| Image | The container image or machine image it runs. |
+| Source | The Git repository and branch it is built from. |
+| Built commit | The commit the running image was built from. |
+| Built image | The image built from the source. |
+| Last build | How the last build went; the Build log tab shows it. |
+| Serving revision | The revision that answers requests now. |
+| Last deploy | How the last change was rolled out. |
+| Network | The private network it joins. Resources on the same network reach each other by internal name. |
+| Machine | The machine it runs on. |
+| Replicas | How many copies run at once. |
+| Running replicas | How many copies run right now. |
+| Memory | The most memory it may use; past it, it is restarted. |
+| Max memory | The most memory the cache keeps; older keys are dropped past it. |
+| Published | Whether it is reachable from this computer on a fixed port, not only inside EnclaveStack. |
+| Deploy strategy | How a change rolls out: rolling keeps it serving; recreate stops it first. |
+| Health check | How EnclaveStack decides it is working. |
+| Versioning | Whether old versions of changed or deleted files are kept. |
+| Size | How big it is. |
+| Root disk | The size of the VM’s main disk. |
+| Disks | Extra disk volumes attached to the VM. |
+| Published ports | VM ports reachable from this computer. |
+| Power | Whether the VM is running. |
+| Image SHA-256 | The checksum of the machine image it started from. |
+| Kind of volume | A filesystem for apps and jobs, or a disk for one VM. |
+| Attached to | What uses this volume now. |
+| Space used | How much of it holds data. |
+| Started from snapshot | The snapshot its data came from. |
+| Copy of | The volume or VM this snapshot copies. |
+| Type | What kind it is. |
+| Size on disk | The space it takes on this machine. |
+| Taken | When it was made. |
+| Copied while in use | Yes means it was copied while running; files being written may be incomplete. |
+| Restored from | The backup this was restored from. |
+
+**Messaging and media**
+
+| Detail | What it means |
+|---|---|
+| Visibility timeout | How long a received message stays hidden from other workers before it is delivered again. |
+| Retention | How long messages are kept. |
+| Largest message | The biggest message it accepts. |
+| Dead letters | What happens to a message received too many times without being deleted. |
+| Delivers to | Where each message published to the topic goes. |
+| Subject | The broker subject apps publish and subscribe to. |
+| Stream | The broker stream that keeps the messages. |
+| Consumer | The broker consumer workers receive through. |
+| Messages waiting (about) | Messages ready to be received. |
+| In flight (about) | Messages received but not yet deleted. |
+| Subscriptions | Queues and webhooks that get each message. |
+| Mode | Capture keeps mail here; relay also delivers it through your provider. |
+| Relay | The provider mail is delivered through. |
+| Sender domain | The only domain mail may come from; Any allows all. |
+| Messages kept | How many caught messages are kept. |
+| Watches | The bucket folder it watches for new files. |
+| Watching | Whether new files are converted automatically. |
+| Output | Where converted files go. {name} and {meta:<tag>} are filled in from each file. |
+| Presets | Ready-made outputs it writes for each file. |
+| Limits | Files at once, memory per file and the longest one file may take. |
+| Hostname | The name it answers on. |
+| Origin | The app or bucket it caches. |
+| HTTPS | Where its certificate comes from. |
+| HTTP | What plain HTTP requests get. |
+| Certificate | The state of its HTTPS certificate. |
+| Certificate expires | When the certificate runs out; it is renewed before then. |
+| Issued by | Who issued the certificate. |
+| Default cache time | How long a response is kept when the origin doesn’t say. |
+| Cache size | The most it keeps; the least used is dropped first. |
+| Cached | How much it holds now. |
+
+**Networking**
+
+| Detail | What it means |
+|---|---|
+| Address range | The private addresses the network hands out. |
+| Internet | Whether resources on it can reach the internet. |
+| Subnets | Smaller ranges inside the network. |
+| Protects | What this firewall’s rules apply to. |
+| Other outgoing traffic | Traffic no rule mentions: allowed or denied. |
+| Containers protected | How many containers the rules are on now. |
+| Rules applied | When the rules were last put in place. |
+| Listens on | The protocol and port it accepts. |
+| Sends to | Where it sends traffic or data. |
+| Algorithm | How it picks a replica. |
+| Replica check | How it checks a replica can take traffic. |
+| Replicas found | Replicas behind it. |
+| Healthy replicas | Replicas that pass the check. |
+| Zone | The DNS zone it belongs to. |
+| Zone ID | The zone’s ID at the DNS provider. |
+| Provider | The DNS provider that holds the zone. |
+| Record | The name and type of the DNS record. |
+| Full name | The record’s whole name. |
+| Points at | What the record resolves to. |
+| Values at the provider | What the provider holds now. |
+| TTL | How long resolvers may cache the answer. |
+| App | The app it routes to. |
+
+**Scheduling and runs**
+
+| Detail | What it means |
+|---|---|
+| Schedule | When it runs. |
+| Runs with | The app or image each run uses. |
+| Command | What each run executes. |
+| Timeout | The longest one run may take before it is stopped. |
+| If still running | What happens when the next run is due before the last one ends. |
+| Next run | When it runs next. |
+| Last run | When it last ran. |
+| Last run result | How the last run ended; the Runs tab has each run. |
+| Stored in | Where the backups are written. |
+| Keeps | Which backups are kept; older ones are deleted. |
+| Key prefix | The folder the backups are written under. |
+| Last successful backup | When the last backup that worked finished. |
+
+**Monitoring**
+
+| Detail | What it means |
+|---|---|
+| State | Whether the alert is firing now. |
+| Since | When it entered this state. |
+| Last checked | When the condition was last checked. |
+| Last delivery | How the last notification went. |
+| Last delivered | When a notification last went out. |
+| Lines sent | Log lines sent so far, and their size. |
+| Sent | How much was sent. |
+| Behind by | How far sending lags behind the logs. |
+| Last sent | When lines were last sent. |
+| Last error | Why the last attempt failed. |
+| Sources | Whose logs are sent. |
+| Only lines matching | Only log lines containing this are sent. |
+| Field | The part of the stored value used. |
+| Widgets | Graphs on the dashboard. |
+| Created | When it was made. |
+
+**Stacks and backups**
+
+| Detail | What it means |
+|---|---|
+| Template | The catalogue template the stack was made from. |
+| Template version | The template version it runs; a newer one can be applied with an update. |
+| Members ready | How many of the resources it made are ready. |
+| Stack output | A value the template reports, such as an address to open. |
+| Backup file | The file this backup run wrote. |
+| SHA-256 | A checksum; restoring checks the file still matches it. |
+
+**Machines**
+
+| Detail | What it means |
+|---|---|
+| Name in commands | What the CLI, OpenTofu and placement use (machine/<name>). It never changes. |
+| ID | Its permanent ID. |
+| State since | When it entered its current state. |
+| Last heard | When its agent last answered. |
+| Address | Where the main machine reaches its agent. |
+| System | Its operating system and processor. |
+| Agent | The EnclaveStack version its agent runs. |
+| Machine engine | The container engine on it, and its version. |
+| CPUs | Processor cores EnclaveStack may use. |
+| VMs | Whether it can run virtual machines. |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
 | v1 | 2026-10-23 | Soupler | The complete guide: what it is, requirements and installing tools, getting the code, `make demo` and `make start`, first-run setup, the console, the `enclave` command, OpenTofu and `make tofu`, connecting your code, day-to-day, removal, troubleshooting, glossary |
+| v2 | 2026-10-24 | Soupler | §9: per-app bucket access (keys of its own, the five variables, CLI, console, OpenTofu, rules); the shared project key as the fallback |
+| v3 | 2026-10-24 | Soupler | §9 transcoders: presets, renditions, HLS ladder, output folders from tags, the done message, signature check, CLI and OpenTofu, moving from MediaConvert (L2-012) |
+| v4 | 2026-10-24 | Soupler | §9 files in a bucket (console, CLI, OpenTofu); §14 what each detail means (L2-013) |

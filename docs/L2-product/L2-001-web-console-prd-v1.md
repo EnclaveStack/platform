@@ -6,9 +6,9 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v15 |
+| Version | v18 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -117,6 +117,12 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | CON-67 | Each section has a **guide** (`/guide/<section>`): colour-coded parts — **What it is**, **When to use it**, **How to use it** (console steps and the same as one CLI command), **Example** (a small real scenario) and **Good to know** (limits, what it costs this machine, common mistakes). Plain words; guides explain EnclaveStack on its own terms and never compare it with other companies' products | Must |
 | CON-68 | A calmer screen: status is a small dot with a word; chips only where they carry meaning (the project when all projects show, the machine when there are several); icons without circles. Motion is CSS only — page fade, hover lift, groups opening, charts and numbers easing in — at most 300 ms, and none when the system asks for reduced motion. No animation library | Must |
 | CON-69 | Every field of a form that creates or changes a resource has a one-line hint saying what it does and what to enter (sign-in, setup and account fields explain themselves) | Should |
+| CON-70 | The app form and the job form (from an image) have **Bucket access**: rows of a bucket (picked from the project's buckets) and a level (**Read** / **Read and write**), with a hint naming the variables the app receives. A job that runs as an app says it uses the app's bucket access (`L2-011`) | Must |
+| CON-71 | An app's or job's page shows a **Bucket access** card: each bucket with its level, a link to the credentials secret and the five variable names (`L2-011` BKA-08) | Must |
+| CON-72 | The transcoder form has **Renditions**, an **HLS ladder** and **Notify when a file is done**; presets become optional (`L2-012`) | Must |
+| CON-73 | The transcoder's page shows its presets, renditions, ladder (with each rung) and notify settings; a run lists the files it wrote, the master playlist first (`L2-012` TRX-10) | Must |
+| CON-74 | A bucket's page has an **Objects** tab: browse folders, upload files with tags, download and delete (`L2-013`) | Must |
+| CON-75 | Every resource page shows its details as a readable list, each with its explanation, copy buttons and links (`L2-013` DET-*) | Must |
 
 ## Version history
 
@@ -137,3 +143,6 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | v13 | 2026-10-22 | Soupler | v0.8 requirements CON-54 – CON-60: machines, a machine's page, placement in forms, moving, machine metrics and the offline alert, catalogue, stacks (L2-010) |
 | v15 | 2026-10-23 | Soupler | CON-61 – CON-69 built; CON-69 scoped to resource forms |
 | v14 | 2026-10-22 | Soupler | Console v4 requirements CON-61 – CON-69 (planned): grouped sidebar, find, clickable breadcrumbs, full-page resources, the overview, section summaries, guides, a calmer screen with CSS-only motion, field hints |
+| v16 | 2026-10-24 | Soupler | CON-70, CON-71: bucket access in the app and job forms and pages (L2-011) |
+| v17 | 2026-10-24 | Soupler | CON-72, CON-73: transcoder renditions, ladder and notify in the form and page (L2-012) |
+| v18 | 2026-10-24 | Soupler | CON-74 bucket objects tab, CON-75 readable details (L2-013) |

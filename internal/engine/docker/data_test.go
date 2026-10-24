@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -353,6 +355,93 @@ func TestTranscodeConvertsAClipWithEveryPreset(t *testing.T) {
 	})
 	if err != nil || res.ExitCode == 0 || !strings.Contains(string(res.Output), "Invalid data") {
 		t.Errorf("not media: %v exit %d %s", err, res.ExitCode, res.Output)
+	}
+}
+
+// L2-012 TRX-02, TRX-03 with the real FFmpeg image: a portrait clip becomes a ladder whose master
+// playlist lists every rung at its real size, whose rungs start each segment on a keyframe at the same
+// time, and a rendition; a small landscape clip is never scaled up.
+func TestTranscodeWritesALadderAndRenditions(t *testing.T) {
+	d := newDriver(t)
+	ctx := context.Background()
+	clip := func(size string) []byte {
+		b, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--entrypoint", "ffmpeg", d.opts.TranscodeImage, "-hide_banner", "-loglevel", "error",
+			"-f", "lavfi", "-i", "testsrc2=duration=13:size="+size+":rate=30", "-f", "lavfi", "-i", "sine=duration=13:sample_rate=44100", "-shortest",
+			"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-f", "matroska", "-").Output()
+		if err != nil || len(b) == 0 {
+			t.Fatalf("make a %s clip: %v", size, err)
+		}
+		return b
+	}
+	convert := func(in []byte, o engine.TranscodeRun) string {
+		dir := t.TempDir()
+		o.RunID, o.ResourceID, o.Name, o.InputName, o.InputSize, o.MemoryMiB, o.Timeout = "run_it"+suffix(), "tc_it", "it", "input.mkv", int64(len(in)), 2048, 10*time.Minute
+		res, err := d.Transcode(ctx, o, bytes.NewReader(in), func(name string, size int64, r io.Reader) error {
+			if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(name)), 0o755); err != nil {
+				return err
+			}
+			b, err := io.ReadAll(r)
+			if err == nil && int64(len(b)) != size {
+				err = fmt.Errorf("%s: read %d of %d", name, len(b), size)
+			}
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, name), b, 0o644)
+		})
+		if err != nil || res.ExitCode != 0 {
+			t.Fatalf("transcode: %v exit %d\n%s", err, res.ExitCode, res.Output)
+		}
+		return dir
+	}
+	probe := func(dir string, args ...string) string {
+		out, err := exec.CommandContext(ctx, "docker", append([]string{"run", "--rm", "-v", dir + ":/w", "--entrypoint", "ffprobe", d.opts.TranscodeImage, "-v", "error"}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("ffprobe %v: %v", args, err)
+		}
+		return strings.TrimSpace(strings.Split(strings.TrimSpace(string(out)), "\n")[0])
+	}
+	size := func(dir, file string) string {
+		return probe(dir, "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", "/w/"+file)
+	}
+
+	ladder := &api.HLSLadder{Name: "hls", SegmentSeconds: 6, GOPSeconds: 2, AudioKbps: 128, Rungs: []api.HLSRung{
+		{Name: "360p", MaxWidth: 360, MaxHeight: 640, VideoKbps: 600}, {Name: "720p", MaxWidth: 720, MaxHeight: 1280, VideoKbps: 2000}}}
+	dir := convert(clip("1080x1920"), engine.TranscodeRun{HLS: ladder,
+		Renditions: []api.Rendition{{Name: "selfie", Container: api.ContainerMP4, MaxWidth: 720, MaxHeight: 1280, VideoKbps: 2500, AudioKbps: 128, GOPSeconds: 2}}})
+	master, err := os.ReadFile(filepath.Join(dir, "hls/master.m3u8"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=728000,RESOLUTION=360x640\n360p/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2128000,RESOLUTION=720x1280\n720p/index.m3u8\n"; string(master) != want {
+		t.Errorf("master playlist:\n%s", master)
+	}
+	if got := size(dir, "selfie.mp4"); got != "720x1280" {
+		t.Errorf("rendition size %s", got)
+	}
+	if got := probe(dir, "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,channels", "-of", "csv=p=0", "/w/selfie.mp4"); got != "aac,48000,2" {
+		t.Errorf("rendition audio %s", got)
+	}
+	var starts []string
+	for _, r := range ladder.Rungs {
+		if _, err := os.Stat(filepath.Join(dir, "hls", r.Name, "segment-002.ts")); err != nil {
+			t.Errorf("%s: 13 s in 6 s segments makes 3: %v", r.Name, err)
+		}
+		starts = append(starts, probe(dir, "-select_streams", "v:0", "-show_entries", "frame=key_frame,pts_time", "-of", "csv=p=0", "-read_intervals", "%+#1", "/w/hls/"+r.Name+"/segment-001.ts"))
+	}
+	if !strings.HasPrefix(starts[0], "1,") || starts[0] != starts[1] {
+		t.Errorf("segment 1 must start on a keyframe at the same time in every rung: %v", starts)
+	}
+
+	// A small landscape clip in a portrait box: fitted, never scaled up.
+	dir = convert(clip("640x360"), engine.TranscodeRun{Renditions: []api.Rendition{
+		{Name: "big", Container: api.ContainerMP4, MaxWidth: 1920, MaxHeight: 1080, VideoKbps: 4000, AudioKbps: 128, GOPSeconds: 2},
+		{Name: "tall", Container: api.ContainerWebM, MaxWidth: 360, MaxHeight: 640, VideoKbps: 800, AudioKbps: 96, GOPSeconds: 2}}})
+	if got := size(dir, "big.mp4"); got != "640x360" {
+		t.Errorf("scaled up: %s", got)
+	}
+	if got := size(dir, "tall.webm"); got != "360x202" {
+		t.Errorf("fitted: %s", got)
 	}
 }
 

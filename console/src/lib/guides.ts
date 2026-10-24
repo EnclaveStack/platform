@@ -528,25 +528,32 @@ export const GUIDES: Record<Exclude<SectionSlug, 'records'>, Guide> = {
   transcoders: {
     what: [
       'A transcoder watches a folder in a bucket and converts every video or audio file that arrives: MP4 in several sizes, HLS for streaming, WebM, MP3 and thumbnails.',
+      'Besides the ready-made presets you can define renditions of your own (a file of a size and bitrate you choose) and an HLS ladder: several qualities with a master playlist, so a player switches quality as the connection changes.',
+      'When each file is done or fails, it can call your webhook (signed with a secret) or publish to a topic, with the files it wrote and the tags the uploader set on the file.',
     ],
     when: [
       'Users upload videos that must play well on phones and computers.',
       'You need thumbnails for every video.',
       'You turn recordings into MP3.',
+      'Your app needs to know when a video is ready to play, and where its playlist is.',
     ],
     how: [
       'Open Transcoders and choose New transcoder.',
       'Choose the bucket folder where files arrive and the folder for results.',
-      'Choose the presets you want.',
-      'Upload a file to the input folder; the Runs tab shows each conversion.',
+      'Choose presets, add renditions of your own, or turn on the HLS ladder and set its rungs.',
+      'Optionally, under Notify when a file is done, give a webhook URL and a signing secret, or a topic.',
+      'Upload a file to the input folder; the Runs tab shows each conversion and the files it wrote.',
     ],
-    command: 'enclave transcoder create videos --input uploads/incoming/ --output uploads/ready/ --preset mp4-720p --preset thumbnail --wait',
+    command: 'enclave transcoder create videos --input media/incoming/ --output \'media/processed/{meta:video-id}/\' --hls-rung 360p:360x640:600 --hls-rung 720p:720x1280:2000 --hls-rung 1080p:1080x1920:4000 --notify-webhook https://video.example.com/done --notify-secret hook-key --wait',
     example: [
-      'Create a transcoder videos watching uploads/incoming/, making mp4-720p and a thumbnail into uploads/ready/.',
-      'A user uploads holiday.mov; once it’s converted, uploads/ready/ holds the 720p MP4 and a thumbnail, and the Runs tab shows how long it took.',
+      'Your video service uploads each video to media/incoming/ with the tag video-id (x-amz-meta-video-id: v42).',
+      'The transcoder writes media/processed/v42/hls/master.m3u8 and a playlist and segments for 360p, 720p and 1080p, each with the tag video-id.',
+      'Your webhook receives {"status": "succeeded", "hlsMaster": "processed/v42/hls/master.m3u8", "metadata": {"video-id": "v42"}, ...} with an X-Enclave-Signature you check with the secret.',
     ],
     note: [
-      'Converting video uses a lot of CPU; keep the number at once low on a small machine.',
+      'Converting video uses a lot of CPU; keep the number at once low on a small machine. A ladder decodes the file once per rung.',
+      'Sizes are the largest box a video fits in: it keeps its shape and is never made larger than the original.',
+      'A webhook that doesn’t answer is tried 3 times; if it still fails, an event on the transcoder says so and the run keeps its result.',
       'A file that takes longer than the time limit (1 hour unless you choose) is stopped.',
     ],
     related: ['buckets', 'cdn', 'jobs'],

@@ -191,7 +191,7 @@ func (r *Reconciler) backupOnce(ctx context.Context, res *domain.Resource, s api
 		return nil, "", fmt.Errorf("the upload to %s failed: %w", target.Describe(), putErr)
 	}
 	art := &api.Artifact{Key: key, SizeBytes: obj.Size, SHA256: obj.SHA256, Destination: target.Describe()}
-	msg := fmt.Sprintf("Backed up %s %s (%s): %s.", src.Kind, src.Name, d.info.Engine, humanBytes(obj.Size))
+	msg := fmt.Sprintf("Backed up %s %s (%s): %s.", src.Kind, src.Name, d.info.Engine, api.ByteSize(obj.Size))
 	// Retention counts only this backup's own objects; another backup of the same source into the same
 	// place keeps its own (BAK-04).
 	owned, err := r.Store.ArtifactRunIDs(ctx, res.ID)
@@ -221,18 +221,6 @@ func (r *Reconciler) backupOnce(ctx context.Context, res *domain.Resource, s api
 		}
 	}
 	return art, msg, nil
-}
-
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%d bytes", n)
 }
 
 // runBackup executes one backup run (scheduled, manual or catch-up).

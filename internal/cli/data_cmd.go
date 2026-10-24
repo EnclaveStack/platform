@@ -486,12 +486,14 @@ type transcoderFlags struct {
 	timeout             time.Duration
 	concurrency, memory int
 	wait                bool
+	outputs             transcodeOutputFlags
 }
 
 func (f *transcoderFlags) bind(cmd *cobra.Command) {
+	f.outputs.bind(cmd)
 	cmd.Flags().StringVar(&f.input, "input", "", "where media arrives: BUCKET/FOLDER/")
-	cmd.Flags().StringVar(&f.output, "output", "", "where results go: BUCKET/FOLDER/ (default folder transcoded/)")
-	cmd.Flags().StringArrayVar(&f.presets, "preset", nil, "preset (repeatable): "+strings.Join(api.Presets, ", "))
+	cmd.Flags().StringVar(&f.output, "output", "", "where results go: BUCKET/FOLDER/ (default folder transcoded/); {name} and {meta:TAG} take the file's name and the uploader's tags, like media/processed/{meta:video-id}/")
+	cmd.Flags().StringArrayVar(&f.presets, "preset", nil, "preset (repeatable; on update the list replaces the old one, \"\" for none): "+strings.Join(api.Presets, ", "))
 	cmd.Flags().BoolVar(&f.noWatch, "no-watch", false, "don't convert new files automatically (only by transcoder run)")
 	cmd.Flags().BoolVar(&f.watch, "watch", false, "convert new files automatically (the default)")
 	cmd.Flags().DurationVar(&f.timeout, "run-timeout", 0, "longest one file may take (1m–24h, default 1h)")
@@ -500,7 +502,7 @@ func (f *transcoderFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&f.wait, "wait", false, "wait until ready")
 }
 
-func (f *transcoderFlags) patch(changed func(string) bool) (map[string]any, error) {
+func (f *transcoderFlags) patch(changed func(string) bool, current *api.TranscoderSpec) (map[string]any, error) {
 	p := map[string]any{}
 	for _, fl := range []struct {
 		name string
@@ -515,7 +517,11 @@ func (f *transcoderFlags) patch(changed func(string) bool) (map[string]any, erro
 		}
 	}
 	if changed("preset") {
-		p["presets"] = f.presets
+		if len(f.presets) == 1 && f.presets[0] == "" {
+			p["presets"] = nil
+		} else {
+			p["presets"] = f.presets
+		}
 	}
 	if f.noWatch && f.watch {
 		return nil, usagef("use either --watch or --no-watch")
@@ -536,15 +542,18 @@ func (f *transcoderFlags) patch(changed func(string) bool) (map[string]any, erro
 	if changed("memory") {
 		p["memoryMiB"] = f.memory
 	}
+	if err := f.outputs.patch(p, changed, current); err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 
 func (a *app) transcoderCmd() *cobra.Command {
 	cmd := a.kindCmd(api.KindTranscoder, "transcoder", []string{"transcoders"}, "Transcoders: media dropped in a bucket folder, converted with FFmpeg")
 	var cf transcoderFlags
-	create := &cobra.Command{Use: "create NAME --input BUCKET/FOLDER/ --output BUCKET/FOLDER/ --preset P...", Short: "Create a transcoder", Args: cobra.ExactArgs(1),
+	create := &cobra.Command{Use: "create NAME --input BUCKET/FOLDER/ --output BUCKET/FOLDER/ (--preset P | --rendition R | --hls-rung R)...", Short: "Create a transcoder", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := cf.patch(cmd.Flags().Changed)
+			p, err := cf.patch(cmd.Flags().Changed, nil)
 			if err != nil {
 				return err
 			}
@@ -553,11 +562,18 @@ func (a *app) transcoderCmd() *cobra.Command {
 	cf.bind(create)
 	_ = create.MarkFlagRequired("input")
 	_ = create.MarkFlagRequired("output")
-	_ = create.MarkFlagRequired("preset")
 	var uf transcoderFlags
-	update := &cobra.Command{Use: "update NAME", Short: "Change a transcoder (only the flags you pass; --preset replaces the list)", Args: cobra.ExactArgs(1),
+	update := &cobra.Command{Use: "update NAME", Short: "Change a transcoder (only the flags you pass; --preset, --rendition and --hls-rung replace their lists)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := uf.patch(cmd.Flags().Changed)
+			_, r, err := a.resolve(cmd.Context(), api.KindTranscoder, args[0])
+			if err != nil {
+				return err
+			}
+			var current api.TranscoderSpec
+			if err := json.Unmarshal(r.Spec, &current); err != nil {
+				return err
+			}
+			p, err := uf.patch(cmd.Flags().Changed, &current)
 			if err != nil {
 				return err
 			}

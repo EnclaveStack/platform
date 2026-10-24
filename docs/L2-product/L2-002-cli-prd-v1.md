@@ -6,9 +6,9 @@
 | Document ID | L2-002-cli-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v17 |
+| Version | v21 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -93,6 +93,9 @@ enclave secret get stripe-key --reveal  enclave machine
 | CLI-50 | `enclave catalogue ls`, `catalogue show <entry>` (parameters and what it creates), `catalogue add <file>`, `catalogue remove <entry>` (CAT-01 – CAT-03) | Must — v0.8 |
 | CLI-51 | `enclave stack create <name> --template <entry>|--template-file <file> [--version V] [--param k=v]… [--secret-param k=…] [--wait]`, `stack get` (members and outputs), `stack ls`, `stack update <name> [--param k=v]… [--version V]`, `stack delete <name>` (lists members with data and asks, `--yes` without a terminal) (CAT-04 – CAT-07) | Must — v0.8 |
 | CLI-52 | `ls`, `get`, `events`, `delete` and `--wait` cover `stack`; a member refuses `update` and `delete` naming its stack (CAT-06) | Must — v0.8 |
+| CLI-53 | `app create`, `app update`, `job create` and `job update` take `--bucket NAME:read` or `--bucket NAME:readwrite` (repeatable); on update the list replaces the old one and `--bucket ""` removes all. `get` shows the access (`L2-011`) | Must |
+| CLI-54 | `transcoder create` and `update` take `--rendition NAME:CONTAINER:WxH:KBPS[:AUDIO_KBPS[:GOP_SECONDS]]`, `--hls-rung NAME:WxH:KBPS` with `--hls-name`, `--hls-segment`, `--hls-gop`, `--hls-audio`, and `--notify-webhook`, `--notify-secret`, `--notify-topic`; `--no-hls` removes the ladder; on update a repeated flag replaces its list, `""` clears it (`--preset`, `--rendition`, `--notify-webhook`, `--notify-topic`), and a ladder or notify setting not given is kept (`L2-012`) | Must |
+| CLI-55 | `bucket objects`, `bucket upload` (`--tag`), `bucket download`, `bucket delete-object` (`L2-013`) | Must |
 
 ## Version history
 
@@ -115,3 +118,7 @@ enclave secret get stripe-key --reveal  enclave machine
 | v15 | 2026-10-22 | Soupler | CLI-39 as built: `login` and a token without `--role` get the strongest role |
 | v16 | 2026-10-22 | Soupler | v0.8 requirements CLI-46 – CLI-52: machines, the agent, --machine, move, catalogue, stacks (L2-010) |
 | v17 | 2026-10-23 | Soupler | CLI-46: `drain --wait` waits until each moved resource has finished moving, as `move --wait` does |
+| v18 | 2026-10-24 | Soupler | CLI-53: --bucket NAME:read|readwrite on apps and jobs (L2-011) |
+| v19 | 2026-10-24 | Soupler | CLI-54: transcoder renditions, ladder and notify flags (L2-012) |
+| v20 | 2026-10-24 | Soupler | CLI-54 wording matches the built flags |
+| v21 | 2026-10-24 | Soupler | CLI-55: bucket object commands (L2-013) |

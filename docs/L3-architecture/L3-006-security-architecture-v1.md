@@ -6,9 +6,9 @@
 | Document ID | L3-006-security-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v11 |
+| Version | v14 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -144,6 +144,34 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | Catalogue (ADR-048) | A template doing more than its installer may | Templates are data, never code: members are API specs validated like a hand-made create, with the installer's role, in the installer's project. Only machine admins add templates. Built-in images are pinned by version |
 | Machines in the API | Learning about other projects through machines | A machine's resource count covers only projects the caller can see; the list of what runs there is filtered the same way |
 
+## 11 · Per-app bucket access (2026-10-24, `L2-011`, ADR-049)
+
+| Area | Threat | Control |
+|---|---|---|
+| Least privilege | One compromised app reading or deleting every bucket of its project | Each app or job with bucket access has its own object store user whose policy names only its buckets, with read or read-write; no bucket creation, deletion, policy or admin action |
+| Keys | Keys seen where they shouldn't be | Kept only in a managed, encrypted secret owned by the resource; never in responses, events, logs or the console; `secret get --reveal` is audited |
+| Revocation | Old keys working after access is taken away | Removing the access or the resource removes the user from the object store at once, which refuses its keys, also in a running container |
+| Overrides | An app's own `env` replacing its keys with broader ones | With bucket access, `env` and `secretEnv` can't set the five AWS variables (`422`) |
+
+## 12 · Transcoder renditions and notifications (2026-10-24, `L2-012`, ADR-050)
+
+| Area | Threat | Control |
+|---|---|---|
+| The FFmpeg script | Shell injection through names or tags | Only validated values reach the script: names match `^[a-z0-9][a-z0-9-]{0,31}$`, numbers are bounded integers; tags never reach it (they only choose an output key and are copied as metadata) |
+| Output keys from tags | A tag writing outside the output folder | A tag used in the folder must match `^[A-Za-z0-9._-]{1,128}$` and can't be `.` or `..`; the run fails otherwise |
+| Webhooks | Calling internal services; leaking the body | `https://` only, or `http://` to localhost (TOP-03); no redirects; 10 s; replies read at most 4 KiB and never kept; signed with the named secret |
+| The message | Secrets in a message | It carries keys, sizes, statuses and the input's own tags, never a credential |
+
+## 13 · Bucket objects (2026-10-24, `L2-013`)
+
+| Area | Threat | Control |
+|---|---|---|
+| Who reads files | A viewer reading data, or a token of another project | Editor or owner of the bucket's project only, as message bodies; project scoping as every resource route |
+| Keys | Path tricks (`../`, `/etc`) or header injection | OBJ-04 rules; keys go to the object store as keys, never as file paths; tags are checked before they become headers |
+| Size | Filling the disk or memory | 5 GiB per upload; bodies stream from the request to the object store and back, never buffered whole |
+| Downloads | A stored HTML file running in the console's origin | `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` on every download |
+| Logs and events | File contents in logs | Events and logs name the key and size only |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -159,3 +187,6 @@ How EnclaveStack protects the machine, its data and its secrets, and the threats
 | v9 | 2026-10-21 | Soupler | §8 v0.6 additions (planned): broker isolation, message and email access, webhooks, database engine users, search auth, email relay, CDN bucket policy, transcoder sandboxing |
 | v10 | 2026-10-22 | Soupler | §9 v0.7 additions (planned): roles, project isolation, invites, removal, last admin, audit, notifications, log export, secret stores, metrics |
 | v11 | 2026-10-22 | Soupler | §10 v0.8 additions (planned): agent channel and CA, join codes, removed machines, secrets over the wire, tunnel, network crossing, helper privileges, catalogue templates, machine visibility |
+| v12 | 2026-10-24 | Soupler | §11 per-app bucket access: least privilege, keys, revocation, overrides (ADR-049) |
+| v13 | 2026-10-24 | Soupler | §12 transcoder renditions and notifications: the script, output keys from tags, webhooks, the message (ADR-050) |
+| v14 | 2026-10-24 | Soupler | §13 bucket objects: access, keys, size, downloads, logs (L2-013) |

@@ -6,9 +6,9 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v15 |
+| Version | v17 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -774,6 +774,30 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
   - **Delete.** Deleting the stack marks every member `deleting` in one transaction. A member that something outside the stack still uses refuses the whole delete, with the list. The stack is removed when its last member is. Members delete in any order; a network that still has containers retries until they're gone.
 - **Consequences**: stacks add no engine calls of their own. A template is never run as code, so a template from a stranger can create no more than its installer could by hand.
 
+## ADR-049 — Per-app bucket access: one object store user per app or job
+- **Status**: Accepted — 2026-10-24, `L2-011` BKA-01 – BKA-10
+- **Context**: one key per project (ADR-035) can't say "this app may only read this bucket". The object store (MinIO) already supports users with canned policies, and EnclaveStack already makes one such user per project.
+- **Decision**:
+  - **User.** An app or job with bucket access gets an object store user named `esr-` and the random part of its resource ID (20 characters, so it fits every object store's access-key limits); its policy (canned, named after the user) allows, per grant: `read` → `s3:GetBucketLocation`, `s3:ListBucket` on the bucket and `s3:GetObject` on its objects; `readwrite` → also `s3:PutObject`, `s3:DeleteObject`, `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts`, and `s3:ListBucketMultipartUploads` on the bucket. Nothing else: no bucket creation, deletion, policy or admin action.
+  - **Keys.** Made by the service when access is first given (create or update), in the same transaction, as the managed secret `<name>-bucket-credentials` owned by the resource. The access key is the user name; the secret key is 24 random bytes, base64url-encoded. Later changes keep them.
+  - **When it is applied.** The reconciler calls `Driver.SetStoreUserAccess` before it deploys an app's new revision and before it starts a job's run, so a revision or run never starts with access it doesn't have yet. On delete, and when the list becomes empty, it removes the user and policy; the service deletes the secret with the resource (ownership) or when the list empties.
+  - **Variables.** The five of `L3-002` §12.3 are added to the container's environment after `env` and `secretEnv`, which may not use those names, so nothing overrides them.
+  - **Jobs as apps.** A job with `app` uses the app's user and keys; the reconciler applies the app's grants before the run.
+  - **Shared implementation.** `SetProjectStoreAccess` (ADR-035) becomes a project user with `readwrite` on every bucket of the project, through the same code that writes a user and its policy.
+- **Verified**: on real MinIO (`internal/engine/docker`, `TestStoreUserReachesItsGrantsAtTheirLevels`) and end to end with the official AWS CLI reading only the five variables (`tests/e2e`, `TestBucketAccessForRealWithTheAWSCLI`): read lists and reads but can't write, delete, create buckets or reach other buckets; read and write writes; removal revokes the keys at once.
+- **Consequences**: one more admin call per deploy of an app with access (idempotent, cheap). The object store is on the main machine, so the call goes there whatever machine the app runs on. Removing a user makes its keys fail at once, including in a running container; the app gets new keys only if access is given again.
+
+## ADR-050 — Transcoder renditions, HLS ladders and notifications: FFmpeg per output, a message per run
+- **Status**: Accepted — 2026-10-24, `L2-012` TRX-01 – TRX-10
+- **Context**: running a video product needs adaptive HLS, chosen sizes and a "done" signal. MediaConvert's API is large; EnclaveStack's transcoder is a watched folder with fixed presets (ADR-034).
+- **Decision**:
+  - **Script.** `internal/transcode` still builds the whole FFmpeg script from validated values only: names match `^[a-z0-9][a-z0-9-]{0,31}$`, every other value is a bounded integer. Nothing else the user typed reaches the shell.
+  - **Rendition.** One FFmpeg run: `scale=w=W:h=H:force_original_aspect_ratio=decrease:force_divisible_by=2` (never above the source: the box is capped at the input's size), H.264 `-crf 23 -maxrate <kbps>k -bufsize <2×kbps>k` (or VP9 `-crf 33 -b:v 0 -maxrate`), keyframes forced every `gopSeconds` with closed GOPs and no scene-cut keyframes, AAC (or Opus) at `audioKbps`, 48 kHz stereo; MP4 with `+faststart`.
+  - **Ladder.** One FFmpeg run per rung with the same keyframe expression, so every rung has keyframes at the same timestamps and segments line up (spiked 2026-10-24 on the pinned image: segment 1 of a 360p and a 720p rung both start on a keyframe at the same time). `-f hls -hls_time <segmentSeconds> -hls_playlist_type vod`. Audio is mapped when present (`0:a:0?`). After the rungs, the script writes `master.m3u8` (`#EXT-X-VERSION:3`, one `#EXT-X-STREAM-INF:BANDWIDTH=<(videoKbps+audioKbps)×1000>,RESOLUTION=<from ffprobe on the rung's first segment>` per rung).
+  - **Tags.** The reconciler reads the input's user metadata with `Stat`, renders the output folder from it, and writes it onto every output with the `enclave-*` keys.
+  - **Message.** After `finish` records the run, the reconciler builds the message once and sends it: a webhook with up to 3 attempts (0 s, 2 s, 8 s) through `internal/webhook` (no redirects, 10 s each, a 2xx is delivery), signed with the named secret; a topic through the broker, as a publish. A failure of either is an event on the transcoder and never changes the run.
+- **Consequences**: a ladder costs one decode per rung (simple, and each rung can fail alone with FFmpeg's own message). The transcode container still has no network: it reads its input from a copy and its outputs are copied out.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -801,3 +825,5 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v21 | 2026-10-22 | Soupler | ADR-042 – ADR-048 for v0.8: agent over mutual TLS, machine identity and join codes, placement and the engine router, networks across machines (mesh, stand-ins, address pools; spiked), offline machines, moving, catalogue and stacks (planned) |
 | v22 | 2026-10-22 | Soupler | Token prefix `es_pat_` (was `hc_pat_` after the rename) |
 | v15 | 2026-10-23 | Soupler | ADR-042 – ADR-044: the main machine has a generated ID and a computer-derived name; no `main` row or alias |
+| v16 | 2026-10-24 | Soupler | ADR-049: per-app bucket access, one object store user per app or job (L2-011) |
+| v17 | 2026-10-24 | Soupler | ADR-050: transcoder renditions, HLS ladders, tags and notifications (L2-012) |

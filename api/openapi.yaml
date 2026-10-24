@@ -573,6 +573,58 @@ paths:
                   - { type: object, required: [outputTail], properties: { outputTail: { type: string, description: "The last 64 KiB of output, as printed" } } }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/objects:
+    get:
+      operationId: listObjects
+      tags: [data]
+      summary: One folder of a bucket, one page at a time (L2-013 OBJ-01; session or write token)
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { name: prefix, in: query, schema: { type: string }, description: 'a folder: "" or ending in /' }
+        - { name: cursor, in: query, schema: { type: string }, description: the nextCursor of the page before }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 1000 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ObjectList' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/objects/{key}:
+    parameters:
+      - { $ref: '#/components/parameters/ResourceID' }
+      - { name: key, in: path, required: true, schema: { type: string }, description: "the object's key; its / are kept, each part is escaped" }
+    put:
+      operationId: putObject
+      tags: [data]
+      summary: Upload an object, up to 5 GiB, with tags as X-Enclave-Tag-<name> headers (OBJ-02)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+      responses:
+        '201': { description: Uploaded, content: { application/json: { schema: { $ref: '#/components/schemas/ObjectInfo' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: getObject
+      tags: [data]
+      summary: Download an object as an attachment; tags come back as X-Enclave-Tag-<name> headers (OBJ-03)
+      responses:
+        '200': { description: The bytes, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteObject
+      tags: [data]
+      summary: Delete an object; a missing one is already gone (OBJ-03)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /api/v1/resources/{id}/messages:
     post:
       operationId: sendMessage
@@ -1055,6 +1107,7 @@ components:
         subnet: { type: string, description: "subnet of the network; default its first" }
         replicas: { type: integer, minimum: 1, maximum: 10, default: 1, description: "containers per revision; 1 when publish is true (ADR-022)" }
         volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' }, description: "filesystem volumes mounted into every container (ADR-027); a change deploys a new revision" }
+        bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "buckets the app reaches with keys of its own, given as AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_ENDPOINT_URL_S3 and AWS_ENDPOINT_URL (L2-011); the list replaces the old one" }
     GitSource:
       type: object
       required: [git, ref]
@@ -1121,6 +1174,7 @@ components:
         network: { type: string, description: "image jobs only; an app job runs in its app's network" }
         subnet: { type: string }
         volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' } }
+        bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "a job from an image only; a job with app uses the app's (L2-011)" }
     BackupSpec:
       type: object
       required: [source, destination]
@@ -1263,6 +1317,13 @@ components:
         values: { type: array, minItems: 1, maxItems: 20, items: { type: string } }
         machine: { type: boolean, description: "A/AAAA to the machine's public address" }
         ttl: { type: integer, minimum: 60, maximum: 86400, default: 300 }
+    BucketGrant:
+      type: object
+      required: [bucket, access]
+      additionalProperties: false
+      properties:
+        bucket: { type: string, description: a bucket of the same project }
+        access: { type: string, enum: [read, readwrite] }
     VolumeMount:
       type: object
       required: [volume, path]
@@ -1346,17 +1407,107 @@ components:
       properties: { bucket: { type: string }, prefix: { type: string, maxLength: 255, description: "'' or a/b/" } }
     TranscoderSpec:
       type: object
-      required: [input, output, presets]
+      required: [input, output]
       additionalProperties: false
-      description: "Converts media written to a folder (ADR-034). Outputs: watching, input, lastRunAt, lastRunStatus."
+      description: "Converts media written to a folder (ADR-034, ADR-050): at least one of presets, renditions and hls. The output prefix may use {name} and {meta:<tag>}. Outputs: watching, input, lastRunAt, lastRunStatus."
       properties:
         input: { $ref: '#/components/schemas/BucketFolder' }
         output: { $ref: '#/components/schemas/BucketFolder' }
-        presets: { type: array, minItems: 1, maxItems: 7, items: { type: string, enum: [mp4-480p, mp4-720p, mp4-1080p, webm-720p, hls-720p, mp3, thumbnail] } }
+        presets: { type: array, maxItems: 7, items: { type: string, enum: [mp4-480p, mp4-720p, mp4-1080p, webm-720p, hls-720p, mp3, thumbnail] } }
         watch: { type: boolean, default: true }
         timeoutSeconds: { type: integer, minimum: 60, maximum: 86400, default: 3600 }
         concurrency: { type: integer, minimum: 1, maximum: 4, default: 1 }
         memoryMiB: { type: integer, minimum: 256, maximum: 8192, default: 1024 }
+        renditions: { type: array, maxItems: 8, items: { $ref: '#/components/schemas/Rendition' } }
+        hls: { $ref: '#/components/schemas/HLSLadder' }
+        notify: { $ref: '#/components/schemas/TranscodeNotify' }
+    Rendition:
+      type: object
+      required: [name, container, maxWidth, maxHeight, videoKbps]
+      additionalProperties: false
+      description: "One file of a chosen size and bitrate, <name>.<container> in the run's folder (L2-012 TRX-02)."
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$' }
+        container: { type: string, enum: [mp4, webm] }
+        maxWidth: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        maxHeight: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        videoKbps: { type: integer, minimum: 100, maximum: 50000 }
+        audioKbps: { type: integer, minimum: 32, maximum: 512, default: 128 }
+        gopSeconds: { type: integer, minimum: 1, maximum: 10, default: 2 }
+    HLSRung:
+      type: object
+      required: [name, maxWidth, maxHeight, videoKbps]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$' }
+        maxWidth: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        maxHeight: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        videoKbps: { type: integer, minimum: 100, maximum: 50000 }
+    HLSLadder:
+      type: object
+      required: [rungs]
+      additionalProperties: false
+      description: "An adaptive stream: <name>/master.m3u8 and <name>/<rung>/index.m3u8 with segments; keyframes line up across rungs (L2-012 TRX-03)."
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$', default: hls }
+        segmentSeconds: { type: integer, minimum: 2, maximum: 10, default: 6, description: "a multiple of gopSeconds" }
+        gopSeconds: { type: integer, minimum: 1, maximum: 10, default: 2 }
+        audioKbps: { type: integer, minimum: 32, maximum: 512, default: 128 }
+        rungs: { type: array, minItems: 1, maxItems: 6, items: { $ref: '#/components/schemas/HLSRung' } }
+    TranscodeNotify:
+      type: object
+      additionalProperties: false
+      description: "Where a run's TranscodeMessage goes when it ends (L2-012 TRX-05): at least one of webhook and topic."
+      properties:
+        webhook:
+          type: object
+          required: [url]
+          additionalProperties: false
+          properties:
+            url: { type: string, description: "https://, or http:// to localhost" }
+            secret: { type: string, description: "a secret whose value signs the body (X-Enclave-Signature)" }
+        topic: { type: string, description: a topic of the same project }
+    ObjectInfo:
+      type: object
+      required: [key, size, modified, contentType]
+      properties:
+        key: { type: string }
+        size: { type: integer, format: int64 }
+        modified: { type: string, format: date-time }
+        contentType: { type: string }
+        tags: { type: object, additionalProperties: { type: string } }
+    ObjectList:
+      type: object
+      required: [prefix, folders, items, nextCursor]
+      properties:
+        prefix: { type: string }
+        folders: { type: array, items: { type: string } }
+        items: { type: array, items: { $ref: '#/components/schemas/ObjectInfo' } }
+        nextCursor: { type: [string, 'null'] }
+    TranscodeObject:
+      type: object
+      required: [bucket, key, size]
+      properties:
+        bucket: { type: string }
+        key: { type: string }
+        size: { type: integer, format: int64 }
+    TranscodeMessage:
+      type: object
+      description: "The JSON body a transcoder sends to its webhook and topic when a run ends (L2-012 §4)."
+      required: [event, transcoder, project, runId, status, message, input, outputs, hlsMaster, metadata, startedAt, finishedAt]
+      properties:
+        event: { type: string, enum: [transcode.finished] }
+        transcoder: { type: string }
+        project: { type: string }
+        runId: { type: string }
+        status: { type: string, enum: [succeeded, failed, timed_out] }
+        message: { type: string }
+        input: { $ref: '#/components/schemas/TranscodeObject' }
+        outputs: { type: array, items: { $ref: '#/components/schemas/TranscodeObject' } }
+        hlsMaster: { type: [string, 'null'] }
+        metadata: { type: object, additionalProperties: { type: string } }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
     CDNSpec:
       type: object
       required: [hostname, origin]

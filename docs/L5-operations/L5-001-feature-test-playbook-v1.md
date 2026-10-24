@@ -6,9 +6,9 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v25 |
+| Version | v28 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -447,6 +447,32 @@ Run against `make demo` (fake engine, sample data) in Chrome, light and dark, at
 - **Steps and expected results**: list and detail pages show status as a dot and a word; no circled nav icons; with "Reduce motion" on in the OS nothing animates; every form field has a hint.
 - **Automated checks**: the design-system test (no styling in `console/src`); `console/src/form-hints.test.ts` (every field of a resource form has a hint); `packages/ui/src/pages.test.tsx` (count-up with and without motion, Find, guide parts).
 
+### Feature: Per-app bucket access — L2-011 BKA-01 – BKA-10, CON-70, CON-71, CLI-53, TF-48
+
+- **Golden path (real Docker, real object store)**: buckets `media` and `invoices`; app `reader` with `media:read`, app `writer` with `media:readwrite`. `reader` lists and reads `media`; `writer` writes and deletes in it; neither reaches `invoices`; the shared project key reaches both.
+- **Change**: `reader` to `readwrite` → after its new revision it writes, with the same keys (the credentials secret's value is unchanged).
+- **Removal**: `--bucket ""` or deleting the app → its user is gone; its old keys are refused; the credentials secret is deleted.
+- **Jobs**: an image job with access reads its bucket; a job with `app` uses the app's access; giving it its own → `422`.
+- **Error paths**: an unknown bucket → `422 NOT_FOUND`; the same bucket twice → `422`; level other than `read`/`readwrite` → `422`; `env` with `AWS_ACCESS_KEY_ID` and bucket access → `422`; deleting `media` while `reader` can access it → `409 RESOURCE_IN_USE` naming `app/reader`.
+- **Secrets**: the keys appear in no response, event or log; only `secret get <app>-bucket-credentials --reveal` shows them.
+- **Surfaces**: console, CLI and OpenTofu each create, change, show and remove the access.
+
+### Feature: Transcoder renditions, HLS ladder, notify and tags — L2-012 TRX-01 – TRX-10, CON-72, CON-73, CLI-54, TF-49
+
+- **Golden path (real FFmpeg)**: a portrait clip tagged `video-id=v42` lands in `incoming/`; the transcoder (4-rung ladder, a 720×1280 MP4 rendition, output folder `processed/{meta:video-id}/`) writes `processed/v42/hls/master.m3u8` listing 4 rungs with bandwidth and real resolutions, each rung's playlist and segments, and `processed/v42/selfie.mp4`; every output carries `video-id`; the signed webhook arrives once with `succeeded`, the outputs, `hlsMaster` and `metadata`.
+- **Keyframes**: segment 1 of every rung starts on a keyframe at the same timestamp.
+- **Never scaled up**: a 640×360 input stays 640×360 in a 1280×720 box.
+- **Failure**: a file that isn't media fails its run and the webhook says `failed` with FFmpeg's reason; a missing tag the folder needs fails the run naming it.
+- **Delivery**: a webhook that answers 500 is tried 3 times and recorded as an event; the run's status doesn't change. A topic gets the same body.
+- **Error paths**: no presets, renditions or ladder → `422`; a rendition named like a preset → `422`; `segmentSeconds` not a multiple of `gopSeconds` → `422`; an odd width → `422`; an unknown secret or topic → `422 NOT_FOUND`; deleting the secret or topic a transcoder names → `409`.
+- **Surfaces**: console, CLI and OpenTofu each create, change and show renditions, the ladder and notify.
+
+### Feature: Bucket objects and readable details — L2-013 OBJ-01 – OBJ-06, DET-01 – DET-05, CON-74, CON-75, CLI-55, TF-50
+
+- **Golden path (real object store)**: upload two files with a tag into a new folder from the console; they list with sizes; download one and compare bytes; delete one; a transcoder watching the folder converts the upload and its message carries the tag. Same with `enclave bucket upload/objects/download/delete-object` and `enclave_bucket_object` (a second apply changes nothing).
+- **Error paths**: a viewer lists → `403`; a key with `..` or a leading `/` → `422`; over 5 GiB → `413`; a bucket still being made → `409`; a missing object → `404`.
+- **Details**: on every kind's page, no label or value is cut at 1280 px or 375 px; every detail shows its explanation; copy buttons copy the raw value.
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -480,3 +506,6 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v23 | 2026-10-22 | Soupler | §2g console v4 walk-throughs (planned): navigation and full pages, overview, section summaries and guides, calmer screen and motion |
 | v24 | 2026-10-23 | Soupler | §2g built: the automated checks named |
 | v25 | 2026-10-23 | Soupler | Placement error path no longer uses the machine name `main` |
+| v26 | 2026-10-24 | Soupler | Per-app bucket access: golden path, change, removal, jobs, error paths, secrets, surfaces (L2-011) |
+| v27 | 2026-10-24 | Soupler | Transcoder renditions, ladder, notify and tags: golden path, keyframes, scaling, failure, delivery, errors, surfaces (L2-012) |
+| v28 | 2026-10-24 | Soupler | Bucket objects and readable details: golden path, errors, details (L2-013) |

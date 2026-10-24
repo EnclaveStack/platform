@@ -6,9 +6,9 @@
 | Document ID | L2-003-opentofu-provider-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v14 |
+| Version | v17 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -106,6 +106,9 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | TF-45 | Resource `enclave_catalogue_template` (`body`, the template's YAML or JSON) for the machine's own templates; data source `enclave_catalogue` lists entries and their parameters (CAT-01 – CAT-03) | Must — v0.8 |
 | TF-46 | A stack's members can be read with the existing data sources; managing a member as its own resource is refused with the stack's name (CAT-06) | Must — v0.8 |
 | TF-47 | Import by name (TF-05) and drift removal (TF-04) for `enclave_machine`, `enclave_stack` and `enclave_catalogue_template` | Must — v0.8 |
+| TF-48 | `enclave_app` and `enclave_job` take `bucket_access = [{ bucket = "media", access = "read" }]`; `bucket_credentials_secret` is computed (`L2-011`) | Must |
+| TF-49 | `enclave_transcoder` takes `renditions`, `hls` (with `rungs`) and `notify`; `presets` becomes optional (`L2-012`) | Must |
+| TF-50 | Resource `enclave_bucket_object` (`bucket`, `key`, `source` or `content`, `tags`, `source_hash`; computed `size`, `content_type`; import `<bucket>/<key>`) (`L2-013`) | Must |
 
 ## Version history
 
@@ -125,3 +128,6 @@ output "api_url" { value = "http://${enclave_app.api.host}:${enclave_app.api.hos
 | v12 | 2026-10-22 | Soupler | v0.7 requirements TF-34 – TF-41: project setting and attribute, project, user, dashboard and metrics, alert and channel, log export, secret store and external secrets (L2-009) |
 | v13 | 2026-10-22 | Soupler | TF-40 as built: `enclave_secret_store.settings` map; TF-34 – TF-41 shipped and covered by `TestAccOperateStack` |
 | v14 | 2026-10-22 | Soupler | v0.8 requirements TF-42 – TF-47: machine resource and data source, machine on placed resources, stack, catalogue template and data source, import (L2-010) |
+| v15 | 2026-10-24 | Soupler | TF-48: bucket_access on enclave_app and enclave_job (L2-011) |
+| v16 | 2026-10-24 | Soupler | TF-49: renditions, hls and notify on enclave_transcoder (L2-012) |
+| v17 | 2026-10-24 | Soupler | TF-50: enclave_bucket_object (L2-013) |

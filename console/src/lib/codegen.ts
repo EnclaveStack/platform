@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 
 // "Use from code" (CON-18): the CLI command and OpenTofu block that produce a resource as it is now,
 // so operators can move from clicks to code. Secret values are never included.
@@ -17,6 +17,66 @@ function placementFlags(p: { network?: string; subnet?: string } & Placed): stri
 /** --volume NAME:PATH[:ro] flags of an app or job (CLI-26). */
 function mountFlags(ms: VolumeMount[] | undefined): string[] {
   return (ms ?? []).map((m) => `--volume ${sh(`${m.volume}:${m.path}${m.readOnly ? ':ro' : ''}`)}`);
+}
+
+/** --bucket flags of apps and jobs (CLI-53). */
+function bucketFlags(gs: BucketGrant[] | undefined): string[] {
+  return (gs ?? []).map((g) => `--bucket ${sh(`${g.bucket}:${g.access}`)}`);
+}
+
+/** The bucket_access attribute of enclave_app and enclave_job (TF-48). */
+function grantsHcl(gs: BucketGrant[] | undefined): string | null {
+  if (!gs?.length) return null;
+  return `  bucket_access = [\n${gs.map((g) => `    { bucket = ${hcl(g.bucket)}, access = ${hcl(g.access)} },`).join('\n')}\n  ]`;
+}
+
+/** --rendition, --hls-* and --notify-* of a transcoder (CLI-54); defaults are left out. */
+function transcodeOutputFlags(t: TranscoderSpec): string[] {
+  const out: string[] = [];
+  for (const r of t.renditions ?? []) {
+    const audio = r.audioKbps ?? RULES.audioKbpsDefault;
+    const gop = r.gopSeconds ?? RULES.gopSecondsDefault;
+    const extra = gop !== RULES.gopSecondsDefault ? `:${audio}:${gop}` : audio !== RULES.audioKbpsDefault ? `:${audio}` : '';
+    out.push(`--rendition ${r.name}:${r.container}:${r.maxWidth}x${r.maxHeight}:${r.videoKbps}${extra}`);
+  }
+  if (t.hls) {
+    for (const r of t.hls.rungs) out.push(`--hls-rung ${r.name}:${r.maxWidth}x${r.maxHeight}:${r.videoKbps}`);
+    if (t.hls.name && t.hls.name !== RULES.hlsNameDefault) out.push(`--hls-name ${t.hls.name}`);
+    if (t.hls.segmentSeconds && t.hls.segmentSeconds !== RULES.segmentSecondsDefault) out.push(`--hls-segment ${t.hls.segmentSeconds}`);
+    if (t.hls.gopSeconds && t.hls.gopSeconds !== RULES.gopSecondsDefault) out.push(`--hls-gop ${t.hls.gopSeconds}`);
+    if (t.hls.audioKbps && t.hls.audioKbps !== RULES.audioKbpsDefault) out.push(`--hls-audio ${t.hls.audioKbps}`);
+  }
+  if (t.notify?.webhook) out.push(`--notify-webhook ${sh(t.notify.webhook.url)}`, ...(t.notify.webhook.secret ? [`--notify-secret ${t.notify.webhook.secret}`] : []));
+  if (t.notify?.topic) out.push(`--notify-topic ${t.notify.topic}`);
+  return out;
+}
+
+/** renditions, hls and notify of enclave_transcoder (TF-49); defaults are left out. */
+function transcodeOutputsHcl(t: TranscoderSpec): string[] {
+  const lines: string[] = [];
+  const box = (r: { name: string; maxWidth: number; maxHeight: number; videoKbps: number }) =>
+    `name = ${hcl(r.name)}, max_width = ${r.maxWidth}, max_height = ${r.maxHeight}, video_kbps = ${r.videoKbps}`;
+  if (t.renditions?.length) {
+    lines.push('  renditions = [', ...t.renditions.map((r) => {
+      const extra = (r.audioKbps && r.audioKbps !== RULES.audioKbpsDefault ? `, audio_kbps = ${r.audioKbps}` : '')
+        + (r.gopSeconds && r.gopSeconds !== RULES.gopSecondsDefault ? `, gop_seconds = ${r.gopSeconds}` : '');
+      return `    { ${box(r)}, container = ${hcl(r.container)}${extra} },`;
+    }), '  ]');
+  }
+  if (t.hls) {
+    lines.push('  hls = {');
+    if (t.hls.name && t.hls.name !== RULES.hlsNameDefault) lines.push(`    name = ${hcl(t.hls.name)}`);
+    if (t.hls.segmentSeconds && t.hls.segmentSeconds !== RULES.segmentSecondsDefault) lines.push(`    segment_seconds = ${t.hls.segmentSeconds}`);
+    if (t.hls.gopSeconds && t.hls.gopSeconds !== RULES.gopSecondsDefault) lines.push(`    gop_seconds = ${t.hls.gopSeconds}`);
+    if (t.hls.audioKbps && t.hls.audioKbps !== RULES.audioKbpsDefault) lines.push(`    audio_kbps = ${t.hls.audioKbps}`);
+    lines.push('    rungs = [', ...t.hls.rungs.map((r) => `      { ${box(r)} },`), '    ]', '  }');
+  }
+  if (t.notify) {
+    const n = [...(t.notify.webhook ? [`webhook_url = ${hcl(t.notify.webhook.url)}`] : []), ...(t.notify.webhook?.secret ? [`webhook_secret = ${hcl(t.notify.webhook.secret)}`] : []),
+      ...(t.notify.topic ? [`topic = ${hcl(t.notify.topic)}`] : [])];
+    lines.push('  notify = {', ...n.map((x) => `    ${x}`), '  }');
+  }
+  return lines;
 }
 
 /** The volumes attribute of enclave_app and enclave_job (TF-24). */
@@ -194,8 +254,8 @@ function kindCommand(r: Resource): string {
     }
     case 'transcoder': {
       const t = r.spec as TranscoderSpec;
-      const parts = [`enclave transcoder create ${r.name}`, `--input ${t.input.bucket}/${t.input.prefix ?? ''}`, `--output ${t.output.bucket}/${t.output.prefix ?? ''}`,
-        ...t.presets.map((p) => `--preset ${p}`)];
+      const parts = [`enclave transcoder create ${r.name}`, `--input ${sh(`${t.input.bucket}/${t.input.prefix ?? ''}`)}`, `--output ${sh(`${t.output.bucket}/${t.output.prefix ?? ''}`)}`,
+        ...(t.presets ?? []).map((p) => `--preset ${p}`), ...transcodeOutputFlags(t)];
       if (t.watch === false) parts.push('--no-watch');
       if (t.timeoutSeconds && t.timeoutSeconds !== RULES.transcodeTimeoutDefault) parts.push(`--run-timeout ${t.timeoutSeconds}s`);
       if (t.concurrency && t.concurrency !== RULES.concurrencyDefault) parts.push(`--concurrency ${t.concurrency}`);
@@ -285,6 +345,7 @@ function kindCommand(r: Resource): string {
       if (j.memoryMiB && j.memoryMiB !== RULES.appMemoryDefault) parts.push(`--memory ${j.memoryMiB}`);
       if (placementFlags(j)) parts.push(placementFlags(j).trim());
       parts.push(...mountFlags(j.volumes));
+      parts.push(...bucketFlags(j.bucketAccess));
       for (const [k, v] of Object.entries(j.env ?? {})) parts.push(`--env ${sh(`${k}=${v}`)}`);
       for (const [k, v] of Object.entries(j.secretEnv ?? {})) parts.push(`--secret-env ${k}=${v}`);
       parts.push('--wait');
@@ -340,6 +401,7 @@ function kindCommand(r: Resource): string {
       if (s.replicas && s.replicas > 1) parts.push(`--replicas ${s.replicas}`);
       if (placementFlags(s)) parts.push(placementFlags(s).trim());
       parts.push(...mountFlags(s.volumes));
+      parts.push(...bucketFlags(s.bucketAccess));
       const h = s.healthCheck;
       if (h) {
         const kind = h.type === 'http' ? `http:${h.path ?? '/'}` : h.type === 'tcp' ? (h.port ? `tcp:${h.port}` : 'tcp') : h.type === 'command' ? `cmd:${(h.command ?? []).join(' ')}` : 'none';
@@ -454,7 +516,8 @@ export function tofuBlock(r: Resource): string {
       const t = r.spec as TranscoderSpec;
       lines.push(`  input = { bucket = ${hcl(t.input.bucket)}, prefix = ${hcl(t.input.prefix ?? '')} }`);
       lines.push(`  output = { bucket = ${hcl(t.output.bucket)}, prefix = ${hcl(t.output.prefix ?? '')} }`);
-      lines.push(`  presets = [${t.presets.map(hcl).join(', ')}]`);
+      if (t.presets?.length) lines.push(`  presets = [${t.presets.map(hcl).join(', ')}]`);
+      lines.push(...transcodeOutputsHcl(t));
       if (t.watch === false) lines.push('  watch = false');
       if (t.timeoutSeconds && t.timeoutSeconds !== RULES.transcodeTimeoutDefault) lines.push(`  timeout_seconds = ${t.timeoutSeconds}`);
       if (t.concurrency && t.concurrency !== RULES.concurrencyDefault) lines.push(`  concurrency = ${t.concurrency}`);
@@ -548,6 +611,8 @@ export function tofuBlock(r: Resource): string {
       placement(j);
       const jm = mountsHcl(j.volumes);
       if (jm) lines.push(jm);
+      const jg = grantsHcl(j.bucketAccess);
+      if (jg) lines.push(jg);
       break;
     }
     case 'backup': {
@@ -684,6 +749,8 @@ export function tofuBlock(r: Resource): string {
       placement(s);
       const am = mountsHcl(s.volumes);
       if (am) lines.push(am);
+      const ag = grantsHcl(s.bucketAccess);
+      if (ag) lines.push(ag);
       const h = s.healthCheck;
       if (h) {
         const fields = [`    type = ${hcl(h.type)}`];

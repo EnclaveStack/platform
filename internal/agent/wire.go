@@ -159,6 +159,12 @@ type storeAccessArgs struct {
 	Root    engine.ObjectStore
 }
 
+type storeUserArgs struct {
+	User   engine.ObjectStore
+	Grants []api.BucketGrant
+	Root   engine.ObjectStore
+}
+
 type logsSinceArgs struct {
 	R        *domain.Resource
 	Since    map[string]time.Time

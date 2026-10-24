@@ -277,7 +277,7 @@ func (r *Reconciler) stream(ctx context.Context, mv *moving, rep engine.Reporter
 			case <-done:
 				return
 			case <-t.C:
-				engine.Note(rep, fmt.Sprintf("Copied %s.", bytesText(mv.copied+n.Load())))
+				engine.Note(rep, fmt.Sprintf("Copied %s.", api.ByteSize(mv.copied+n.Load())))
 			}
 		}
 	}()
@@ -336,7 +336,7 @@ func (r *Reconciler) finishMove(ctx context.Context, mv *moving) {
 		msg = fmt.Sprintf("Moved to %s in %s; unavailable for %s.", r.Machines.Name(ctx, mv.to), r.Now().Sub(mv.started).Round(time.Second), r.Now().Sub(mv.stopped).Round(time.Second))
 	}
 	if mv.copied > 0 {
-		msg += fmt.Sprintf(" Copied %s.", bytesText(mv.copied))
+		msg += fmt.Sprintf(" Copied %s.", api.ByteSize(mv.copied))
 	}
 	r.event(ctx, mv.res, "moved", msg)
 	for _, u := range mv.users {
@@ -430,16 +430,4 @@ func (r *Reconciler) volumeUsedByVM(ctx context.Context, vol *domain.Resource) s
 		}
 	}
 	return ""
-}
-
-func bytesText(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%d bytes", n)
 }

@@ -67,7 +67,7 @@ func TypeScript() string {
 	w("export const STEP_NAMES: Record<Kind, readonly string[]> = %s;\n\n", q(steps))
 
 	w("export const ACTIONS = %s as const;\n", q([]string{api.ActionRestart, api.ActionRedeploy, api.ActionReconcile, api.ActionRun, api.ActionRestore, api.ActionStart, api.ActionStop, api.ActionPurge, api.ActionTest, api.ActionRefresh}))
-	w("export const HEADERS = { requestId: %s, idempotencyKey: %s, csrf: %s } as const;\n\n", q(api.HeaderRequestID), q(api.HeaderIdempotencyKey), q(api.HeaderCSRF))
+	w("export const HEADERS = { requestId: %s, idempotencyKey: %s, csrf: %s, objectTagPrefix: %s } as const;\n\n", q(api.HeaderRequestID), q(api.HeaderIdempotencyKey), q(api.HeaderCSRF), q(api.ObjectTagHeaderPrefix))
 
 	w("/** Validation rules (L3-002 §4) — the same numbers and patterns the server enforces. */\n")
 	w("export const RULES = {\n")
@@ -156,6 +156,17 @@ func TypeScript() string {
 	w("  machineRef: %s,\n  machineRefPrefix: %s,\n", q(api.MachineRef), q(api.MachineRefPrefix))
 	w("  machineLabelsMax: %d,\n  labelKeyPattern: %s,\n  labelValuePattern: %s,\n  agentPortDefault: %d,\n  tunnelPortDefault: %d,\n",
 		api.MachineLabelsMax, q(api.LabelKeyPatternSource), q(api.LabelValuePatternSource), api.AgentPortDefault, api.TunnelPortDefault)
+	// Per-app bucket access (L3-002 §12).
+	w("  bucketAccessMax: %d,\n  bucketAccessLevels: %s,\n  bucketAccessEnv: %s,\n", api.BucketAccessMax, q(api.BucketAccessLevels), q(api.BucketAccessEnv))
+	// Transcoder renditions, HLS ladders and notify (L3-002 §13).
+	w("  renditionsMax: %d,\n  renditionContainers: %s,\n  hlsRungsMax: %d,\n  dimensionMin: %d,\n  dimensionMax: %d,\n  videoKbpsMin: %d,\n  videoKbpsMax: %d,\n",
+		api.RenditionsMax, q(api.RenditionContainers), api.HLSRungsMax, api.DimensionMin, api.DimensionMax, api.VideoKbpsMin, api.VideoKbpsMax)
+	w("  audioKbpsMin: %d,\n  audioKbpsMax: %d,\n  audioKbpsDefault: %d,\n  gopSecondsMin: %d,\n  gopSecondsMax: %d,\n  gopSecondsDefault: %d,\n",
+		api.AudioKbpsMin, api.AudioKbpsMax, api.AudioKbpsDefault, api.GOPSecondsMin, api.GOPSecondsMax, api.GOPSecondsDefault)
+	w("  segmentSecondsMin: %d,\n  segmentSecondsMax: %d,\n  segmentSecondsDefault: %d,\n  hlsNameDefault: %s,\n  outputNamePattern: %s,\n  tagNamePattern: %s,\n  presetFiles: {%s},\n",
+		api.SegmentSecondsMin, api.SegmentSecondsMax, api.SegmentSecondsDefault, q(api.HLSNameDefault), q(api.OutputNamePatternSource), q(api.TagNamePatternSource), presetFiles())
+	// Bucket objects (L3-002 §14).
+	w("  objectUploadMax: %d,\n  objectTagsMax: %d,\n  objectTagValueMax: %d,\n", api.ObjectUploadMax, api.ObjectTagsMax, api.ObjectTagValueMax)
 	w("} as const;\n\n")
 	w("export const ROLES = %s as const;\n", q(api.Roles))
 	w("export const METRIC_UNITS = %s as const;\nexport type MetricUnit = (typeof METRIC_UNITS)[number];\n",
@@ -166,4 +177,13 @@ func TypeScript() string {
 	w("export const MANAGED = { objectStoreCredentials: %s, brokerCredentials: %s, passwordSecretSuffix: %s, systemOwner: %s } as const;\n",
 		q(domain.ObjectStoreCredentialsSecret), q(domain.BrokerCredentialsSecret), q("-password"), q(domain.SystemOwner))
 	return b.String()
+}
+
+// presetFiles writes api.PresetFiles as TypeScript object entries in the order of api.Presets.
+func presetFiles() string {
+	var parts []string
+	for _, p := range api.Presets {
+		parts = append(parts, fmt.Sprintf("%q: %q", p, api.PresetFiles[p]))
+	}
+	return " " + strings.Join(parts, ", ") + " "
 }

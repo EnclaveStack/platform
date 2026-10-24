@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enclavestack/platform/internal/backup"
 	"github.com/enclavestack/platform/internal/domain"
 	"github.com/enclavestack/platform/internal/engine"
 	"github.com/enclavestack/platform/internal/mail"
@@ -54,6 +55,8 @@ type Resources struct {
 	Messaging *messaging.Pool
 	Mail      mail.Client
 	Metrics   *observability.Metrics
+	// Objects opens buckets for their objects (L2-013); nil when there is no object store to reach.
+	Objects backup.Opener
 	// MachineOnline tells whether a machine takes calls now (moves, L2-010 FAIL-03); nil means every machine.
 	MachineOnline func(machineID string) bool
 }
@@ -232,6 +235,14 @@ func (s *Resources) createIn(ctx context.Context, q *store.Queries, p Principal,
 	if err := q.SetRefs(ctx, r.ID, refs); err != nil {
 		return nil, nil, err
 	}
+	if id, err := s.syncBucketCredentials(ctx, q, r, spec, now); err != nil {
+		return nil, nil, err
+	} else if id != "" {
+		created = append(created, id)
+		if err := q.AddEvent(ctx, r.ID, "bucket_access", bucketAccessText(domain.BucketGrantsOf(spec)), now); err != nil {
+			return nil, nil, err
+		}
+	}
 	if domain.HasManagedPassword(r.Kind) {
 		pw := strongPassword()
 		if r.Kind == api.KindDatabase {
@@ -393,6 +404,11 @@ func (s *Resources) resolveRefs(ctx context.Context, q *store.Queries, r *domain
 			return nil, err
 		}
 		refs = append(refs, mounted...)
+		buckets, err := s.bucketRefs(ctx, q, project, sp.BucketAccess)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, buckets...)
 		if sp.Source == nil || sp.Source.CredentialsSecret == "" {
 			return refs, nil
 		}
@@ -423,13 +439,20 @@ func (s *Resources) resolveRefs(ctx context.Context, q *store.Queries, r *domain
 				return nil, err
 			}
 			refs = append(refs, store.Ref{ToID: app.ID, Field: "spec.app"})
+			if err := jobKeepsAppAccessVariables(app, sp); err != nil {
+				return nil, err
+			}
 		}
 		placed, err := s.placementRefs(ctx, q, project, sp.Network, sp.Subnet, false)
 		if err != nil {
 			return nil, err
 		}
 		mounted, err := s.mountRefs(ctx, q, project, sp.Volumes)
-		return append(append(refs, placed...), mounted...), err
+		if err != nil {
+			return nil, err
+		}
+		buckets, err := s.bucketRefs(ctx, q, project, sp.BucketAccess)
+		return append(append(append(refs, placed...), mounted...), buckets...), err
 	case api.NetworkSpec:
 		return nil, s.networkOverlaps(ctx, q, r, sp)
 	case api.FirewallSpec:
@@ -598,13 +621,20 @@ func (s *Resources) Update(ctx context.Context, p Principal, id string, req api.
 	}
 	var out *domain.Resource
 	changed := false
+	var pending []string
 	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
 		var err error
-		out, changed, err = s.updateIn(ctx, q, p, id, req, ifMatch, false)
+		if out, changed, err = s.updateIn(ctx, q, p, id, req, ifMatch, false); err != nil || !changed {
+			return err
+		}
+		pending, err = pendingOwned(ctx, q, out.ID)
 		return err
 	})
 	if err != nil {
 		return api.Resource{}, false, err
+	}
+	for _, id := range pending {
+		s.Queue.Enqueue(id) // a credentials secret the update made (BKA-03)
 	}
 	if changed {
 		s.Queue.Enqueue(out.ID)
@@ -692,6 +722,14 @@ func (s *Resources) updateIn(ctx context.Context, q *store.Queries, p Principal,
 	}
 	if err := q.SetRefs(ctx, r.ID, refs); err != nil {
 		return nil, false, err
+	}
+	if _, err := s.syncBucketCredentials(ctx, q, r, after, now); err != nil {
+		return nil, false, err
+	}
+	if g := domain.BucketGrantsOf(after); !specEqual(domain.BucketGrantsOf(before), g) {
+		if err := q.AddEvent(ctx, r.ID, "bucket_access", bucketAccessText(g), now); err != nil {
+			return nil, false, err
+		}
 	}
 	return r, true, q.AddEvent(ctx, r.ID, "updated", fmt.Sprintf("Spec changed to generation %d by %s.", r.Generation, p.Actor()), now)
 }

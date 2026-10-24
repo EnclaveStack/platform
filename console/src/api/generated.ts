@@ -58,7 +58,7 @@ export const ID_PREFIX: Record<Kind, string> = {"alert":"alrt","app":"app","back
 export const STEP_NAMES: Record<Kind, readonly string[]> = {"alert":["check"],"app":["pull","start","health","switch"],"backup":["check","schedule"],"bucket":["objectstore","bucket"],"cache":["pull","create","start","healthy"],"cdn":["pull","cache","edge","certificate"],"channel":["check"],"dashboard":["check"],"database":["pull","create","start","healthy"],"domain":["edge","route","certificate"],"email":["pull","create","start","healthy"],"firewall":["resolve","apply"],"job":["schedule"],"loadbalancer":["pull","configure","start","healthy"],"logexport":["check","start"],"network":["network","attach"],"queue":["broker","queue"],"record":["zone","record"],"search":["pull","create","start","healthy"],"secret":["store"],"secretstore":["credentials","connect"],"snapshot":["source","copy"],"stack":["members"],"topic":["broker","topic","subscriptions"],"transcoder":["check","watch"],"vm":["image","disk","network","boot"],"volume":["create","fill"],"zone":["credentials","zone"]};
 
 export const ACTIONS = ["restart","redeploy","reconcile","run","restore","start","stop","purge","test","refresh"] as const;
-export const HEADERS = { requestId: "X-Request-Id", idempotencyKey: "Idempotency-Key", csrf: "X-Enclave-CSRF" } as const;
+export const HEADERS = { requestId: "X-Request-Id", idempotencyKey: "Idempotency-Key", csrf: "X-Enclave-CSRF", objectTagPrefix: "X-Enclave-Tag-" } as const;
 
 /** Validation rules (L3-002 §4) — the same numbers and patterns the server enforces. */
 export const RULES = {
@@ -316,6 +316,32 @@ export const RULES = {
   labelValuePattern: "^[A-Za-z0-9._-]{0,63}$",
   agentPortDefault: 7071,
   tunnelPortDefault: 51820,
+  bucketAccessMax: 10,
+  bucketAccessLevels: ["read","readwrite"],
+  bucketAccessEnv: ["AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY","AWS_REGION","AWS_ENDPOINT_URL_S3","AWS_ENDPOINT_URL"],
+  renditionsMax: 8,
+  renditionContainers: ["mp4","webm"],
+  hlsRungsMax: 6,
+  dimensionMin: 16,
+  dimensionMax: 7680,
+  videoKbpsMin: 100,
+  videoKbpsMax: 50000,
+  audioKbpsMin: 32,
+  audioKbpsMax: 512,
+  audioKbpsDefault: 128,
+  gopSecondsMin: 1,
+  gopSecondsMax: 10,
+  gopSecondsDefault: 2,
+  segmentSecondsMin: 2,
+  segmentSecondsMax: 10,
+  segmentSecondsDefault: 6,
+  hlsNameDefault: "hls",
+  outputNamePattern: "^[a-z0-9][a-z0-9-]{0,31}$",
+  tagNamePattern: "^[a-z0-9][a-z0-9-]{0,62}$",
+  presetFiles: { "mp4-480p": "mp4-480p.mp4", "mp4-720p": "mp4-720p.mp4", "mp4-1080p": "mp4-1080p.mp4", "webm-720p": "webm-720p.webm", "hls-720p": "hls-720p/index.m3u8", "mp3": "mp3.mp3", "thumbnail": "thumbnail.jpg" },
+  objectUploadMax: 5368709120,
+  objectTagsMax: 10,
+  objectTagValueMax: 256,
 } as const;
 
 export const ROLES = ["viewer","editor","admin"] as const;

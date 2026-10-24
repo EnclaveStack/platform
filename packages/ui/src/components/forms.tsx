@@ -1,5 +1,6 @@
 import { forwardRef, type FormHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cx } from './primitives';
+import { buttonClass } from './controls';
 
 /** A labelled control with its hint, or its error in place of the hint (L2.5-002 §1). */
 export function Field({ id, label, hint, error, children }: { id: string; label: ReactNode; hint?: ReactNode; error?: string; children: ReactNode }) {
@@ -101,4 +102,27 @@ export function Fieldset({ legend, children }: { legend: ReactNode; children: Re
 /** Name · value · remove, with an optional error under the row. */
 export function KeyValueRow({ children }: { children: ReactNode }) {
   return <div className="es-kv-row">{children}</div>;
+}
+
+/**
+ * Choose files from the computer: a button-styled label over a hidden native input (keyboard and screen
+ * readers use the input), and the chosen files listed with their sizes.
+ */
+export function FilePicker({ id, label, multiple, files, onChange, sizeText }: {
+  id: string; label: string; multiple?: boolean; files: File[]; onChange: (files: File[]) => void; sizeText: (bytes: number) => string;
+}) {
+  return (
+    <div className="es-file-picker">
+      <input id={id} type="file" className="es-sr-only es-file-input" multiple={multiple} aria-label={label}
+        onChange={(e) => onChange(Array.from(e.target.files ?? []))} />
+      <label htmlFor={id} className={buttonClass({ size: 'sm' })}>{label}</label>
+      {files.length > 0 && (
+        <ul className="es-file-list" aria-label="Chosen files">
+          {files.map((f) => (
+            <li key={f.name}><span className="es-mono">{f.name}</span><span className="es-text es-tone-muted es-size-sm">{sizeText(f.size)}</span></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }

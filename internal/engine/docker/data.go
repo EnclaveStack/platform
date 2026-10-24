@@ -206,7 +206,7 @@ func (d *Driver) Transcode(ctx context.Context, run engine.TranscodeRun, src io.
 	}
 	name := "es-transcode-" + strings.TrimPrefix(run.RunID, "run_")
 	_ = d.remove(ctx, name) // a leftover of an interrupted attempt
-	cfg := &container.Config{Image: d.opts.TranscodeImage, Entrypoint: []string{"/bin/sh", "-c"}, Cmd: []string{transcode.Script(run.InputName, run.Presets)},
+	cfg := &container.Config{Image: d.opts.TranscodeImage, Entrypoint: []string{"/bin/sh", "-c"}, Cmd: []string{transcode.Script(run.InputName, transcode.Outputs{Presets: run.Presets, Renditions: run.Renditions, HLS: run.HLS})},
 		Labels: map[string]string{LabelManaged: "true", LabelResourceID: run.ResourceID, LabelKind: "transcode", LabelRun: run.RunID}}
 	host := &container.HostConfig{NetworkMode: "none", Resources: container.Resources{Memory: int64(run.MemoryMiB) << 20}}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)

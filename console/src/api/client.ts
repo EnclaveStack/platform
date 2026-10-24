@@ -42,7 +42,7 @@ import type {
   Token,
   UpdateUserInput,
   UserSummary,
-} from './types';
+ ObjectInfo, ObjectList } from './types';
 
 /**
  * The only way the console reaches the control plane (ADR-002, ADR-003). Components get it from
@@ -123,6 +123,13 @@ export interface EnclaveApi {
   getEmail(id: string, emailId: string): Promise<Email>;
   /** Converts one file of a transcoder's input folder now. */
   transcode(id: string, key: string): Promise<Run>;
+  /** One folder of a bucket (L2-013); cursor continues from the last page's nextCursor. */
+  listObjects(id: string, prefix: string, cursor?: string): Promise<ObjectList>;
+  /** Uploads a file to a key, with tags (x-amz-meta-*). */
+  uploadObject(id: string, key: string, file: Blob, tags?: Record<string, string>): Promise<ObjectInfo>;
+  /** Where the browser downloads an object from (same origin, the session cookie). */
+  objectUrl(id: string, key: string): string;
+  deleteObject(id: string, key: string): Promise<void>;
 
   // v0.7 monitoring (L3-002 §10.4, §10.5).
   /** A resource's metrics over [from, to] (unix seconds); empty metrics means its standard set. */

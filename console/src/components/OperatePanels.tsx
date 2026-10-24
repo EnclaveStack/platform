@@ -1,7 +1,8 @@
-import { Alert, Button, Card, Chip, EmptyState, Fact, Grid, Icons, Inline, Skeleton, Stack, Table, Text } from '@enclavestack/ui';
+import { Alert, Button, Card, Chip, DetailList, EmptyState, Icons, Inline, Skeleton, Stack, Table, Text } from '@enclavestack/ui';
 import { useState } from 'react';
 import { useApi } from '../api/context';
 import { ApiError, type AlertSpec, type LogExportSpec, type Resource, type TestResult } from '../api/types';
+import { withHelp } from '../lib/details';
 import { formatBytes } from '../lib/format';
 import { formatMetric, logDestinationType, MACHINE_REF, metricOf } from '../lib/operate';
 import { useLoad } from '../lib/useLoad';
@@ -140,13 +141,15 @@ export function LogExportCard({ r }: { r: Resource }) {
   return (
     <Stack gap={3}>
       {lastError && <Alert tone="warn">The last batch didn&apos;t go: {lastError}. EnclaveStack keeps trying; lines wait on this machine meanwhile.</Alert>}
-      <Grid min="sm">
-        <Card padding="tight"><Fact label="Sends to" value={`${DEST_LABEL[type]} · ${where}`} mono /></Card>
-        <Card padding="tight"><Fact label="Sources" value={l.sources?.length ? l.sources.join(', ') : 'Every resource in the project'} /></Card>
-        <Card padding="tight"><Fact label="Lines sent" value={`${String(r.outputs.linesSent ?? 0)} (${formatBytes(Number(r.outputs.bytesSent ?? 0))})`} /></Card>
-        <Card padding="tight"><Fact label="Behind by" value={`${String(r.outputs.lagSeconds ?? 0)} s`} /></Card>
-        {l.filter && <Card padding="tight"><Fact label="Only lines matching" value={l.filter} mono /></Card>}
-      </Grid>
+      <Card as="section" title="Delivery">
+        <DetailList label="Delivery" items={withHelp([
+          { label: 'Sends to', value: `${DEST_LABEL[type]} · ${where}`, mono: true, copy: where },
+          { label: 'Sources', value: l.sources?.length ? l.sources.join(', ') : 'Every resource in the project' },
+          { label: 'Lines sent', value: `${String(r.outputs.linesSent ?? 0)} (${formatBytes(Number(r.outputs.bytesSent ?? 0))})` },
+          { label: 'Behind by', value: `${String(r.outputs.lagSeconds ?? 0)} s` },
+          ...(l.filter ? [{ label: 'Only lines matching', value: l.filter, mono: true }] : []),
+        ])} />
+      </Card>
     </Stack>
   );
 }
@@ -157,12 +160,12 @@ export function SyncedSecretCard({ r }: { r: Resource }) {
   if (!src) return null;
   return (
     <Card title="Read from a secret store">
-      <Grid min="sm">
-        <Fact label="Store" value={src.store} mono />
-        <Fact label="Key" value={src.key} mono />
-        <Fact label="Field" value={src.field ?? 'The whole value'} mono />
-        <Fact label="Last synced" value={r.outputs.syncedAt ? new Date(String(r.outputs.syncedAt)).toLocaleString() : 'Not yet'} />
-      </Grid>
+      <DetailList label="Secret store" items={withHelp([
+        { label: 'Store', value: src.store, mono: true, copy: src.store },
+        { label: 'Key', value: src.key, mono: true, copy: src.key },
+        { label: 'Field', value: src.field ?? 'The whole value', mono: true },
+        { label: 'Last synced', value: r.outputs.syncedAt ? new Date(String(r.outputs.syncedAt)).toLocaleString() : 'Not yet' },
+      ])} />
     </Card>
   );
 }

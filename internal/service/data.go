@@ -82,11 +82,34 @@ func (s *Resources) dataRefs(ctx context.Context, q *store.Queries, r *domain.Re
 			}
 			refs = append(refs, store.Ref{ToID: b.ID, Field: f.field})
 		}
+		// The secret that signs its webhook and the topic it publishes to (L2-012 TRX-09).
+		if n := sp.Notify; n != nil {
+			for _, f := range []struct {
+				kind        api.Kind
+				name, field string
+			}{{api.KindSecret, webhookSecret(n), "spec.notify.webhook.secret"}, {api.KindTopic, n.Topic, "spec.notify.topic"}} {
+				if f.name == "" {
+					continue
+				}
+				dep, err := live(ctx, q, project, f.kind, f.name, f.field)
+				if err != nil {
+					return nil, err
+				}
+				refs = append(refs, store.Ref{ToID: dep.ID, Field: f.field})
+			}
+		}
 		return dedupeRefs(refs), nil
 	case api.CDNSpec:
 		return s.cdnRefs(ctx, q, r, sp)
 	}
 	return nil, nil
+}
+
+func webhookSecret(n *api.TranscodeNotify) string {
+	if n.Webhook == nil {
+		return ""
+	}
+	return n.Webhook.Secret
 }
 
 // cdnRefs checks a CDN's origin, its hostname against every domain and CDN, and its zone.

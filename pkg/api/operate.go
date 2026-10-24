@@ -1237,6 +1237,9 @@ func FormatMetric(v float64, unit string) string {
 	return strconv.FormatFloat(v, 'g', 4, 64)
 }
 
+// ByteSize writes a size in bytes for people: "512 B", "48.2 MiB" (events, messages, the CLI).
+func ByteSize(n int64) string { return humanBytes(float64(n)) }
+
 func humanBytes(v float64) string {
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
 	i := 0

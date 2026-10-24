@@ -179,6 +179,8 @@ type TranscodeRun struct {
 	InputName  string
 	InputSize  int64
 	Presets    []string
+	Renditions []api.Rendition // L2-012 TRX-02
+	HLS        *api.HLSLadder  // L2-012 TRX-03
 	MemoryMiB  int
 	Timeout    time.Duration
 }
@@ -404,6 +406,10 @@ type Driver interface {
 	// SetProjectStoreAccess makes the object store user of a project reach exactly buckets, or removes it
 	// when there are none (ADR-035). root is the store's own credentials.
 	SetProjectStoreAccess(ctx context.Context, user ObjectStore, buckets []string, root ObjectStore) error
+	// SetStoreUserAccess makes an app's or job's object store user reach exactly grants, read or read and
+	// write, or removes the user and its policy when there are none (ADR-049). root is the store's own
+	// credentials.
+	SetStoreUserAccess(ctx context.Context, user ObjectStore, grants []api.BucketGrant, root ObjectStore) error
 
 	// v0.7, read-only (ADR-037, ADR-040).
 	// Stats reads the cumulative counters of a resource's running containers now; none when nothing runs.

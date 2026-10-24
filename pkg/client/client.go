@@ -152,12 +152,7 @@ func (c *Client) do(ctx context.Context, req *request, out any) error {
 		if payload != nil {
 			hreq.Header.Set("Content-Type", "application/json")
 		}
-		hreq.Header.Set("Accept", "application/json")
-		hreq.Header.Set("User-Agent", c.UserAgent)
-		hreq.Header.Set(api.HeaderCSRF, "1") // required for cookie sessions; harmless with tokens
-		if c.Token != "" {
-			hreq.Header.Set("Authorization", "Bearer "+c.Token)
-		}
+		c.identify(hreq)
 		if req.idemKey != "" {
 			hreq.Header.Set(api.HeaderIdempotencyKey, req.idemKey)
 		}
@@ -218,6 +213,16 @@ func (c *Client) do(ctx context.Context, req *request, out any) error {
 		return nil
 	}
 	return lastErr
+}
+
+// identify sets the headers every request carries: who calls and how.
+func (c *Client) identify(hreq *http.Request) {
+	hreq.Header.Set("Accept", "application/json")
+	hreq.Header.Set("User-Agent", c.UserAgent)
+	hreq.Header.Set(api.HeaderCSRF, "1") // required for cookie sessions; harmless with tokens
+	if c.Token != "" {
+		hreq.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 }
 
 // safeToRetry: reads and deletes are idempotent; POSTs only with an idempotency key; PATCH with If-Match.

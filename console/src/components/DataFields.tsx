@@ -4,7 +4,9 @@ import { RULES } from '../api/generated';
 import type { CDNSpec, EmailSpec, Kind, Preset, QueueSpec, RelayTls, Resource, SearchSpec, Subscription, TlsMode, TopicSpec, TranscoderSpec } from '../api/types';
 import type { FieldErrors } from '../lib/validation';
 import { normalizePrefix } from '../lib/validation';
+import { hasPlaceholders } from '../lib/transcode';
 import { PlacementFields } from './NetworkingFields';
+import { useTranscodeOutputs } from './TranscodeFields';
 
 // Create and edit forms of the v0.6 kinds (L2-001 CON-38 – CON-43, L2.5-002 §13): queues, topics,
 // search, transcoders, CDNs and email. ResourceForm owns the name, submission and errors; this owns the
@@ -67,7 +69,8 @@ export function useDataForm(kind: Kind, existing?: Resource) {
   const [inPrefix, setInPrefix] = useState(tc.input?.prefix ?? '');
   const [outBucket, setOutBucket] = useState(tc.output?.bucket ?? '');
   const [outPrefix, setOutPrefix] = useState(tc.output?.prefix ?? RULES.transcodeOutputDefault);
-  const [presets, setPresets] = useState<Preset[]>(tc.presets ?? ['mp4-720p', 'thumbnail']);
+  const [presets, setPresets] = useState<Preset[]>(tc.presets ?? (existing ? [] : ['mp4-720p', 'thumbnail']));
+  const tcOutputs = useTranscodeOutputs(tc);
   const [watch, setWatch] = useState(tc.watch !== false);
   const [tcTimeout, setTcTimeout] = useState(String(tc.timeoutSeconds ?? RULES.transcodeTimeoutDefault));
   const [concurrency, setConcurrency] = useState(String(tc.concurrency ?? RULES.concurrencyDefault));
@@ -104,7 +107,9 @@ export function useDataForm(kind: Kind, existing?: Resource) {
       case 'search':
         return withPlacement({ version: searchVersion, memoryMiB: num(searchMemory) });
       case 'transcoder':
-        return { input: { bucket: inBucket, prefix: normalizePrefix(inPrefix) }, output: { bucket: outBucket, prefix: normalizePrefix(outPrefix) }, presets, watch,
+        // An edit sends every output field: one left empty is cleared (null), as the server's PATCH reads it.
+        return { input: { bucket: inBucket, prefix: normalizePrefix(inPrefix) }, output: { bucket: outBucket, prefix: normalizePrefix(outPrefix) },
+          ...(existing ? { presets: null, renditions: null, hls: null, notify: null } : {}), ...(presets.length ? { presets } : {}), ...tcOutputs.build(), watch,
           timeoutSeconds: num(tcTimeout), concurrency: num(concurrency), memoryMiB: num(tcMemory) };
       case 'cdn': {
         const s: CDNSpec = { hostname: hostname.trim().toLowerCase(), origin: originName ? `${originKind}/${originName}` : '', defaultTtlSeconds: num(ttl), maxSizeMiB: num(cacheSize) };
@@ -264,23 +269,25 @@ export function useDataForm(kind: Kind, existing?: Resource) {
             <Fieldset legend="Output">
               <FormRow>
                 {bucketSelect('f-out-bucket', outBucket, setOutBucket, 'spec.output.bucket')}
-                <Field id="f-out-prefix" hint="Empty puts the results in transcoded/." label="Folder" error={err('spec.output.prefix')}>
+                <Field id="f-out-prefix" hint="Empty puts the results in transcoded/. {name} is the file's name and {meta:video-id} the uploader's tag video-id, like processed/{meta:video-id}/." label="Folder" error={err('spec.output.prefix')}>
                   <Input id="f-out-prefix" mono value={outPrefix} onChange={(e) => setOutPrefix(e.target.value)} onBlur={onBlur} spellCheck={false} />
                 </Field>
               </FormRow>
               {inBucket && outBucket && (
                 <Text size="sm" tone="muted">
-                  Files in {inBucket}/{normalizePrefix(inPrefix)} → {outBucket}/{normalizePrefix(outPrefix)}&lt;name&gt;/&lt;preset&gt;.&lt;ext&gt;
+                  Files in {inBucket}/{normalizePrefix(inPrefix)} → {outBucket}/{normalizePrefix(outPrefix)}{hasPlaceholders(outPrefix) ? '' : '<name>/'}&lt;output&gt;
                 </Text>
               )}
             </Fieldset>
             <Fieldset legend="Presets">
+              <Text size="sm" tone="muted">Ready-made outputs. Choose presets, renditions of your own, an HLS ladder, or any mix.</Text>
               {err('spec.presets') && <Text size="sm" tone="bad">{err('spec.presets')}</Text>}
               {(RULES.presets as readonly Preset[]).map((p) => (
                 <Checkbox key={p} label={`${p} — ${PRESET_WORDS[p]}`} checked={presets.includes(p)}
                   onChange={(e) => setPresets(e.target.checked ? [...presets, p] : presets.filter((x) => x !== p))} />
               ))}
             </Fieldset>
+            {tcOutputs.render({ errors, secrets: secretNames, topics: names('topic'), onBlur })}
             <Checkbox label="Convert new files automatically (files already there aren't converted)" checked={watch} onChange={(e) => setWatch(e.target.checked)} />
             <FormRow>
               {numberField('f-tc-timeout', 'Timeout per file (s)', tcTimeout, setTcTimeout, 'spec.timeoutSeconds')}

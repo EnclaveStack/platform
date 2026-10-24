@@ -399,3 +399,22 @@ const SystemOwner = "system"
 // ProjectStoreUser is the object store user of a project other than default, whose policy allows only
 // that project's buckets (ADR-035).
 func ProjectStoreUser(project string) string { return "es-p-" + project }
+
+// StoreUserFor is the object store user of an app or job with bucket access (ADR-049): "esr-" and the
+// random part of its ID, 20 characters.
+func StoreUserFor(resourceID string) string {
+	_, random, _ := strings.Cut(resourceID, "_")
+	return "esr-" + random
+}
+
+// BucketGrantsOf returns the bucket access an app's or job's spec gives it of its own (nil for other
+// kinds, and for a job that runs as an app, which uses the app's).
+func BucketGrantsOf(spec any) []api.BucketGrant {
+	switch s := spec.(type) {
+	case api.AppSpec:
+		return s.BucketAccess
+	case api.JobSpec:
+		return s.BucketAccess
+	}
+	return nil
+}

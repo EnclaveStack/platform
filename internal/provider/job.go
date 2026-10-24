@@ -28,22 +28,24 @@ type jobModel struct {
 	Name    types.String `tfsdk:"name"`
 	Project types.String `tfsdk:"project"`
 	placementModel
-	Schedule      types.String   `tfsdk:"schedule"`
-	TimeZone      types.String   `tfsdk:"time_zone"`
-	App           types.String   `tfsdk:"app"`
-	Image         types.String   `tfsdk:"image"`
-	Command       types.List     `tfsdk:"command"`
-	Env           types.Map      `tfsdk:"env"`
-	SecretEnv     types.Map      `tfsdk:"secret_env"`
-	Timeout       types.Int64    `tfsdk:"timeout_seconds"`
-	Overlap       types.String   `tfsdk:"overlap"`
-	MemoryMiB     types.Int64    `tfsdk:"memory_mib"`
-	NextRunAt     types.String   `tfsdk:"next_run_at"`
-	LastRunStatus types.String   `tfsdk:"last_run_status"`
-	Network       types.String   `tfsdk:"network"`
-	Subnet        types.String   `tfsdk:"subnet"`
-	Volumes       []mountModel   `tfsdk:"volumes"`
-	Timeouts      timeouts.Value `tfsdk:"timeouts"`
+	Schedule      types.String       `tfsdk:"schedule"`
+	TimeZone      types.String       `tfsdk:"time_zone"`
+	App           types.String       `tfsdk:"app"`
+	Image         types.String       `tfsdk:"image"`
+	Command       types.List         `tfsdk:"command"`
+	Env           types.Map          `tfsdk:"env"`
+	SecretEnv     types.Map          `tfsdk:"secret_env"`
+	Timeout       types.Int64        `tfsdk:"timeout_seconds"`
+	Overlap       types.String       `tfsdk:"overlap"`
+	MemoryMiB     types.Int64        `tfsdk:"memory_mib"`
+	NextRunAt     types.String       `tfsdk:"next_run_at"`
+	LastRunStatus types.String       `tfsdk:"last_run_status"`
+	Network       types.String       `tfsdk:"network"`
+	Subnet        types.String       `tfsdk:"subnet"`
+	Volumes       []mountModel       `tfsdk:"volumes"`
+	BucketAccess  []bucketGrantModel `tfsdk:"bucket_access"`
+	BucketCreds   types.String       `tfsdk:"bucket_credentials_secret"`
+	Timeouts      timeouts.Value     `tfsdk:"timeouts"`
 }
 
 type jobResource struct{ base }
@@ -86,12 +88,14 @@ func (r *jobResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 				Description: "forbid: skip a run while one is going; allow: run anyway.", Validators: []validator.String{stringvalidator.OneOf(api.OverlapPolicies...)}},
 			"memory_mib": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(api.AppMemoryDefaultMiB),
 				Description: "Memory limit in MiB (64–16384).", Validators: []validator.Int64{int64validator.Between(api.AppMemoryMinMiB, api.AppMemoryMaxMiB)}},
-			"next_run_at":     schema.StringAttribute{Computed: true, Description: "When the next run is due (RFC 3339)."},
-			"last_run_status": schema.StringAttribute{Computed: true, Description: "succeeded, failed, timed_out or skipped."},
-			"network":         placementNetworkAttr(),
-			"subnet":          placementSubnetAttr(),
-			"volumes":         volumesAttr(),
-			"timeouts":        timeoutsAttr(ctx),
+			"next_run_at":               schema.StringAttribute{Computed: true, Description: "When the next run is due (RFC 3339)."},
+			"last_run_status":           schema.StringAttribute{Computed: true, Description: "succeeded, failed, timed_out or skipped."},
+			"network":                   placementNetworkAttr(),
+			"subnet":                    placementSubnetAttr(),
+			"volumes":                   volumesAttr(),
+			"bucket_access":             bucketAccessAttr("a job from an image (a job with app uses the app's)"),
+			"bucket_credentials_secret": bucketCredentialsAttr(),
+			"timeouts":                  timeoutsAttr(ctx),
 		},
 	}
 }
@@ -100,7 +104,7 @@ func (m *jobModel) spec(ctx context.Context) (api.JobSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	s := api.JobSpec{Schedule: m.Schedule.ValueString(), TimeZone: m.TimeZone.ValueString(), App: m.App.ValueString(), Image: m.Image.ValueString(),
 		TimeoutSeconds: int(m.Timeout.ValueInt64()), Overlap: m.Overlap.ValueString(), MemoryMiB: int(m.MemoryMiB.ValueInt64()),
-		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Volumes: mountsOf(m.Volumes), Placed: m.placed()}
+		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Volumes: mountsOf(m.Volumes), BucketAccess: grantsOf(m.BucketAccess), Placed: m.placed()}
 	if !m.Command.IsNull() {
 		diags.Append(m.Command.ElementsAs(ctx, &s.Command, false)...)
 	}
@@ -133,6 +137,7 @@ func (m *jobModel) fill(r api.Resource) {
 	m.NextRunAt, m.LastRunStatus = outString(r, "nextRunAt"), outString(r, "lastRunStatus")
 	m.Network, m.Subnet = strOrNull(s.Network), strOrNull(s.Subnet)
 	m.Volumes = mountModels(s.Volumes, m.Volumes)
+	m.BucketAccess, m.BucketCreds = grantModels(s.BucketAccess), credentialsSecretOf(r)
 }
 
 func (r *jobResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -189,7 +194,8 @@ func (r *jobResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	patch := map[string]any{"schedule": s.Schedule, "timeZone": nilIfEmptyString(s.TimeZone), "app": nilIfEmptyString(s.App), "image": nilIfEmptyString(s.Image),
 		"command": nilIfEmpty(s.Command), "env": nilIfEmptyMap(s.Env), "secretEnv": nilIfEmptyMap(s.SecretEnv),
 		"timeoutSeconds": s.TimeoutSeconds, "overlap": s.Overlap, "memoryMiB": s.MemoryMiB,
-		"network": nilIfEmptyString(s.Network), "subnet": nilIfEmptyString(s.Subnet), "volumes": nilIfNoMounts(s.Volumes)}
+		"network": nilIfEmptyString(s.Network), "subnet": nilIfEmptyString(s.Subnet), "volumes": nilIfNoMounts(s.Volumes),
+		"bucketAccess": nilIfNoGrants(s.BucketAccess)}
 	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {

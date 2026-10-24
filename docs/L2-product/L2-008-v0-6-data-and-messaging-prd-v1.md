@@ -6,9 +6,9 @@
 | Document ID | L2-008-v0-6-data-and-messaging-prd-v1 |
 | Layer | L2 — Product |
 | Status | Draft |
-| Version | v2 |
+| Version | v3 |
 | Created | 2026-10-21 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -115,11 +115,11 @@ Engineering: `L3-002` §9, `L3-003` ADR-029 – ADR-034, `L3-004` DAR-021 – DA
 | ID | Requirement | Priority |
 |---|---|---|
 | TRN-01 | A transcoder names an input bucket and folder and an output bucket and folder. On the same bucket, neither folder may contain the other | Must |
-| TRN-02 | Presets come from a fixed list: `mp4-480p`, `mp4-720p`, `mp4-1080p` (H.264 and AAC), `webm-720p` (VP9 and Opus), `hls-720p` (an HLS playlist and segments), `mp3` (audio only) and `thumbnail` (one JPEG). Video is never scaled up | Must |
+| TRN-02 | Presets come from a fixed list: `mp4-480p`, `mp4-720p`, `mp4-1080p` (H.264 and AAC), `webm-720p` (VP9 and Opus), `hls-720p` (an HLS playlist and segments), `mp3` (audio only) and `thumbnail` (one JPEG). Video is never scaled up. `L2-012` adds renditions and an HLS ladder of the user's own, and makes presets optional | Must |
 | TRN-03 | With `watch` on (default), each object that appears in the input folder after the transcoder became ready is converted once. Objects already there are not converted | Must |
 | TRN-04 | A file can be converted on request, by its key, whether or not it was converted before | Must |
 | TRN-05 | Each file is a run (`L2-005` JOB-04): status, duration, the outputs written, and the end of FFmpeg's output when it failed. `timeoutSeconds` (60 – 86 400, default 3600) bounds one run. A file that isn't media fails its run with FFmpeg's reason; the transcoder stays ready | Must |
-| TRN-06 | Outputs go to `<output folder>/<input key without the input folder and extension>/<preset>.<extension>`; HLS writes `<preset>/index.m3u8` and its segments | Must |
+| TRN-06 | Outputs go to `<output folder>/<input key without the input folder and extension>/<preset>.<extension>`; HLS writes `<preset>/index.m3u8` and its segments. `L2-012` TRX-07 lets the output folder use the file name and the input's tags | Must |
 | TRN-07 | `concurrency` (1 – 4, default 1) runs that many files at once; `memoryMiB` (256 – 8192, default 1024) bounds each | Should |
 | TRN-08 | Deleting a bucket a transcoder uses is refused (CP-12). Deleting a transcoder keeps what it wrote | Must |
 
@@ -210,3 +210,4 @@ Engineering: `L3-002` §9, `L3-003` ADR-029 – ADR-034, `L3-004` DAR-021 – DA
 |---|---|---|---|
 | v1 | 2026-10-21 | Soupler | v0.6 scope: database engines, queue, topic, search, transcoder, cdn and email kinds (DBE, QUE, TOP, SRC, TRN, CDN, EML requirements). Scope, broker, search engine and email approach decided with the owner |
 | v2 | 2026-10-22 | Soupler | Delivery status: phases 1 – 6 built and tested on every surface and on real Docker; as-built notes (MongoDB 7.0 default, dead letters at the next receive, manual transcodes refused at concurrency, search and email placement fixed, LOGIN relay auth, fixed host ports) |
+| v3 | 2026-10-24 | Soupler | TRN-02, TRN-06 point to L2-012 (renditions, HLS ladder, output folders from tags) |

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -78,8 +79,10 @@ type Driver struct {
 	jobs      map[string]*fakeRun
 	jobStarts map[string]int // survives a finished run, so a second start shows
 	data      map[string]string
-	images    map[string]string // built image tag → resource ID
-	jobImages map[string]string // run ID → the image it started with
+	images    map[string]string            // built image tag → resource ID
+	jobImages map[string]string            // run ID → the image it started with
+	jobRuns   map[string]engine.JobRun     // run ID → what it started with, kept after it ends
+	appEnv    map[string]map[string]string // app ID → the environment its last ensure gave
 	builds    int
 	networks  map[string]*network // engine network name → network
 	rules     map[string]*fakeRules
@@ -320,6 +323,10 @@ func (d *Driver) ensureApp(ctx context.Context, in engine.EnsureInput, f *Fault,
 	spec, _ := in.Spec.(api.AppSpec)
 	d.recordMounts(r.ID, in.Mounts)
 	d.mu.Lock()
+	if d.appEnv == nil {
+		d.appEnv = map[string]map[string]string{}
+	}
+	d.appEnv[r.ID] = maps.Clone(in.Env)
 	cur := d.runtimes[r.ID]
 	_, built := d.images[spec.Image]
 	d.mu.Unlock()
@@ -630,4 +637,11 @@ func (d *Driver) Running(resourceID string) bool {
 	defer d.mu.Unlock()
 	rt := d.runtimes[resourceID]
 	return rt != nil && rt.running
+}
+
+// EnvOf returns the environment the last ensure gave an app's containers.
+func (d *Driver) EnvOf(resourceID string) map[string]string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return maps.Clone(d.appEnv[resourceID])
 }

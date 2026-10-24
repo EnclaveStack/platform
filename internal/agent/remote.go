@@ -523,6 +523,10 @@ func (m *Remote) SetProjectStoreAccess(ctx context.Context, user engine.ObjectSt
 	return m.driverCall(ctx, "SetProjectStoreAccess", storeAccessArgs{User: user, Buckets: buckets, Root: root})
 }
 
+func (m *Remote) SetStoreUserAccess(ctx context.Context, user engine.ObjectStore, grants []api.BucketGrant, root engine.ObjectStore) error {
+	return m.driverCall(ctx, "SetStoreUserAccess", storeUserArgs{User: user, Grants: grants, Root: root})
+}
+
 func (m *Remote) Stats(ctx context.Context, r *domain.Resource) ([]engine.ContainerStats, error) {
 	return call[[]engine.ContainerStats](ctx, m, pathDriver+"Stats", resourceArgs{R: bare(r)})
 }

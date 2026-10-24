@@ -1,10 +1,11 @@
 import {
-  Alert, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, Drawer, Fact, Field, Form, Grid, Heading, Icons, IconButton, Inline, Input, Page, PageHeader,
+  Alert, Badge, Button, buttonClass, Card, Chip, CodeBlock, ConfirmDialog, Drawer, DetailList, Field, Form, Heading, Icons, Inline, Input, Page, PageHeader,
   ProgressBar, Row, Rows, Skeleton, Stack, Status, Table, Text, useToast,
 } from '@enclavestack/ui';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApi } from '../api/context';
+import { DETAIL_HELP, withHelp } from '../lib/details';
 import { RULES } from '../api/generated';
 import { ApiError, type AddedMachine, type DrainResult, type MachineSummary } from '../api/types';
 import { useSession } from '../auth/session';
@@ -145,15 +146,6 @@ function AddMachineForm({ onDone }: { onDone: (a: AddedMachine) => void }) {
       {errors.labels && <Alert>{errors.labels}</Alert>}
       <Button type="submit" variant="dark" size="lg" block disabled={busy}>{busy ? 'Adding…' : 'Add and show the join command'}</Button>
     </Form>
-  );
-}
-
-/** A small button that puts a value on the clipboard and says so. */
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const toast = useToast();
-  return (
-    <IconButton size="sm" variant="ghost" label={label} icon={<Icons.Copy />}
-      onClick={() => void navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast("Couldn't copy: select the text instead"))} />
   );
 }
 
@@ -318,18 +310,20 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
             </Stack>
           </Alert>
         )}
-        <Grid min="sm">
-          <Card><Fact label="Name in commands" mono value={x.name} action={<CopyButton text={x.name} label="Copy the name" />} /></Card>
-          <Card><Fact label="ID" mono value={x.id} action={<CopyButton text={x.id} label="Copy the ID" />} /></Card>
-          <Card><Fact label={`${MACHINE_STATE[x.state] ?? x.state} since`} value={<span title={new Date(x.since).toLocaleString()}>{formatAgo(x.since)}</span>} /></Card>
-          <Card><Fact label="Last heard" value={x.lastSeenAt ? <span title={new Date(x.lastSeenAt).toLocaleString()}>{formatAgo(x.lastSeenAt)}</span> : '—'} /></Card>
-          <Card><Fact label="Address" mono value={x.address ?? '—'} /></Card>
-          <Card><Fact label="System" value={x.os ? `${x.os} · ${x.arch}` : '—'} /></Card>
-          <Card><Fact label="Agent" mono value={x.agentVersion || '—'} /></Card>
-          <Card><Fact label="Engine" value={x.engine.driver ? `${x.engine.driver} ${x.engine.version}` : '—'} /></Card>
-          <Card><Fact label="CPUs" value={x.cpus || '—'} /></Card>
-          <Card><Fact label="VMs" value={x.vms.available ? 'Yes' : x.vms.message || 'No'} /></Card>
-        </Grid>
+        <Card as="section" title="Details">
+          <DetailList items={withHelp([
+            { label: 'Name in commands', mono: true, value: x.name, copy: x.name },
+            { label: 'ID', mono: true, value: x.id, copy: x.id },
+            { label: `${MACHINE_STATE[x.state] ?? x.state} since`, hint: DETAIL_HELP['State since'], value: <span title={new Date(x.since).toLocaleString()}>{formatAgo(x.since)}</span> },
+            { label: 'Last heard', value: x.lastSeenAt ? <span title={new Date(x.lastSeenAt).toLocaleString()}>{formatAgo(x.lastSeenAt)}</span> : '—' },
+            { label: 'Address', mono: true, value: x.address ?? '—', copy: x.address ?? undefined },
+            { label: 'System', value: x.os ? `${x.os} · ${x.arch}` : '—' },
+            { label: 'Agent', mono: true, value: x.agentVersion || '—' },
+            { label: 'Engine', value: x.engine.driver ? `${x.engine.driver} ${x.engine.version}` : '—', hint: DETAIL_HELP['Machine engine'] },
+            { label: 'CPUs', value: String(x.cpus || '—') },
+            { label: 'VMs', value: x.vms.available ? 'Yes' : x.vms.message || 'No' },
+          ])} />
+        </Card>
         <Card title="Memory">
           <Stack gap={2}>
             <ProgressBar label="Memory reserved" value={percentOf(x.memoryReservedBytes, x.memoryTotalBytes)} />

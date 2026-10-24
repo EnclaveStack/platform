@@ -99,11 +99,15 @@ type BucketFolder struct {
 type TranscoderSpec struct {
 	Input          BucketFolder `json:"input"`
 	Output         BucketFolder `json:"output"`
-	Presets        []string     `json:"presets"`
+	Presets        []string     `json:"presets,omitempty"`
 	Watch          *bool        `json:"watch,omitempty"`
 	TimeoutSeconds int          `json:"timeoutSeconds,omitempty"`
 	Concurrency    int          `json:"concurrency,omitempty"`
 	MemoryMiB      int          `json:"memoryMiB,omitempty"`
+	// Renditions, HLS and Notify (L2-012 TRX-*): outputs of the user's own and the "done" message.
+	Renditions []Rendition      `json:"renditions,omitempty"`
+	HLS        *HLSLadder       `json:"hls,omitempty"`
+	Notify     *TranscodeNotify `json:"notify,omitempty"`
 }
 
 // Watching reports whether new objects are converted automatically (default true).
@@ -228,11 +232,14 @@ const (
 
 // Allowed values (L3-002 §9.2).
 var (
-	SearchVersions   = []string{SearchVersion3, SearchVersion2}
-	Presets          = []string{PresetMP4480p, PresetMP4720p, PresetMP41080p, PresetWebM720p, PresetHLS720p, PresetMP3, PresetThumbnail}
-	EmailModes       = []string{EmailCapture, EmailRelaying}
-	RelayTLSModes    = []string{RelaySTARTTLS, RelayTLS, RelayNone}
-	CDNOriginKinds   = []Kind{KindApp, KindBucket}
+	SearchVersions = []string{SearchVersion3, SearchVersion2}
+	Presets        = []string{PresetMP4480p, PresetMP4720p, PresetMP41080p, PresetWebM720p, PresetHLS720p, PresetMP3, PresetThumbnail}
+	EmailModes     = []string{EmailCapture, EmailRelaying}
+	RelayTLSModes  = []string{RelaySTARTTLS, RelayTLS, RelayNone}
+	CDNOriginKinds = []Kind{KindApp, KindBucket}
+	// PresetFiles is where each preset's main output lands under a run's folder (TRN-06).
+	PresetFiles = map[string]string{PresetMP4480p: "mp4-480p.mp4", PresetMP4720p: "mp4-720p.mp4", PresetMP41080p: "mp4-1080p.mp4",
+		PresetWebM720p: "webm-720p.webm", PresetHLS720p: "hls-720p/index.m3u8", PresetMP3: "mp3.mp3", PresetThumbnail: "thumbnail.jpg"}
 	prefixCharacters = regexp.MustCompile(`^[A-Za-z0-9!_.*'()/ +=,@-]*$`)
 )
 
@@ -379,7 +386,7 @@ func normalizeTranscoder(s TranscoderSpec) TranscoderSpec {
 	if s.MemoryMiB == 0 {
 		s.MemoryMiB = TranscodeMemoryDefault
 	}
-	return s
+	return normalizeTranscodeOutputs(s)
 }
 
 func validateFolder(f BucketFolder, field string) []FieldError {
@@ -401,24 +408,22 @@ func validatePrefix(prefix, field string) []FieldError {
 }
 
 func validateTranscoder(s TranscoderSpec) []FieldError {
-	errs := append(validateFolder(s.Input, "spec.input"), validateFolder(s.Output, "spec.output")...)
-	if s.Input.Bucket == s.Output.Bucket && (strings.HasPrefix(s.Input.Prefix, s.Output.Prefix) || strings.HasPrefix(s.Output.Prefix, s.Input.Prefix)) {
+	output := s.Output
+	output.Prefix = placeholder.ReplaceAllString(output.Prefix, "x") // {name} and {meta:<tag>} are checked by validateTranscodeOutputs
+	errs := append(validateFolder(s.Input, "spec.input"), validateFolder(output, "spec.output")...)
+	if out := staticPrefix(s.Output.Prefix); s.Input.Bucket == s.Output.Bucket && (strings.HasPrefix(s.Input.Prefix, out) || strings.HasPrefix(out, s.Input.Prefix)) {
 		errs = append(errs, FieldError{Field: "spec.output.prefix", Code: FieldNotAllowed, Message: "On the same bucket, the output folder can't be inside the input folder or contain it; the transcoder would convert its own files."})
 	}
-	switch {
-	case len(s.Presets) == 0:
-		errs = append(errs, FieldError{Field: "spec.presets", Code: FieldRequired, Message: "Choose at least one preset."})
-	default:
-		for i, p := range s.Presets {
-			f := fmt.Sprintf("spec.presets[%d]", i)
-			switch {
-			case !slices.Contains(Presets, p):
-				errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: "Choose from " + strings.Join(Presets, ", ") + "."})
-			case slices.Index(s.Presets, p) < i:
-				errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: "This preset is listed twice."})
-			}
+	for i, p := range s.Presets {
+		f := fmt.Sprintf("spec.presets[%d]", i)
+		switch {
+		case !slices.Contains(Presets, p):
+			errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: "Choose from " + strings.Join(Presets, ", ") + "."})
+		case slices.Index(s.Presets, p) < i:
+			errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: "This preset is listed twice."})
 		}
 	}
+	errs = append(errs, validateTranscodeOutputs(s)...)
 	if s.TimeoutSeconds < TranscodeTimeoutMin || s.TimeoutSeconds > TranscodeTimeoutMax {
 		errs = append(errs, FieldError{Field: "spec.timeoutSeconds", Code: FieldOutOfRange, Message: "Use 60 seconds to 24 hours."})
 	}

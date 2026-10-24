@@ -5,6 +5,7 @@ import { ID_PREFIX, MANAGED, ROLES, RULES, STEP_NAMES } from './generated';
 import {
   ApiError,
   type AppSpec,
+  type BucketGrant,
   type BackupSpec,
   type GitSource,
   type CreatedToken,
@@ -32,6 +33,7 @@ import {
   type ZoneSpec,
   type Event,
   type FieldError,
+  type ObjectInfo,
   type Kind,
   type LogLine,
   type Machine,
@@ -66,7 +68,9 @@ import {
 } from './types';
 import { can, roleIn } from '../lib/roles';
 import { nextRuns } from '../lib/schedule';
-import { normalizePrefix, validateEmail, validateLabels, validateName, validateSpec } from '../lib/validation';
+import { normalizePrefix, validateEmail, validateLabels, validateName, validateObjectKey, validateObjectTags, validateSpec } from '../lib/validation';
+import { runFolder, transcodeFiles } from '../lib/transcode';
+import { formatBytes } from '../lib/format';
 
 // In-memory stand-in for the control plane (ADR-002), used by UI tests and offline demos. It follows
 // L3-002: same shapes, same error codes, same phase transitions, same managed-resource rules.
@@ -105,6 +109,8 @@ interface Stored {
   runs?: RunDetail[];
   /** A queue's messages, oldest first (QUE-*). */
   messages?: (ReceivedMessage & { invisibleUntil: number })[];
+  /** A bucket's files by key (L2-013). */
+  objects?: Map<string, ObjectInfo & { blob: Blob }>;
   /** A topic's message count and per-subscription counters (TOP-07). */
   published?: number;
   deliveries?: Record<string, number>;
@@ -213,7 +219,37 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   const addEvent = (s: Stored, type: string, message: string) => s.events.unshift({ id: eventId++, type, message, createdAt: now() });
   const notFound = () => fail(err('NOT_FOUND', "That resource doesn't exist.", 404));
 
+  /** Outputs of a resource, with the name of an app's or job's own keys while it has bucket access (L2-011 BKA-08). */
   function outputs(r: Resource): Resource['outputs'] {
+    const out = kindOutputs(r);
+    if ((r.kind === 'app' || r.kind === 'job') && ((r.spec as AppSpec | JobSpec).bucketAccess ?? []).length) out.bucketCredentialsSecret = bucketKeysName(r.name);
+    return out;
+  }
+
+  const bucketKeysName = (name: string) => `${name}-bucket-credentials`;
+
+  /** What can reach a bucket with keys of its own: apps and jobs that name it (L2-011 BKA-07). */
+  function bucketUsers(name: string) {
+    return [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.project === scope && (o.r.kind === 'app' || o.r.kind === 'job')
+      && ((o.r.spec as AppSpec | JobSpec).bucketAccess ?? []).some((g) => g.bucket === name));
+  }
+
+  /** Makes or deletes an app's or job's own keys to match its bucket access, and says so (BKA-03, BKA-06, BKA-08). */
+  function syncBucketKeys(s: Stored, before: BucketGrant[] | undefined) {
+    const grants = (s.r.spec as AppSpec | JobSpec).bucketAccess ?? [];
+    const keys = byName('secret', bucketKeysName(s.r.name));
+    if (grants.length && !keys) {
+      const id = Math.random().toString(36).slice(2, 18).padEnd(16, '0');
+      insert('secret', bucketKeysName(s.r.name), {}, s.r.id, JSON.stringify({ accessKey: `esr-${id}`, secretKey: Math.random().toString(36).slice(2) + '-Hc7' }));
+    } else if (!grants.length && keys && keys.r.ownerId === s.r.id) store.delete(keys.r.id);
+    if (JSON.stringify(before ?? []) !== JSON.stringify(grants)) {
+      addEvent(s, 'bucket_access', grants.length
+        ? `Bucket access: ${grants.map((g) => `${g.bucket} ${g.access === 'readwrite' ? 'read and write' : 'read'}`).join(', ')}.`
+        : 'Bucket access removed: its keys no longer work.');
+    }
+  }
+
+  function kindOutputs(r: Resource): Resource['outputs'] {
     const op = operateOutputs(r, now());
     if (op) return op;
     const internal = `es-${r.kind}-${r.name}${r.project === RULES.defaultProject ? '' : `.${r.project}`}`;
@@ -513,7 +549,10 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         return { version: '3', memoryMiB: RULES.searchMemoryDefault, ...spec };
       case 'transcoder': {
         const t = spec as unknown as TranscoderSpec;
-        return { timeoutSeconds: RULES.transcodeTimeoutDefault, concurrency: RULES.concurrencyDefault, memoryMiB: RULES.transcodeMemoryDefault, ...spec,
+        const outputs: Partial<TranscoderSpec> = {};
+        if (t.renditions) outputs.renditions = t.renditions.map((r) => ({ audioKbps: RULES.audioKbpsDefault, gopSeconds: RULES.gopSecondsDefault, ...r }));
+        if (t.hls) outputs.hls = { name: RULES.hlsNameDefault, segmentSeconds: RULES.segmentSecondsDefault, gopSeconds: RULES.gopSecondsDefault, audioKbps: RULES.audioKbpsDefault, ...t.hls };
+        return { timeoutSeconds: RULES.transcodeTimeoutDefault, concurrency: RULES.concurrencyDefault, memoryMiB: RULES.transcodeMemoryDefault, ...spec, ...outputs,
           input: { ...t.input, prefix: normalizePrefix(t.input?.prefix) }, output: { ...t.output, prefix: normalizePrefix(t.output?.prefix || RULES.transcodeOutputDefault) } };
       }
       case 'cdn': {
@@ -581,9 +620,23 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const cred = (spec as unknown as AppSpec).source?.credentialsSecret;
       if (cred && !byName('secret', cred)) details.push({ field: 'spec.source.credentialsSecret', code: 'NOT_FOUND', message: `There's no secret named ${cred}.` });
     }
+    if (kind === 'app' || kind === 'job') {
+      ((spec as unknown as AppSpec).bucketAccess ?? []).forEach((g, i) => {
+        const b = byName('bucket', g.bucket);
+        if (!b || b.r.status.phase === 'deleting') details.push({ field: `spec.bucketAccess[${i}].bucket`, code: 'NOT_FOUND', message: `There's no bucket named ${g.bucket}.` });
+      });
+    }
     if (kind === 'job') {
       const j = spec as unknown as JobSpec;
       if (j.app && !byName('app', j.app)) details.push({ field: 'spec.app', code: 'NOT_FOUND', message: `There's no app named ${j.app}.` });
+      // A job that runs as an app with bucket access gets the app's variables; it can't set them itself (BKA-04, BKA-05).
+      const app = j.app ? byName('app', j.app) : undefined;
+      if (app && ((app.r.spec as AppSpec).bucketAccess ?? []).length) {
+        for (const k of RULES.bucketAccessEnv) {
+          if (j.env && k in j.env) details.push({ field: `spec.env.${k}`, code: 'NOT_ALLOWED', message: `The app ${j.app} has bucket access, so EnclaveStack sets this variable.` });
+          if (j.secretEnv && k in j.secretEnv) details.push({ field: `spec.secretEnv.${k}`, code: 'NOT_ALLOWED', message: `The app ${j.app} has bucket access, so EnclaveStack sets this variable.` });
+        }
+      }
       for (const [k, name] of Object.entries(j.secretEnv ?? {})) {
         if (!byName('secret', name)) details.push({ field: `spec.secretEnv.${k}`, code: 'NOT_FOUND', message: `There's no secret named ${name}.` });
       }
@@ -665,6 +718,8 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const t = spec as unknown as TranscoderSpec;
       exists('bucket', t.input.bucket, 'spec.input.bucket');
       exists('bucket', t.output.bucket, 'spec.output.bucket');
+      if (t.notify?.webhook?.secret) exists('secret', t.notify.webhook.secret, 'spec.notify.webhook.secret');
+      if (t.notify?.topic) exists('topic', t.notify.topic, 'spec.notify.topic');
     }
     if (kind === 'email' && (spec as EmailSpec).relay) exists('secret', (spec as EmailSpec).relay?.credentialsSecret, 'spec.relay.credentialsSecret');
     if (kind === 'cdn') {
@@ -804,8 +859,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
           return r.kind === 'queue' && (o.r.spec as QueueSpec).deadLetterQueue === r.name;
         case 'topic':
           return ((o.r.spec as TopicSpec).subscriptions ?? []).some((sub) => (r.kind === 'queue' && sub.queue === r.name) || (r.kind === 'secret' && sub.secret === r.name));
-        case 'transcoder':
-          return r.kind === 'bucket' && [(o.r.spec as TranscoderSpec).input.bucket, (o.r.spec as TranscoderSpec).output.bucket].includes(r.name);
+        case 'transcoder': {
+          const t = o.r.spec as TranscoderSpec;
+          return (r.kind === 'bucket' && [t.input.bucket, t.output.bucket].includes(r.name)) ||
+            (r.kind === 'secret' && t.notify?.webhook?.secret === r.name) || (r.kind === 'topic' && t.notify?.topic === r.name);
+        }
         case 'cdn':
           return (o.r.spec as CDNSpec).origin === ref || (r.kind === 'zone' && (o.r.spec as CDNSpec).zone === r.name);
         case 'email':
@@ -849,6 +907,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     const db = insert('database', 'orders', { engine: 'postgres', version: '16' }, null);
     insert('secret', 'orders-password', {}, db.r.id, 'demo-password');
     insert('cache', 'sessions', { engine: 'redis', version: '7', maxMemoryMiB: 256 }, null);
+    insert('bucket', 'media', {}, null);
     insert('app', 'api', { image: 'ghcr.io/acme/api:1.4', port: 8080, publish: true, memoryMiB: 256, env: { LOG_LEVEL: 'info' }, secretEnv: { STRIPE_KEY: 'stripe-key' } }, null);
     insert('channel', 'ops', { type: 'webhook', webhook: { url: 'https://hooks.example.com/enclave' } }, null);
     insert('alert', 'api-cpu', normalize('alert', { condition: { type: 'metric', resources: ['app/api'], metric: 'cpu', operator: 'above', threshold: 0.9 }, channels: ['ops'] }), null);
@@ -987,6 +1046,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     if (kind === 'topic') Object.assign(s, { published: 0, deliveries: {} });
     if (kind === 'email') s.emails = [];
     if (kind === 'bucket' && !byName('secret', MANAGED.objectStoreCredentials)) insert('secret', MANAGED.objectStoreCredentials, {}, MANAGED.systemOwner, '{"accessKey":"mock","secretKey":"mock"}');
+    if (kind === 'app' || kind === 'job') syncBucketKeys(s, undefined);
     return s;
   }
 
@@ -1403,6 +1463,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         r.spec = {} as SpecByKind[Kind];
       }
       else r.spec = full as unknown as SpecByKind[Kind];
+      if (r.kind === 'app' || r.kind === 'job') syncBucketKeys(s, (prior as { bucketAccess?: BucketGrant[] }).bucketAccess);
       r.generation++;
       r.updatedAt = now();
       addEvent(s, 'updated', `Spec changed to generation ${r.generation}.`);
@@ -1441,6 +1502,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (backupUsers.length) {
         return fail(err('RESOURCE_IN_USE', `${r.name} is still used. Remove it from these first.`, 409,
           backupUsers.map((b) => ({ field: `backup/${b.r.name}`, code: 'NOT_ALLOWED' as const, message: `Used by the backup ${b.r.name}.` }))));
+      }
+      const grantedTo = r.kind === 'bucket' ? bucketUsers(r.name) : [];
+      if (grantedTo.length) {
+        return fail(err('RESOURCE_IN_USE', `${r.name} is still used. Remove it from these first.`, 409,
+          grantedTo.map((u) => ({ field: `${u.r.kind}/${u.r.name}`, code: 'NOT_ALLOWED' as const, message: `The ${u.r.kind} ${u.r.name} has bucket access to it.` }))));
       }
       const mounts = r.kind === 'volume' ? volumeUsers(r.name) : [];
       if (mounts.length) {
@@ -1823,17 +1889,53 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       addEvent(s, 'action_run', `Transcoding ${key} requested.`);
       // Mock conversions end after a step; a key containing "fail" isn't media.
       setTimeout(() => {
-        const base = key.slice(prefix.length).replace(/\.[^./]*$/, '');
-        const outPrefix = t.output.prefix ?? RULES.transcodeOutputDefault;
-        const files = t.presets.flatMap((p) => p === 'hls-720p' ? [`${p}/index.m3u8`, `${p}/segment-000.ts`]
-          : [`${p}.${{ 'mp4-480p': 'mp4', 'mp4-720p': 'mp4', 'mp4-1080p': 'mp4', 'webm-720p': 'webm', mp3: 'mp3', thumbnail: 'jpg' }[p as Exclude<typeof p, 'hls-720p'>]}`]);
-        if (key.includes('fail')) Object.assign(run, { status: 'failed', exitCode: 1, finishedAt: now(), message: `FFmpeg couldn't convert ${key}: Invalid data found when processing input`,
-          outputTail: `== ${t.presets[0] ?? ''}\n/in/input: Invalid data found when processing input\n` });
+        const files = transcodeFiles(t);
+        const where = runFolder(t.output.prefix ?? RULES.transcodeOutputDefault, prefix, key); // mock objects carry no tags
+        const steps = [...(t.presets ?? []), ...(t.renditions ?? []).map((r) => r.name), ...(t.hls?.rungs ?? []).map((r) => `${t.hls?.name || RULES.hlsNameDefault}/${r.name}`)];
+        if ('error' in where) Object.assign(run, { status: 'failed', finishedAt: now(), message: `Nothing was converted: ${where.error}.` });
+        else if (key.includes('fail')) Object.assign(run, { status: 'failed', exitCode: 1, finishedAt: now(), message: `FFmpeg couldn't convert ${key}: Invalid data found when processing input`,
+          outputTail: `== ${steps[0] ?? ''}\n/in/input: Invalid data found when processing input\n` });
         else Object.assign(run, { status: 'succeeded', exitCode: 0, finishedAt: now(), message: `Converted ${key} into ${files.length} files.`,
-          outputs: files.map((f) => `${outPrefix}${base}/${f}`), outputTail: t.presets.map((p) => `== ${p}`).join('\n') + '\n' });
+          outputs: files.map((f) => `${where.folder}${f}`), outputTail: steps.map((p) => `== ${p}`).join('\n') + '\n' });
         s.r.outputs = { ...s.r.outputs, lastRunStatus: run.status, lastRunAt: run.finishedAt ?? now() };
       }, stepMs);
       return wait(toRun(run));
+    },
+
+    listObjects: (id, prefix, cursor) => {
+      const s = bucketOf(id);
+      if (s instanceof Promise) return s;
+      const entries = new Map<string, ObjectInfo | null>(); // a folder ends in "/"
+      for (const [k, o] of s.objects ?? []) {
+        if (!k.startsWith(prefix)) continue;
+        const slash = k.indexOf('/', prefix.length);
+        if (slash >= 0) entries.set(k.slice(0, slash + 1), null);
+        else entries.set(k, { key: o.key, size: o.size, modified: o.modified, contentType: o.contentType });
+      }
+      const keys = [...entries.keys()].sort().filter((k) => !cursor || k > cursor);
+      return wait({ prefix, folders: keys.filter((k) => k.endsWith('/')), items: keys.flatMap((k) => entries.get(k) ?? []), nextCursor: null });
+    },
+    uploadObject: (id, key, file, tags = {}) => {
+      const s = bucketOf(id);
+      if (s instanceof Promise) return s;
+      const details: FieldError[] = [];
+      const bad = validateObjectKey(key);
+      if (bad) details.push({ field: 'key', code: 'INVALID_FORMAT', message: bad });
+      for (const [field, message] of Object.entries(validateObjectTags(tags))) details.push({ field, code: 'INVALID_FORMAT', message });
+      if (details.length) return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, details));
+      if (file.size > RULES.objectUploadMax) return fail(err('PAYLOAD_TOO_LARGE', 'Upload at most 5.0 GiB through EnclaveStack; use an S3 client for larger files.', 413));
+      const info: ObjectInfo = { key, size: file.size, modified: now(), contentType: file.type || 'application/octet-stream', tags: { ...tags } };
+      (s.objects ??= new Map()).set(key, { ...info, blob: file });
+      addEvent(s, 'object_uploaded', `Uploaded ${key} (${formatBytes(file.size)}).`);
+      return wait(clone(info));
+    },
+    objectUrl: (id, key) => `/api/v1/resources/${encodeURIComponent(id)}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,
+    deleteObject: (id, key) => {
+      const s = bucketOf(id);
+      if (s instanceof Promise) return s;
+      s.objects?.delete(key);
+      addEvent(s, 'object_deleted', `Deleted ${key}.`);
+      return wait(undefined);
     },
 
     listMachines: () => guard() ?? wait(clone(machineList())),
@@ -1981,6 +2083,16 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   };
 
   /** A ready resource of one of kinds, for a data endpoint; or the refusal to return. */
+  function bucketOf(id: string): Stored | Promise<never> {
+    const blocked = guard();
+    if (blocked) return blocked;
+    const s = store.get(id);
+    if (!s) return notFound();
+    if (s.r.kind !== 'bucket') return fail(err('ACTION_NOT_SUPPORTED', `A ${s.r.kind} has no objects; only buckets do.`, 409));
+    if (s.r.status.phase !== 'ready' && s.r.status.phase !== 'updating') return fail(err('ACTION_NOT_SUPPORTED', 'Wait until the bucket is ready.', 409));
+    return s;
+  }
+
   function dataOf(id: string, kinds: Kind[]): Stored | Promise<never> {
     const blocked = guard();
     if (blocked) return blocked;
@@ -2014,6 +2126,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   api.action = (id, action) => gated(id) ?? within(projectOf(id), () => inner.act(id, action));
   const reveal = api.revealSecret;
   api.revealSecret = (id) => gated(id) ?? reveal(id);
+  // A bucket's files need an editor, as message bodies do (L3-002 §14.1).
+  const objects = { list: api.listObjects, upload: api.uploadObject, remove: api.deleteObject };
+  api.listObjects = (id, prefix, cursor) => gated(id) ?? objects.list(id, prefix, cursor);
+  api.uploadObject = (id, key, file, tags) => gated(id) ?? objects.upload(id, key, file, tags);
+  api.deleteObject = (id, key) => gated(id) ?? objects.remove(id, key);
   const list = api.listResources;
   api.listResources = (kind, project) => list(kind, project).then((rs) => rs.filter((r) => roleIn(session(), r.project) !== null));
 
