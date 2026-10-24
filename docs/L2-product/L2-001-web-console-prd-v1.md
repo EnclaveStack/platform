@@ -6,7 +6,7 @@
 | Document ID | L2-001-web-console-prd-v1 |
 | Layer | L2 — Product Requirements |
 | Status | Draft |
-| Version | v18 |
+| Version | v19 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -108,13 +108,13 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 
 | ID | Requirement | Priority |
 |---|---|---|
-| CON-61 | The sidebar opens with **Overview**, then groups the sections by what they're for: **Compute**, **Data**, **Networking**, **Messaging and media**, **Security**, **Install**, **Operate**, **Settings** (members in `L2.5-002` §16). A group opens and closes; the choice is remembered in this browser. The sidebar folds to a rail of icons, also remembered | Must |
+| CON-61 | The sidebar opens with **Overview**, then groups the sections by what they're for: **Compute**, **Data**, **Networking**, **Messaging and media**, **Security**, **Install**, **Operate**, **Settings** (members in `L2.5-002` §16). A group opens and closes; the choice is remembered in this browser. The sidebar folds to a rail of icons, also remembered; folded, every control stays inside the rail and the button that opens it again is always in view | Must |
 | CON-62 | **Find** (⌘K or Ctrl+K, and a search box in the top bar) jumps to any page or resource by name | Should |
 | CON-63 | Every page has a header: a breadcrumb whose parts are links (machine › project › section › resource), the title, a one-line explanation and the page's actions. A resource's page has a Back button to its section | Must |
 | CON-64 | A resource opens on a page of its own (`/<section>/<id>`), full width. A section lists its resources full width: a table on wide screens, cards on phones | Must |
 | CON-65 | An **Overview** page at `/`: a one-line summary of health ("Everything is running" or what needs attention); headline numbers (resources running, needing attention, machines online, memory reserved); this machine's CPU, memory, disk and failures over the last 24 hours; **Needs attention** (failed resources and firing alerts, each with a way to fix or open it); **Recently changed**; resources by group; quick actions (new app, new database, the catalogue) | Must |
 | CON-66 | Each section opens with a short summary: what it is in one sentence, its numbers by state, and a link to its guide; then the list | Must |
-| CON-67 | Each section has a **guide** (`/guide/<section>`): colour-coded parts — **What it is**, **When to use it**, **How to use it** (console steps and the same as one CLI command), **Example** (a small real scenario) and **Good to know** (limits, what it costs this machine, common mistakes). Plain words; guides explain EnclaveStack on its own terms and never compare it with other companies' products | Must |
+| CON-67 | Each section has a **guide** (`/guide/<section>`): colour-coded parts — **What it is**, **When to use it**, **How to use it** (console steps and the same as one CLI command), **Example** (a small real scenario) and **Good to know** (limits, what it costs this machine, common mistakes). Plain words; guides explain EnclaveStack on its own terms and never compare it with other companies' products. Each guide ends with a link, in a new tab, to the service's full guide on the EnclaveStack website (`enclavestack.soupler.com/services/<section>/`), which covers every setting, the API and OpenTofu | Must |
 | CON-68 | A calmer screen: status is a small dot with a word; chips only where they carry meaning (the project when all projects show, the machine when there are several); icons without circles. Motion is CSS only — page fade, hover lift, groups opening, charts and numbers easing in — at most 300 ms, and none when the system asks for reduced motion. No animation library | Must |
 | CON-69 | Every field of a form that creates or changes a resource has a one-line hint saying what it does and what to enter (sign-in, setup and account fields explain themselves) | Should |
 | CON-70 | The app form and the job form (from an image) have **Bucket access**: rows of a bucket (picked from the project's buckets) and a level (**Read** / **Read and write**), with a hint naming the variables the app receives. A job that runs as an app says it uses the app's bucket access (`L2-011`) | Must |
@@ -146,3 +146,4 @@ Founder feedback (2026-10-22): the console is hard to navigate and doesn't say w
 | v16 | 2026-10-24 | Soupler | CON-70, CON-71: bucket access in the app and job forms and pages (L2-011) |
 | v17 | 2026-10-24 | Soupler | CON-72, CON-73: transcoder renditions, ladder and notify in the form and page (L2-012) |
 | v18 | 2026-10-24 | Soupler | CON-74 bucket objects tab, CON-75 readable details (L2-013) |
+| v19 | 2026-10-24 | Soupler | CON-61: folded, the rail keeps every control inside it and its expand button in view; CON-67: each guide links to its full guide on the website |
