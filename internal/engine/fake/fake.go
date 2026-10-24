@@ -69,24 +69,28 @@ type Driver struct {
 	available bool
 	memory    int64
 	// mesh is the last mesh configuration applied (ADR-045); its pools bound the addresses handed out.
-	mesh      *engine.MeshConfig
-	nextPort  int
-	runtimes  map[string]*runtime
-	buckets   map[string]bool
-	faults    map[string]*Fault
-	calls     map[string]int
-	edge      edge
-	jobs      map[string]*fakeRun
-	jobStarts map[string]int // survives a finished run, so a second start shows
-	data      map[string]string
-	images    map[string]string            // built image tag → resource ID
-	jobImages map[string]string            // run ID → the image it started with
-	jobRuns   map[string]engine.JobRun     // run ID → what it started with, kept after it ends
-	appEnv    map[string]map[string]string // app ID → the environment its last ensure gave
-	builds    int
-	networks  map[string]*network // engine network name → network
-	rules     map[string]*fakeRules
-	lbs       map[string]*lb.Config // load balancer resource ID → its configuration
+	mesh     *engine.MeshConfig
+	nextPort int
+	runtimes map[string]*runtime
+	buckets  map[string]bool
+	faults   map[string]*Fault
+	calls    map[string]int
+	edge     edge
+	// connectors are tunnels' connectors and relays (ADR-051, ADR-052).
+	connectors      map[string]*connector
+	connectorFaults map[string]ConnectorFaults
+	nextConnector   int
+	jobs            map[string]*fakeRun
+	jobStarts       map[string]int // survives a finished run, so a second start shows
+	data            map[string]string
+	images          map[string]string            // built image tag → resource ID
+	jobImages       map[string]string            // run ID → the image it started with
+	jobRuns         map[string]engine.JobRun     // run ID → what it started with, kept after it ends
+	appEnv          map[string]map[string]string // app ID → the environment its last ensure gave
+	builds          int
+	networks        map[string]*network // engine network name → network
+	rules           map[string]*fakeRules
+	lbs             map[string]*lb.Config // load balancer resource ID → its configuration
 	// replicasByAlias is each app's running replica count, by its stable alias.
 	replicasByAlias map[string]int
 	lbUnhealthy     map[string]int

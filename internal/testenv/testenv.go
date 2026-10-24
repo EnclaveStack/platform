@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/enclavestack/platform/internal/reconciler"
 	"github.com/enclavestack/platform/internal/server"
+	"github.com/enclavestack/platform/internal/service"
 	"github.com/enclavestack/platform/pkg/api"
 	"github.com/enclavestack/platform/pkg/client"
 )
@@ -160,3 +162,9 @@ func MainName() string {
 	host, _ := os.Hostname()
 	return api.MachineHandleFromHostname(host)
 }
+
+// Reconciler is the running reconciler (tests run a tunnel pass with it).
+func (e *Env) Reconciler() *reconciler.Reconciler { return e.Running.Rec }
+
+// Gate is the running gate service (tests move its clock).
+func (e *Env) Gate() *service.Gate { return e.Running.GateService }

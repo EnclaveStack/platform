@@ -6,7 +6,7 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v4 |
+| Version | v5 |
 | Created | 2026-10-23 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -744,6 +744,14 @@ If a problem is not here, `enclave events <kind> <name>`, `enclave logs <kind> <
 | **State file** | OpenTofu's memory of what it created; never commit it |
 | **Machine** | A computer EnclaveStack runs resources on. The one you started it on is the *main machine*; you can add more |
 | **Stack** | A product installed from the catalogue as one unit: an app with its database, storage and domain |
+| **DNS** | The internet's phone book: turns a name such as `dev.galiaraa.com` into an address (§15) |
+| **NAT / CGNAT** | Your router (NAT), and often your internet provider too (CGNAT), hiding your devices behind a shared address, so nothing outside can start a connection to them (§15.2) |
+| **Edge** | A server on the internet with a public address that receives visitors for you: Cloudflare's, Tailscale's or ngrok's network, or your own rented server (§15.3) |
+| **Tunnel** | A line your computer opens **out** to an edge and keeps open, so visitors' requests can come back down it (§15.3) |
+| **Connector** | The small program at your end of a tunnel, run by EnclaveStack in a container |
+| **Edge proxy** | EnclaveStack's receptionist (Caddy) that hands each request to the right app by its name and serves HTTPS |
+| **Edge machine** | A rented server joined to EnclaveStack only to relay visitors to your computer; nothing else runs on it (§15.10) |
+| **Gate** | What stands in front of a public app: sign in with EnclaveStack, a shared password, or open to everyone (§15.5) |
 
 ## 14 · What each detail means
 
@@ -957,6 +965,251 @@ Every page in the console shows a resource's **Details**: each line is a label, 
 | Machine engine | The container engine on it, and its version. |
 | CPUs | Processor cores EnclaveStack may use. |
 | VMs | Whether it can run virtual machines. |
+| Role | Worker machines run resources; an edge machine only relays visitors for relay tunnels. |
+| Relays | The relay tunnels that run on this edge machine. |
+
+**Public access**
+
+| Detail | What it means |
+|---|---|
+| Way in | How visitors reach it from the internet. |
+| Connection | Whether its connector is connected now; reconnecting means it is trying again. |
+| Connections | How many connections the connector holds to the service. |
+| Tunnel ID | The tunnel’s ID at Cloudflare. |
+| Account ID | The Cloudflare account the tunnel is made in. |
+| Edge machine | The server with a public address the relay runs on. |
+| Who can open it | Private: only your tailnet’s devices. Public: anyone, behind the gate. |
+| Device name | Its name in your tailnet. |
+| Public with Funnel | Yes means anyone on the internet can open it; no means only your tailnet’s devices. |
+| Gate | Who may open it: people who sign in, a shared password, or everyone. |
+| Open paths | Paths that skip the gate, for webhooks. |
+| Public | Whether it is served to the internet through a tunnel. |
+| Tunnel | The tunnel it is served through. |
+| Tunnel connection | Whether the tunnel it goes through is connected now. |
+| Cloudflare Access | The people Cloudflare checks with a one-time code before the gate. |
+| Access application | The Cloudflare Access application that checks visitors first. |
+| DNS record | The record that sends visitors to the tunnel, and whether EnclaveStack made it. |
+
+## 15 · Reach your apps from the internet
+
+> *`L2-014`. Everything here works from the console, the CLI and OpenTofu.*
+
+This section explains how someone on a phone, anywhere, can open an app running on your computer at home, and why that doesn't put your computer at risk. Read the first part once even if you just want the commands: the setup choices only make sense once the picture is clear.
+
+### 15.1 How a website visit works
+
+Opening `https://stage.galiaraa.com` on a phone takes two steps:
+
+1. **Find the address.** The phone asks **DNS**, the internet's phone book: "where is `stage.galiaraa.com`?" DNS answers with an **IP address**, such as `104.16.5.20`. Your **domain** (`galiaraa.com`) is your listing in that phone book, which you rent from a registrar.
+2. **Connect to it.** The phone opens a connection to that address on **port 443** (HTTPS) and asks for the page. The connection is encrypted (**TLS**: the padlock in the browser).
+
+So a public website needs a phone-book entry, and a computer at that address that accepts connections from strangers.
+
+### 15.2 Why your computer at home can't be reached
+
+```
+                       THE INTERNET
+                            │
+          ┌─────────────────┴──────────────────┐
+          │ Your provider's CGNAT              │  one public address shared by
+          │ (e.g. 49.36.12.7)                  │  many homes — you can't configure it
+          └──────┬─────────────┬───────────┬───┘
+                 │             │           │
+            neighbour    ┌─────┴─────┐  neighbour
+                         │Your router│  hides your devices behind one address (NAT)
+                         └─────┬─────┘
+                     ┌─────────┼─────────┐
+                    Mac      phone       TV       private addresses (192.168.1.x)
+```
+
+- **Your router** gives every device at home a private address. It lets your devices start connections **out**, and lets the replies back in. A connection that starts **outside** is dropped, because the router doesn't know which device it's for and never asked for it. This is called **NAT**.
+- **Many providers** go further. They share one public address between many homes (**CGNAT**), so even telling your router to forward a port ("port forwarding") doesn't help: the provider's own equipment drops the connection first.
+- **Your home address changes** from time to time.
+
+What always works is going **out**. Everything below uses that.
+
+### 15.3 The trick: your computer calls out first
+
+```
+   Visitor's phone
+         │  ② "stage.galiaraa.com" → DNS → the edge's address
+         ▼
+ ┌──────────────────────────┐
+ │  EDGE on the internet     │  ③ checks the visitor, then sends the request
+ │  (Cloudflare, Tailscale,  │     down the line your computer opened
+ │   ngrok, or your server)  │
+ └────────────▲─────────────┘
+              │  ① your computer dials OUT and keeps the line open
+              │    (the router allows it: your computer started it)
+      provider CGNAT → your router
+              │
+ ┌────────────┴──────────────────────────────────────────┐
+ │ YOUR COMPUTER                                          │
+ │  connector ──▶ edge proxy (Caddy) ──▶ the app ──▶ its database
+ │   (one end      ④ picks the app by    (a container)    (private, never public)
+ │    of the line)    its name, checks
+ │                    the gate
+ └────────────────────────────────────────────────────────┘
+```
+
+1. When you create a **tunnel**, EnclaveStack starts a small program, the **connector**, which dials **out** to an **edge**, a server on the internet that has a real public address. The line stays open. Your router and your provider allow it, because your computer started the call.
+2. Your domain's DNS record points visitors at the **edge**, not at your home.
+3. The edge sends each visitor's request **down the line your computer opened**.
+4. At home, EnclaveStack's **edge proxy** (a receptionist that forwards each request by its name) checks the **gate**, then hands the request to the right app. The answer goes back the same way.
+
+Nothing on your router is opened, and your home address never appears anywhere public.
+
+### 15.4 The ways in: pick one from the catalogue
+
+Every way in is installed from **Catalogue › Public access**, and any app is made public with **Make public** on its page. They come in two families.
+
+**An address for one app**: the service hands out the address.
+
+| | **Quick link** | **Tailscale** | **ngrok** | **Custom** |
+|---|---|---|---|---|
+| Your address | `random-words.trycloudflare.com`, changes on every restart | `galiaraa-stage-web.your-tailnet.ts.net`, stays the same | one address per ngrok account | whatever that service gives |
+| You need | nothing | a free Tailscale account | a free ngrok account | that service's container image |
+| Who can open it | anyone with the link (behind the gate) | **private**: only your own devices with Tailscale; or **public**: anyone (behind the gate) | anyone with the link (behind the gate) | as that service allows |
+| Limits | 200 requests at once; for demos | Tailscale limits public bandwidth; not for production | about 1 GB and 20,000 requests a month, and a warning page first | that service's |
+| Good for | a five-minute demo | dev and stage for your team, every day | a quick share | a service EnclaveStack doesn't know |
+
+**Your own domain** (`stage.galiaraa.com`):
+
+| | **Cloudflare tunnel** | **Your own server (relay)** |
+|---|---|---|
+| The edge is | Cloudflare's network | a small server you rent (a VPS), joined as an **edge machine** |
+| You need | a free Cloudflare account, and your domain's DNS at Cloudflare | a VPS with a public address (about $4–6 a month); DNS anywhere |
+| Who can read the traffic | Cloudflare (it serves the certificate) and you | only you: the server passes encrypted bytes and never holds a key |
+| Good for | dev and stage on your domain, day to day | when no third party may see your traffic |
+
+EnclaveStack runs no edge of its own and no DNS server. Its job is the glue: start the connector or relay, write the routing rules and DNS records, and run the gate. Vercel-style hosts can't do this job: their addresses point at code they host, and they can't reach a computer at home.
+
+### 15.5 Why this is safe
+
+| Layer | What protects you |
+|---|---|
+| Your home network | Nothing is opened. Scanners that probe your home address find nothing. |
+| The edge | Floods of junk traffic stop at Cloudflare or your server, never reaching home. With Cloudflare you can also add **Cloudflare Access**: Cloudflare emails a one-time code to the people you list before letting them through. |
+| The tunnel | Each tunnel reaches **only the names you made public** through it. Anything else gets "not found". The console, the API and your computer's files are never reachable this way. |
+| The gate | Every public app has a gate, **Sign in** by default: only people who have access to that project in EnclaveStack get past it. You can share a password instead, or open it to everyone after confirming. |
+| The app | Your app runs in its own container. Its database is on a private network and is never made public. A bug in the app lets someone into that container, not onto your computer. |
+
+Things that stay your job: keep dev and stage behind a gate, keep the console private, and remember that public access is only up while your computer (and, for a relay, your server) is on. That's fine for dev and stage; production belongs on a machine that's always on.
+
+### 15.6 A quick link in one minute
+
+No account and no domain needed:
+
+```sh
+enclave tunnel create demo --provider quick --app web --wait
+enclave tunnel get demo        # shows url: https://…trycloudflare.com
+```
+
+Open the URL on any device. You'll see EnclaveStack's sign-in page first; sign in with your EnclaveStack email and password. The address changes whenever the link restarts, and it handles at most 200 requests at once. Delete it with `enclave tunnel delete demo`.
+
+### 15.7 Tailscale: a stable address, private or public
+
+Tailscale is a free app that puts your devices on one private network (a **tailnet**), wherever they are. It uses the same encryption EnclaveStack uses between machines (WireGuard). EnclaveStack can add an app to your tailnet as a device of its own, with a stable address such as `https://galiaraa-stage-web.your-tailnet.ts.net`.
+
+- **Private** (Tailscale *Serve*): only devices signed in to your tailnet can open it. The app isn't on the internet at all. That's the safest way for you and your team to use dev and stage from your phones.
+- **Public** (Tailscale *Funnel*): anyone with the link can open it, behind EnclaveStack's gate. Use it to show a client.
+
+**Once, at tailscale.com:** sign up, install Tailscale on your phone and laptop, then in the admin console:
+1. **DNS**: turn on **MagicDNS** and **HTTPS Certificates**.
+2. For public links: allow Funnel in **Access controls** (Tailscale's own instructions show the `funnel` attribute to add).
+3. **Settings › Keys › Generate auth key**: reusable, with a tag such as `tag:enclave`.
+
+**Then:**
+```sh
+enclave project use galiaraa-stage
+enclave secret create ts-key --value '{"authKey":"tskey-auth-…"}'
+enclave tunnel create stage-ts --provider tailscale --credentials ts-key --app web --mode private --wait
+enclave tunnel get stage-ts        # url: https://galiaraa-stage-web.<your tailnet>.ts.net
+```
+Open it on your phone with Tailscale on. When a client needs it: `enclave tunnel update stage-ts --mode public --gate password --gate-password-secret stage-pass`.
+
+In the console: **Catalogue › Public access › Tailscale › Install**, or **Make public** on the app's page.
+
+### 15.8 ngrok and custom connectors
+
+- **ngrok**: `enclave secret create ngrok --value '{"authToken":"…"}'`, then `enclave tunnel create stage-ngrok --provider ngrok --credentials ngrok --app web --wait`. The free plan gives one address per account and shows visitors a warning page first.
+- **Any other service** (`custom`): name its container image and command. EnclaveStack sets `ENCLAVE_UPSTREAM`, the address the connector must send traffic to:
+  ```sh
+  enclave tunnel create stage-x --provider custom --app web --image <its image> --command "<its command using \$ENCLAVE_UPSTREAM>" --url https://<the address it gives>
+  ```
+  The gate still stands in front of your app.
+
+### 15.9 Stage on your own domain, with Cloudflare, while prod stays on AWS
+
+This is the Galiaraa setup: production runs on AWS, and **stage** runs on EnclaveStack in the project `galiaraa-stage`, with an app `web`. One EnclaveStack environment uses your whole domain's zone. EnclaveStack only ever writes the record of its own domain (`stage`), and never changes prod's records.
+
+**Once: move your domain's DNS to Cloudflare** (free). Your domain can stay registered where it is, and prod keeps running on AWS.
+1. Sign up at cloudflare.com, choose **Add a site**, type `galiaraa.com`, pick the Free plan. Cloudflare copies your existing records, prod's included. **Check them against your current DNS** (Route 53 or wherever it is now) before going on. A Route 53 "alias" to a load balancer becomes a `CNAME` to the load balancer's name, which Cloudflare allows at the apex too.
+2. Cloudflare shows two **name servers**. At your registrar, replace the domain's name servers with those two. It takes minutes to a day, and prod keeps answering throughout, because both sides hold the same records.
+3. Make an API token: **My Profile › API Tokens › Create Token › Custom token**, with Account › **Cloudflare Tunnel › Edit**, Zone › **DNS › Edit** (zone `galiaraa.com`), and Account › **Access: Apps and Policies › Edit** if you'll use Cloudflare Access. Note your **account ID** from the domain's overview page.
+
+**Then, in the stage project:**
+```sh
+enclave project use galiaraa-stage
+enclave secret create cf --value '<token>'
+enclave zone create galiaraa --provider cloudflare --zone galiaraa.com --credentials cf --wait
+enclave tunnel create home --provider cloudflare --credentials cf --account-id <account id> --wait
+enclave domain create stage.galiaraa.com --app web --tunnel home --zone galiaraa --gate signin --wait
+```
+One token serves the zone and the tunnel; EnclaveStack never stores the tunnel's own run token, it asks Cloudflare for it each time it starts the connector. EnclaveStack creates the tunnel (Cloudflare shows `enclave-galiaraa-stage-home` as **Healthy** under **Zero Trust › Networks › Tunnels**), writes the one record `stage`, and routes it. Open `https://stage.galiaraa.com` on your phone on mobile data: sign in, and you're on stage.
+
+**Don't want to move prod's DNS?** Use your own server instead (§15.10). It works with the zone where it is now, Route 53 included, and EnclaveStack adds only the `stage` record there.
+
+**DNS at GoDaddy or another provider EnclaveStack doesn't write to?** Keep the domain registered there; only its DNS matters. You have three choices:
+- **Move the DNS to Cloudflare** (free), as above. At GoDaddy: **My Products › your domain › DNS › Nameservers › Change › I'll use my own nameservers**, then enter Cloudflare's two. Before you switch, check that Cloudflare's copy has your **MX** and **TXT** records (email and verifications). Set prod's imported records to **DNS only** (grey cloud) so prod behaves exactly as before.
+- **Leave the DNS where it is and use your own server** (§15.10) **without a zone**. EnclaveStack shows the one record to add: an `A` record `stage` → your server's IP. Add it once in GoDaddy's DNS page. The server's IP doesn't change, so it never needs touching again.
+- **Move the DNS to Route 53** (about $0.50 a month) and use your own server, with EnclaveStack writing the record.
+
+A Cloudflare tunnel can't work while the DNS stays at GoDaddy, because Cloudflare only serves names in zones it hosts; EnclaveStack refuses it with that message.
+
+Giving a client access to stage without an EnclaveStack account:
+```sh
+enclave secret create stage-pass --value '{"username":"client","password":"<a long password>"}'
+enclave domain update stage.galiaraa.com --gate password --gate-password-secret stage-pass
+```
+Letting a payment provider's webhooks through the gate: `--gate-open-path /webhooks/`.
+
+In the console the same is: **Tunnels › New tunnel › Cloudflare**, then on a domain, **Public access › From the internet**.
+
+**More than one environment** (dev and stage, say). Each environment is its own project with its own zone and its own tunnel; nothing is shared between projects. Each project's zone is a **subdomain zone**, `dev.galiaraa.com` and `stage.galiaraa.com`: a zone of its own at your DNS provider, handed over from `galiaraa.com` by two `NS` records there.
+- **Route 53:** create a hosted zone `stage.galiaraa.com` (about $0.50 a month), copy its four name servers into an `NS` record `stage` in `galiaraa.com`, and use that zone in the stage project with a relay (§15.10).
+- **Cloudflare:** a subdomain zone needs Cloudflare's Enterprise plan. Then it works exactly as above, with `--zone stage.galiaraa.com`.
+
+### 15.10 Your own server instead of Cloudflare
+
+1. Rent a small Linux server with a public IPv4 address and install Docker and the same EnclaveStack version. In its provider's firewall, open TCP 80, 443 and 7071 and UDP 51820.
+2. On your computer: `enclave machine add vps1 --edge --address <the server's IP>`. It prints a command.
+3. On the server, run that command: `enclave agent join --edge --code <code>`. It waits; your computer connects to it (your computer can always reach the server, never the other way round), and within seconds `vps1` is **Online** as an **Edge** machine. Nothing else will ever run on it.
+4. In the stage project: `enclave tunnel create edge --provider relay --machine vps1 --wait`
+5. Add your existing zone, wherever it is (Route 53 here), and the domain:
+   ```sh
+   enclave secret create r53 --value '{"accessKeyId":"…","secretAccessKey":"…"}'
+   enclave zone create galiaraa --provider route53 --zone galiaraa.com --credentials r53 --wait
+   enclave domain create stage.galiaraa.com --app web --tunnel edge --zone galiaraa --wait
+   ```
+   EnclaveStack writes one `A` record, `stage`, pointing at the server; prod's records stay as they are. Without a zone, it tells you the record to add yourself.
+
+The certificate is a normal Let's Encrypt one, made and kept at home. The server only passes encrypted bytes along, so it never holds a key or sees a page. One edge machine carries one environment; another environment needs another small server.
+
+### 15.11 When something's wrong
+
+| You see | What it means | What to do |
+|---|---|---|
+| Tunnel **Reconnecting** | The connector lost its line to the edge (your internet dropped, or Cloudflare is having trouble) | Nothing; it reconnects by itself. If it lasts, check your internet |
+| "Cloudflare tunnels need the domain's DNS at Cloudflare" | The domain's zone is at another provider | Move the DNS to Cloudflare (§15.9) or use a relay (§15.10) |
+| "stage.galiaraa.com isn't a zone in this … account" | You added a subdomain zone that doesn't exist at the provider | Create it there first (Route 53 hosted zone; Cloudflare Enterprise), or use the whole domain for a single environment (§15.9) |
+| "The token can't edit tunnels: add …" | The API token is missing a permission | Edit the token at Cloudflare, add what it names, then **Retry** |
+| DNS record **Different value** | A record with that name already exists and points elsewhere | Delete or change it at your DNS provider; EnclaveStack never overwrites it |
+| "This environment is private." | You signed in, but you have no role in that project | Ask an owner of the project to add you |
+| The quick link stopped working | It restarted and got a new address | Copy the new one from `enclave tunnel get` or the console |
+| Tailscale link "Turn on HTTPS Certificates…" | Your tailnet isn't set up for it yet | Do the steps in §15.7, then **Retry** |
+| Tailscale link opens on your laptop but not a friend's phone | It's **private** | Make it **public** (behind the gate), or invite them to your tailnet |
+| Edge machine **Waiting for the server** | The join command hasn't run, or a port is closed | Run the command on the server; check TCP 7071 is open to the internet |
 
 ## Version history
 
@@ -966,3 +1219,4 @@ Every page in the console shows a resource's **Details**: each line is a label, 
 | v2 | 2026-10-24 | Soupler | §9: per-app bucket access (keys of its own, the five variables, CLI, console, OpenTofu, rules); the shared project key as the fallback |
 | v3 | 2026-10-24 | Soupler | §9 transcoders: presets, renditions, HLS ladder, output folders from tags, the done message, signature check, CLI and OpenTofu, moving from MediaConvert (L2-012) |
 | v4 | 2026-10-24 | Soupler | §9 files in a bucket (console, CLI, OpenTofu); §14 what each detail means (L2-013) |
+| v5 | 2026-10-24 | Soupler | §15 reach your apps from the internet: how a visit works, NAT and CGNAT, the tunnel, the ways in from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, your own server), why it's safe, a quick link, Tailscale private and public, ngrok and custom, stage beside prod on AWS with Cloudflare (moving DNS, token, commands), more environments as subdomain zones, DNS at GoDaddy or another provider, your own server with Route 53, troubleshooting; glossary words (L2-014) |

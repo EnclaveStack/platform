@@ -1,9 +1,10 @@
-import { Alert, Button, Card, Chip, ConfirmDialog, Drawer, Field, Form, Grid, Icons, Inline, Input, Page, PageHead, Skeleton, Stack, Text, Textarea, useToast } from '@enclavestack/ui';
+import { Alert, Button, buttonClass, Card, Chip, ConfirmDialog, Drawer, Field, Form, Grid, Heading, Icons, Inline, Input, Page, PageHead, Skeleton, Stack, Text, Textarea, useToast } from '@enclavestack/ui';
 import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useApi } from '../api/context';
 import { ApiError, type CatalogueEntry } from '../api/types';
 import { useSession } from '../auth/session';
+import { providerOfEntry, WAYS_IN } from '../components/PublicAccessFields';
 import { StackForm } from '../components/StackFields';
 import { useProject } from '../lib/project';
 import { isMachineAdmin, needRole } from '../lib/roles';
@@ -11,7 +12,20 @@ import { sectionByKind } from '../lib/sections';
 import { useLoad } from '../lib/useLoad';
 
 // The catalogue (CON-59, L2.5-002 §15): built-in entries and the machine's own templates as cards;
-// Install creates a stack.
+// Install creates a stack. Public access entries are ways in from the internet (CON-80, L2.5-002 §21): their
+// Install opens the new tunnel form with that way in chosen, and Sign up links to the service.
+
+const GROUPS = [
+  { id: 'apps', title: 'Apps', lede: 'Ready-made products, installed as one stack: an app with its database, storage and domain.' },
+  { id: 'public-app', title: 'Public access · An address for one app', lede: 'Reach one app from any device, without opening your router.' },
+  { id: 'public-domain', title: 'Public access · Your own domain', lede: 'Serve your domains, like stage.example.com, from this machine.' },
+] as const;
+
+const groupOf = (e: CatalogueEntry): (typeof GROUPS)[number]['id'] => {
+  if (e.category !== 'public-access') return 'apps';
+  const way = WAYS_IN.find((w) => w.entry === e.name);
+  return way?.family === 'domain' ? 'public-domain' : 'public-app';
+};
 
 export function CataloguePage() {
   const api = useApi();
@@ -25,6 +39,14 @@ export function CataloguePage() {
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<CatalogueEntry | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  // `?category=public-access` shows only the ways in: Make public's Install another way in (CON-80).
+  const only = params.get('category');
+  const install = (e: CatalogueEntry) => {
+    const provider = e.builtIn ? providerOfEntry(e.name) : undefined;
+    if (provider) navigate(`/tunnels?new=1&provider=${provider}`);
+    else setInstalling(e);
+  };
 
   async function remove() {
     if (!removing) return;
@@ -40,33 +62,46 @@ export function CataloguePage() {
 
   return (
     <Page>
-      <PageHead title="Catalogue" lede="Ready-made products, installed as one stack: an app with its database, storage and domain. Change or delete the stack and its parts follow." />
+      <PageHead title="Catalogue" lede="Ready-made products installed as one stack, and the ways people on the internet reach your apps. Change or delete a stack and its parts follow." />
       {admin && (
         <div><Button icon={<Icons.Upload />} onClick={() => setAdding(true)}>Add template</Button></div>
       )}
       {entries.error && <Alert>{entries.error.message}</Alert>}
-      <Grid min="md">
-        {entries.loading && !entries.data && [0, 1, 2].map((i) => <Skeleton key={i} shape="card" />)}
-        {entries.data?.map((e) => (
-          <Card key={e.name} as="article" title={e.title} action={!e.builtIn && <Chip tone="accent">Yours</Chip>}>
-            <Stack gap={3}>
-              <Text tone="muted">{e.description}</Text>
-              <Inline gap={1} wrap>
-                {[...new Set(e.members.map((m) => m.kind))].map((k) => <Chip key={k}>{sectionByKind(k).noun}</Chip>)}
-              </Inline>
-              <Inline justify="between">
-                <Text size="xs" tone="subtle" mono>v{e.version}</Text>
-                <Inline gap={2}>
-                  {admin && !e.builtIn && <Button size="sm" variant="danger-outline" onClick={() => { setRemoveError(null); setRemoving(e); }}>Remove</Button>}
-                  {allowed('editor')
-                    ? <Button size="sm" variant="dark" icon={<Icons.Plus />} onClick={() => setInstalling(e)}>Install</Button>
-                    : <Text size="xs" tone="subtle" title={needRole('editor', createIn)}>View only</Text>}
-                </Inline>
-              </Inline>
+      {entries.loading && !entries.data && <Grid min="md">{[0, 1, 2].map((i) => <Skeleton key={i} shape="card" />)}</Grid>}
+      {GROUPS.filter((g) => !only || (only === 'public-access' ? g.id !== 'apps' : g.id === only)).map((g) => {
+        const list = (entries.data ?? []).filter((e) => groupOf(e) === g.id);
+        if (!list.length) return null;
+        return (
+          <Stack key={g.id} as="section" gap={3} aria-label={g.title}>
+            <Stack gap={1}>
+              <Heading level={2}>{g.title}</Heading>
+              <Text tone="muted">{g.lede}</Text>
             </Stack>
-          </Card>
-        ))}
-      </Grid>
+            <Grid min="md">
+              {list.map((e) => (
+                <Card key={e.name} as="article" title={e.title} action={!e.builtIn && <Chip tone="accent">Yours</Chip>}>
+                  <Stack gap={3}>
+                    <Text tone="muted">{e.description}</Text>
+                    <Inline gap={1} wrap>
+                      {[...new Set(e.members.map((m) => m.kind))].map((k) => <Chip key={k}>{sectionByKind(k).noun}</Chip>)}
+                    </Inline>
+                    <Inline justify="between">
+                      <Text size="xs" tone="subtle" mono>v{e.version}</Text>
+                      <Inline gap={2}>
+                        {e.signup && <a href={e.signup} target="_blank" rel="noreferrer" className={buttonClass({ size: 'sm', variant: 'ghost' })}><Icons.ExternalLink /> Sign up</a>}
+                        {admin && !e.builtIn && <Button size="sm" variant="danger-outline" onClick={() => { setRemoveError(null); setRemoving(e); }}>Remove</Button>}
+                        {allowed('editor')
+                          ? <Button size="sm" variant="dark" icon={<Icons.Plus />} onClick={() => install(e)}>Install</Button>
+                          : <Text size="xs" tone="subtle" title={needRole('editor', createIn)}>View only</Text>}
+                      </Inline>
+                    </Inline>
+                  </Stack>
+                </Card>
+              ))}
+            </Grid>
+          </Stack>
+        );
+      })}
       {installing && (
         <Drawer title={`Install ${installing.title}`} onClose={() => setInstalling(null)}>
           <StackForm entry={installing} onDone={(r) => {

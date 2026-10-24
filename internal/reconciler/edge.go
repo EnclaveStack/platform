@@ -45,6 +45,9 @@ func (r *Reconciler) edgeConfig(ctx context.Context) (engine.EdgeConfig, error) 
 			continue
 		}
 		spec := raw.(api.DomainSpec)
+		if spec.IsPublic() {
+			continue // served only on its tunnel's listener, never on the machine's own ports (PUB-01)
+		}
 		app, err := r.Store.GetResourceByName(ctx, d.Project, api.KindApp, spec.App)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
@@ -87,6 +90,14 @@ func (r *Reconciler) edgeConfig(ctx context.Context) (engine.EdgeConfig, error) 
 			dns01[spec.Hostname] = true
 		}
 	}
+	listeners, relayDNS01, err := r.tunnelListeners(ctx)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Listeners, cfg.Gate = listeners, r.Gate
+	for h := range relayDNS01 {
+		dns01[h] = true
+	}
 	if cfg.Certificates, err = r.loadedCertificates(ctx, dns01); err != nil {
 		return cfg, err
 	}
@@ -112,7 +123,11 @@ func (r *Reconciler) syncEdge(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return r.Driver.ConfigureEdge(ctx, cfg)
+	if err := r.Driver.ConfigureEdge(ctx, cfg); err != nil {
+		return err
+	}
+	r.edgeHash = edgeHash(cfg)
+	return nil
 }
 
 // syncEdgeForApp re-applies the edge configuration when domains route to app (its port may have changed).
@@ -123,7 +138,7 @@ func (r *Reconciler) syncEdgeForApp(ctx context.Context, app *domain.Resource, l
 		return
 	}
 	for _, d := range deps {
-		if d.Kind == api.KindDomain {
+		if d.Kind == api.KindDomain || d.Kind == api.KindTunnel {
 			if err := r.syncEdge(ctx); err != nil {
 				log.Warn("update edge after app change failed", "error", err)
 			}
@@ -144,6 +159,13 @@ func (r *Reconciler) ensureDomain(ctx context.Context, res *domain.Resource, rep
 		return nil, engine.Permanent(fmt.Errorf("stored spec unreadable: %w", err))
 	}
 	spec := raw.(api.DomainSpec)
+	if spec.IsPublic() {
+		return r.ensurePublicDomain(ctx, res, spec, report)
+	}
+	// A domain made local again takes back what it made in public first (PUB-06).
+	if err := r.leavePublic(ctx, res); err != nil {
+		return nil, err
+	}
 	// The edge may have just started: a firewall on the app must allow its address (ADR-021, FW-05).
 	return r.serveHostname(ctx, res, spec, []string{"app/" + spec.App}, report)
 }
@@ -272,6 +294,9 @@ func (r *Reconciler) refreshCertificate(ctx context.Context, res *domain.Resourc
 	}
 	if spec.TLS == api.TLSOff {
 		return
+	}
+	if spec.IsPublic() && res.Outputs["certificateState"] == certificateEdge {
+		return // Cloudflare serves it (PUB-02)
 	}
 	if spec.Zone != "" {
 		r.refreshDNS01(ctx, res, spec)

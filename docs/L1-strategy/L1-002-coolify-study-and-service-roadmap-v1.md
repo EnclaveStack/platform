@@ -6,9 +6,9 @@
 | Document ID | L1-002-coolify-study-and-service-roadmap-v1 |
 | Layer | L1 — Vision & Strategy |
 | Status | Draft |
-| Version | v11 |
+| Version | v12 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -94,6 +94,7 @@ Each phase adds resource kinds that work in all three surfaces (console, CLI, Op
 | | external secret back-ends | Secrets Manager integrations | Secret Manager | 3.11 |
 | **v0.8: many machines** (built) | machine (agent over mutual TLS), placement, migration | Regions/AZs (conceptually) | Zones | 3.9 + ADR on the agent protocol |
 | | catalogue (one-click stacks) | AWS Marketplace / Quick Starts | Marketplace | 3.1 |
+| **v0.9: reach it from anywhere** (specified) | tunnel, the way in chosen from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, relay on the user's own server), public domains, a gate (sign-in or password), edge machines | CloudFront + ALB in front of a private VPC, Verified Access | Cloud Load Balancing + Identity-Aware Proxy | 3.14; domains (v0.3), zones (v0.4), machines and the mesh (v0.8) (`L2-014`) |
 
 The catalogue (3.1) does not depend on later phases. It can start as soon as v0.3 lands, because entries only compose kinds that already exist.
 
@@ -109,6 +110,7 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 - **v0.6 is specified** (2026-10-21): the whole row (queues, topics, MySQL, MongoDB, ClickHouse, search, transcoders, CDN, email) in `L2-008`, plus `L2-001` CON-37 – CON-44, `L2-002` CLI-29 – CLI-36 and `L2-003` TF-27 – TF-33; `L3-003` ADR-029 – ADR-034 and `L3-004` DAR-021 – DAR-026.
 - **v0.6 is built** (2026-10-22), unreleased. It is tested on every surface, on real Docker and by the built-binary e2e. MongoDB defaults to 7.0, because 8.0 refuses Docker Desktop's current kernel. A relay through a real email provider hasn't been walked by hand yet.
 - **v0.7 is specified** (2026-10-22): the whole row in `L2-009`, plus `L2-001` CON-45 – CON-53, `L2-002` CLI-37 – CLI-45 and `L2-003` TF-34 – TF-41; `L3-003` ADR-035 – ADR-041 and `L3-004` DAR-027 – DAR-033. Projects are full namespaces (the owner's call: "why wait for later"), with `default` keeping every v0.6 name. Metrics are kept by EnclaveStack itself; secret stores are Vault/OpenBao, 1Password, AWS Secrets Manager, Doppler and Infisical; logs go to buckets, HTTP, OTLP and Loki.
+- **v0.9 is specified** (2026-10-24): public access in `L2-014`, plus `L2-001` CON-76 – CON-79, `L2-002` CLI-56 – CLI-58 and `L2-003` TF-51 – TF-53; `L3-003` ADR-051 – ADR-053 and `L3-004` DAR-040 – DAR-042. It answers "how do I open dev and stage from my phone" for a machine at home behind NAT or CGNAT. Chosen with the owner: no hosted EnclaveStack edge and no DNS server of our own; the way in is the user's choice from the catalogue (quick link, Tailscale, Cloudflare, ngrok, the user's own relay, or any other provider as a custom connector); EnclaveStack's own gate on every public app, with Cloudflare Access as an option; a quick link for people without a domain. This is row 3.14 of §3 (Coolify's Cloudflare tunnels), taken further.
 - **v0.8 is built** (2026-10-22) on every surface and tested with two machines, the second a Docker-in-Docker agent (`L2-010` §5). It was specified the same day: the whole row in `L2-010`, plus `L2-001` CON-54 – CON-60, `L2-002` CLI-46 – CLI-52 and `L2-003` TF-42 – TF-47; `L3-003` ADR-042 – ADR-048 and `L3-004` DAR-034 – DAR-039. Networks span machines over WireGuard (spiked on Docker Desktop with a Docker-in-Docker second engine), apps without data restart elsewhere when a machine goes offline, and the catalogue has built-in and own templates installed as stacks, all chosen with the owner. The control plane stays on one machine.
 
 ## Version history
@@ -126,3 +128,4 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 | v9 | 2026-10-22 | Soupler | v0.7 specified (L2-009): projects as namespaces, built-in metrics, five secret stores and four log destinations chosen with the owner |
 | v10 | 2026-10-22 | Soupler | v0.8 specified: `L2-010` and its engineering chain |
 | v11 | 2026-10-22 | Soupler | v0.8 built |
+| v12 | 2026-10-24 | Soupler | v0.9 specified: public access (`L2-014`): tunnels, public domains, the gate, edge machines |

@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -59,8 +61,9 @@ type obj = map[string]any
 
 // renderCaddy builds Caddy's JSON configuration from the routes. Values are JSON, never templated
 // text, and hostnames are validated by pkg/api, so a hostname cannot inject configuration (L3-006 §5).
-// The output is deterministic for a given input.
-func renderCaddy(cfg engine.EdgeConfig, o Options) ([]byte, error) {
+// The output is deterministic for a given input. addrs are the edge's addresses by network, which the
+// tunnels' listeners bind (ADR-051).
+func renderCaddy(cfg engine.EdgeConfig, o Options, addrs map[string]string) ([]byte, error) {
 	_, _, httpsPort := o.edgePorts()
 	routes := slices.Clone(cfg.Routes)
 	// Exact hostnames match before wildcards (ADR-024): routes are tried in order.
@@ -113,6 +116,14 @@ func renderCaddy(cfg engine.EdgeConfig, o Options) ([]byte, error) {
 	httpRoutes = append(httpRoutes, obj{"handle": []obj{{"handler": "static_response", "status_code": 404,
 		"body": "No site is configured for this hostname on this EnclaveStack machine.\n"}}})
 	servers := obj{"http": obj{"listen": []string{":80"}, "routes": httpRoutes}}
+	public, relayACME, relayLoaded, err := publicServers(cfg, addrs, proxy)
+	if err != nil {
+		return nil, err
+	}
+	for name, srv := range public {
+		servers[name] = srv
+	}
+	loadedHosts = append(loadedHosts, relayLoaded...)
 	if len(httpsRoutes) > 0 {
 		auto := obj{"disable_redirects": true}
 		if len(loadedHosts) > 0 {
@@ -124,7 +135,7 @@ func renderCaddy(cfg engine.EdgeConfig, o Options) ([]byte, error) {
 	if len(internalHosts) > 0 {
 		policies = append(policies, obj{"subjects": internalHosts, "issuers": []obj{{"module": "internal"}}})
 	}
-	if len(acmeHosts) > 0 {
+	acmeIssuer := func() obj {
 		issuer := obj{"module": "acme"}
 		if cfg.ACMEEmail != "" {
 			issuer["email"] = cfg.ACMEEmail
@@ -135,7 +146,22 @@ func renderCaddy(cfg engine.EdgeConfig, o Options) ([]byte, error) {
 		if len(o.ACMERootPEM) > 0 {
 			issuer["trusted_roots_pem_files"] = []string{edgeACMERoot}
 		}
-		policies = append(policies, obj{"subjects": acmeHosts, "issuers": []obj{issuer}})
+		return issuer
+	}
+	if len(acmeHosts) > 0 {
+		policies = append(policies, obj{"subjects": acmeHosts, "issuers": []obj{acmeIssuer()}})
+	}
+	// A relay's hostnames answer the HTTP challenge on that relay's port 80, which arrives at its listener
+	// (ADR-052); the TLS-ALPN challenge arrives at its TLS listener.
+	relayPorts := make([]int, 0, len(relayACME))
+	for port := range relayACME {
+		relayPorts = append(relayPorts, port)
+	}
+	slices.Sort(relayPorts)
+	for _, port := range relayPorts {
+		issuer := acmeIssuer()
+		issuer["challenges"] = obj{"http": obj{"alternate_port": port}, "tls-alpn": obj{"disabled": true}}
+		policies = append(policies, obj{"subjects": relayACME[port], "issuers": []obj{issuer}})
 	}
 	conf := obj{
 		"admin": obj{"listen": "localhost:2019"},
@@ -174,7 +200,7 @@ func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error
 	if err != nil {
 		return err
 	}
-	if len(cfg.Routes) == 0 {
+	if cfg.Empty() {
 		d.edgeErr = ""
 		if c != nil && c.State != nil && c.State.Running {
 			sctx, cancel := context.WithTimeout(ctx, stepTimeout)
@@ -184,10 +210,6 @@ func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error
 			}
 		}
 		return nil
-	}
-	conf, err := renderCaddy(cfg, d.opts)
-	if err != nil {
-		return engine.Permanent(fmt.Errorf("render edge configuration: %w", err))
 	}
 	// A stopped edge is made anew: it may still name networks deleted while it was down, which Docker
 	// refuses to start, and everything it keeps (certificates) is in its volume.
@@ -201,19 +223,35 @@ func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error
 		if err := d.createEdge(ctx); err != nil {
 			return d.edgeFailed(err)
 		}
+		if len(cfg.Listeners) > 0 {
+			// A container has no address on a network until it runs, and tunnel listeners bind those
+			// addresses: start it on the rest first, then reload with the listeners.
+			if _, err := d.edgeAddresses(ctx, cfg); err != nil {
+				return err
+			}
+			base := cfg
+			base.Listeners = nil
+			if err := d.startEdge(ctx, base, nil); err != nil {
+				return err
+			}
+			if c, err = d.inspect(ctx, engine.EdgeName); err != nil {
+				return err
+			}
+		}
 	}
-	if err := d.copyFiles(ctx, engine.EdgeName, edgeConfigDir, map[string][]byte{"caddy.json": conf, "acme-root.pem": d.opts.ACMERootPEM}, 0o600); err != nil { // holds loaded keys (ADR-024)
+	addrs, err := d.edgeAddresses(ctx, cfg)
+	if err != nil {
 		return err
 	}
 	if c == nil || c.State == nil || !c.State.Running {
-		if err := d.start(ctx, engine.EdgeName); err != nil {
-			return d.edgeFailed(err)
-		}
-		if err := d.waitStable(ctx, engine.EdgeName, time.Second); err != nil {
-			return d.edgeFailed(fmt.Errorf("the edge proxy stopped right after starting: %w. Last output: %s", err, d.tail(ctx, engine.EdgeName, 5)))
-		}
-		d.edgeErr = ""
-		return nil // a fresh start reads the configuration file
+		return d.startEdge(ctx, cfg, addrs) // a fresh start reads the configuration file
+	}
+	conf, err := renderCaddy(cfg, d.opts, addrs)
+	if err != nil {
+		return engine.Permanent(fmt.Errorf("render edge configuration: %w", err))
+	}
+	if err := d.writeEdgeConfig(ctx, conf); err != nil {
+		return err
 	}
 	rctx, cancel := context.WithTimeout(ctx, reloadTimeout)
 	defer cancel()
@@ -228,11 +266,65 @@ func (d *Driver) ConfigureEdge(ctx context.Context, cfg engine.EdgeConfig) error
 	return nil
 }
 
+// startEdge writes cfg's configuration into the created edge and starts it.
+func (d *Driver) startEdge(ctx context.Context, cfg engine.EdgeConfig, addrs map[string]string) error {
+	conf, err := renderCaddy(cfg, d.opts, addrs)
+	if err != nil {
+		return engine.Permanent(fmt.Errorf("render edge configuration: %w", err))
+	}
+	if err := d.writeEdgeConfig(ctx, conf); err != nil {
+		return err
+	}
+	if err := d.start(ctx, engine.EdgeName); err != nil {
+		return d.edgeFailed(err)
+	}
+	if err := d.waitStable(ctx, engine.EdgeName, time.Second); err != nil {
+		return d.edgeFailed(fmt.Errorf("the edge proxy stopped right after starting: %w. Last output: %s", err, d.tail(ctx, engine.EdgeName, 5)))
+	}
+	d.edgeErr = ""
+	return nil
+}
+
+// writeEdgeConfig puts the configuration where the edge reads it; it holds loaded keys (ADR-024).
+func (d *Driver) writeEdgeConfig(ctx context.Context, conf []byte) error {
+	return d.copyFiles(ctx, engine.EdgeName, edgeConfigDir, map[string][]byte{"caddy.json": conf, "acme-root.pem": d.opts.ACMERootPEM}, 0o600)
+}
+
+// gateHostEntry makes host.docker.internal the machine on Linux too (Docker Desktop has it already).
+const gateHostEntry = engine.GateHost + ":host-gateway"
+
+// edgeAddresses puts the edge on the networks its listeners need and returns its address on each.
+func (d *Driver) edgeAddresses(ctx context.Context, cfg engine.EdgeConfig) (map[string]string, error) {
+	addrs := map[string]string{}
+	for _, l := range cfg.Listeners {
+		if _, ok := addrs[l.Network]; ok {
+			continue
+		}
+		if l.Network == engine.TunnelNetwork {
+			if err := d.ensureTunnelNetwork(ctx); err != nil {
+				return nil, err
+			}
+			if err := d.joinTunnelNetwork(ctx, engine.EdgeName); err != nil {
+				return nil, err
+			}
+		}
+		a, err := d.EdgeAddress(ctx, l.Network)
+		if err != nil {
+			return nil, err
+		}
+		addrs[l.Network] = a
+	}
+	return addrs, nil
+}
+
 // edgeMatches reports whether the existing edge container has the wanted image and port bindings.
 func (d *Driver) edgeMatches(c *container.InspectResponse) bool {
 	addr, httpPort, httpsPort := d.opts.edgePorts()
 	if c.Config == nil || c.Config.Image != d.opts.EdgeImage || c.HostConfig == nil {
 		return false
+	}
+	if !slices.Contains(c.HostConfig.ExtraHosts, gateHostEntry) {
+		return false // made before the gate: it can't reach the gate listener (ADR-053)
 	}
 	want := map[string]string{"80/tcp": strconv.Itoa(httpPort), "443/tcp": strconv.Itoa(httpsPort)}
 	for port, hp := range want {
@@ -265,6 +357,8 @@ func (d *Driver) createEdge(ctx context.Context) error {
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 		Resources:     container.Resources{Memory: 256 << 20},
 		Binds:         []string{edgeVolume + ":/data"},
+		// The gate listener on this machine, as the edge reaches it (ADR-053).
+		ExtraHosts: []string{gateHostEntry},
 		PortBindings: nat.PortMap{
 			"80/tcp":  {{HostIP: addr, HostPort: strconv.Itoa(httpPort)}},
 			"443/tcp": {{HostIP: addr, HostPort: strconv.Itoa(httpsPort)}},
@@ -300,12 +394,24 @@ func (d *Driver) edgeFailed(err error) error {
 // copyFiles writes files with mode into a directory of a container (running or not) through the engine
 // API. The directory is created if it doesn't exist.
 func (d *Driver) copyFiles(ctx context.Context, name, dir string, files map[string][]byte, mode int64) error {
+	return d.copyTar(ctx, name, "/", strings.Trim(dir, "/")+"/", files, mode)
+}
+
+// copyFilesInto writes files into dir, which must exist: a volume of a container whose root is read-only,
+// where the engine refuses a copy to "/" (a connector's files, ADR-051).
+func (d *Driver) copyFilesInto(ctx context.Context, name, dir string, files map[string][]byte, mode int64) error {
+	return d.copyTar(ctx, name, dir, "", files, mode)
+}
+
+// copyTar copies files, named under prefix ("" or "dir/", which is made too), to dest in the container.
+func (d *Driver) copyTar(ctx context.Context, name, dest, prefix string, files map[string][]byte, mode int64) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	base := strings.Trim(dir, "/")
 	epoch := time.Unix(0, 0)
-	if err := tw.WriteHeader(&tar.Header{Name: base + "/", Mode: 0o755, Typeflag: tar.TypeDir, ModTime: epoch}); err != nil {
-		return err
+	if prefix != "" {
+		if err := tw.WriteHeader(&tar.Header{Name: prefix, Mode: 0o755, Typeflag: tar.TypeDir, ModTime: epoch}); err != nil {
+			return err
+		}
 	}
 	names := make([]string, 0, len(files))
 	for n := range files {
@@ -313,7 +419,7 @@ func (d *Driver) copyFiles(ctx context.Context, name, dir string, files map[stri
 	}
 	slices.Sort(names)
 	for _, n := range names {
-		if err := tw.WriteHeader(&tar.Header{Name: base + "/" + n, Mode: mode, Size: int64(len(files[n])), ModTime: epoch}); err != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: prefix + n, Mode: mode, Size: int64(len(files[n])), ModTime: epoch}); err != nil {
 			return err
 		}
 		if _, err := tw.Write(files[n]); err != nil {
@@ -325,7 +431,7 @@ func (d *Driver) copyFiles(ctx context.Context, name, dir string, files map[stri
 	}
 	cctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
-	if err := d.cli.CopyToContainer(cctx, name, "/", &buf, container.CopyToContainerOptions{}); err != nil {
+	if err := d.cli.CopyToContainer(cctx, name, dest, &buf, container.CopyToContainerOptions{}); err != nil {
 		return d.classify(fmt.Errorf("copy files into %s: %w", name, err))
 	}
 	return nil
@@ -340,18 +446,48 @@ func (d *Driver) Certificate(ctx context.Context, hostname string) (engine.Certi
 	defer cancel()
 	conn, err := dialer.DialContext(dctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(httpsPort)))
 	if err != nil {
-		return engine.Certificate{State: engine.CertPending}, nil
+		return d.storedCertificate(ctx, hostname), nil
 	}
 	defer conn.Close()
 	certs := conn.(*tls.Conn).ConnectionState().PeerCertificates
 	if len(certs) == 0 || certs[0].VerifyHostname(hostname) != nil {
-		return engine.Certificate{State: engine.CertPending}, nil
+		// A relay's hostname is served only on its listener, which the machine's port doesn't reach: the edge
+		// keeps what it obtained in its storage (ADR-052).
+		return d.storedCertificate(ctx, hostname), nil
 	}
-	issuer := certs[0].Issuer.CommonName
-	if issuer == "" && len(certs[0].Issuer.Organization) > 0 {
-		issuer = certs[0].Issuer.Organization[0]
+	return certificateOf(certs[0]), nil
+}
+
+func certificateOf(c *x509.Certificate) engine.Certificate {
+	issuer := c.Issuer.CommonName
+	if issuer == "" && len(c.Issuer.Organization) > 0 {
+		issuer = c.Issuer.Organization[0]
 	}
-	return engine.Certificate{State: engine.CertIssued, Issuer: issuer, NotBefore: certs[0].NotBefore.UTC(), NotAfter: certs[0].NotAfter.UTC()}, nil
+	return engine.Certificate{State: engine.CertIssued, Issuer: issuer, NotBefore: c.NotBefore.UTC(), NotAfter: c.NotAfter.UTC()}
+}
+
+// storedCertificate reads the certificate the edge obtained for hostname from its storage. The hostname
+// reaches the shell only as an argument, never as script text.
+func (d *Driver) storedCertificate(ctx context.Context, hostname string) engine.Certificate {
+	if api.ValidateHostname(hostname) != nil {
+		return engine.Certificate{State: engine.CertPending}
+	}
+	res, err := d.exec(ctx, engine.EdgeName, []string{"sh", "-c", `for f in /data/caddy/certificates/*/"$1"/"$1".crt; do [ -f "$f" ] && cat "$f"; done`, "sh", hostname}, nil)
+	if err != nil || res.ExitCode != 0 {
+		return engine.Certificate{State: engine.CertPending}
+	}
+	rest := []byte(res.Output)
+	for {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			return engine.Certificate{State: engine.CertPending}
+		}
+		c, err := x509.ParseCertificate(b.Bytes)
+		if err == nil && c.VerifyHostname(hostname) == nil {
+			return certificateOf(c)
+		}
+	}
 }
 
 // EdgeStatus implements engine.Driver.

@@ -6,15 +6,18 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/enclavestack/platform/internal/agent"
 	"github.com/enclavestack/platform/internal/auth"
 	"github.com/enclavestack/platform/internal/domain"
 	"github.com/enclavestack/platform/internal/machines"
@@ -118,6 +121,10 @@ func (s *Machines) summarizer(ctx context.Context, p Principal) (func(store.Mach
 			a := m.Address
 			sum.Address = &a
 		}
+		sum.Role = m.Role
+		if sum.Role == "" {
+			sum.Role = api.MachineWorker
+		}
 		if m.Info.AgentVersion != "" && !machines.SameMinor(m.Info.AgentVersion, version.Version) {
 			sum.VersionMismatch = true
 			sum.Message = fmt.Sprintf("Its agent runs EnclaveStack %s and this machine %s. Upgrade it to take new resources.", m.Info.AgentVersion, version.Version)
@@ -125,8 +132,12 @@ func (s *Machines) summarizer(ctx context.Context, p Principal) (func(store.Mach
 		switch {
 		case m.State == api.MachineWaiting && m.JoinExpiresAt != nil && s.Now().After(*m.JoinExpiresAt):
 			sum.Message = "The join code expired. Make a new one."
+		case m.State == api.MachineWaiting && m.IsEdge():
+			sum.Message = "Waiting for the server: run the join command on it, with TCP " + strconv.Itoa(edgeAgentPort(m)) + " open to the internet."
 		case m.State == api.MachineWaiting:
 			sum.Message = "Waiting for its agent to join."
+		case m.IsEdge():
+			sum.Message = "Edge machine: it only relays visitors to this machine."
 		case !m.Schedulable && sum.Message == "":
 			sum.Message = "Not schedulable: nothing new is placed here."
 		}
@@ -153,7 +164,15 @@ func (s *Machines) Add(ctx context.Context, p Principal, req api.AddMachine) (ap
 	now := s.Now()
 	exp := now.Add(api.JoinCodeTTL)
 	m := store.Machine{ID: domain.NewID("mch"), Name: req.Name, State: api.MachineWaiting, StateSince: now, Labels: req.Labels, Schedulable: true,
-		JoinCodeHash: hash, JoinExpiresAt: &exp, CreatedAt: now}
+		JoinCodeHash: hash, JoinExpiresAt: &exp, CreatedAt: now, Role: api.MachineWorker}
+	if req.Role == api.MachineEdge {
+		// Joined from here: keep the code's proof key, sealed, until it joins (ADR-052). Nothing is placed on it.
+		sealed, err := s.Manager.Box.Seal(agent.EdgeJoinKey(code), machines.JoinKeyAAD(m.ID))
+		if err != nil {
+			return api.AddedMachine{}, err
+		}
+		m.Role, m.Address, m.AgentPort, m.Schedulable, m.JoinKey = api.MachineEdge, strings.TrimSpace(req.Address), req.AgentPort, false, sealed
+	}
 	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
 		if err := q.InsertMachine(ctx, m); err != nil {
 			if errors.Is(err, store.ErrConflict) {
@@ -189,6 +208,13 @@ func (s *Machines) NewJoinCode(ctx context.Context, p Principal, name string) (a
 	code, hash := newJoinCode()
 	exp := s.Now().Add(api.JoinCodeTTL)
 	m.JoinCodeHash, m.JoinExpiresAt = hash, &exp
+	if m.IsEdge() {
+		sealed, err := s.Manager.Box.Seal(agent.EdgeJoinKey(code), machines.JoinKeyAAD(m.ID))
+		if err != nil {
+			return api.AddedMachine{}, err
+		}
+		m.JoinKey = sealed
+	}
 	if err := s.Store.SaveMachine(ctx, m); err != nil {
 		return api.AddedMachine{}, err
 	}
@@ -205,6 +231,14 @@ func (s *Machines) added(ctx context.Context, p Principal, m store.Machine, code
 		server = s.ServerURL(ctx)
 	}
 	cmd := "enclave agent join " + server + " --code " + code
+	if m.IsEdge() {
+		// The main machine comes to it, so the command names no server (ADR-052).
+		cmd = "enclave agent join --edge --code " + code
+		if m.AgentPort != 0 && m.AgentPort != api.AgentPortDefault {
+			cmd += " --listen :" + strconv.Itoa(m.AgentPort)
+		}
+		return api.AddedMachine{Machine: sum(m), JoinCode: code, JoinCommand: cmd, ExpiresAt: *m.JoinExpiresAt}, nil
+	}
 	if server == "" {
 		cmd = "enclave agent join <this machine's address> --code " + code +
 			"  # start the server with --listen 0.0.0.0:7070 (or --console-url) so the other computer can reach it"
@@ -237,6 +271,10 @@ func (s *Machines) Update(ctx context.Context, p Principal, name string, req api
 	if req.Labels != nil {
 		m.Labels = req.Labels
 		changes = append(changes, "labels "+domain.FormatLabels(req.Labels))
+	}
+	if req.Schedulable != nil && *req.Schedulable && m.IsEdge() {
+		return api.MachineSummary{}, api.Validation([]api.FieldError{{Field: "schedulable", Code: api.FieldNotAllowed,
+			Message: m.Name + " is an edge machine: it only relays visitors, and nothing is placed on it."}})
 	}
 	if req.Schedulable != nil && *req.Schedulable != m.Schedulable {
 		m.Schedulable = *req.Schedulable
@@ -295,6 +333,16 @@ func (s *Machines) Remove(ctx context.Context, p Principal, name string, force b
 		on, err := q.ResourcesOnMachine(ctx, m.ID)
 		if err != nil {
 			return err
+		}
+		if m.IsEdge() {
+			// A relay names its edge machine by name: removing the machine would leave it pointing at nothing.
+			if relays := relaysOn(ctx, q, m.Name); len(relays) > 0 {
+				e := &api.Error{Code: api.CodeMachineNotEmpty, Message: fmt.Sprintf("%s carries the relay %s. Delete the tunnel first.", m.Name, strings.Join(relays, ", "))}
+				for _, r := range relays {
+					e.Details = append(e.Details, api.FieldError{Field: "tunnel/" + r, Code: api.FieldNotAllowed, Message: "Relays through " + m.Name + "."})
+				}
+				return e
+			}
 		}
 		if len(on) > 0 && !force {
 			e := &api.Error{Code: api.CodeMachineNotEmpty, Message: fmt.Sprintf("%s still runs %d resources. Move or delete them first.", m.Name, len(on))}
@@ -545,10 +593,14 @@ func checkMachine(ctx context.Context, q *store.Queries, spec any) error {
 	if !ok || p.Machine == "" {
 		return nil
 	}
-	if _, err := q.GetMachineByName(ctx, p.Machine); errors.Is(err, store.ErrNotFound) {
+	m, err := q.GetMachineByName(ctx, p.Machine)
+	if errors.Is(err, store.ErrNotFound) {
 		return api.Validation([]api.FieldError{{Field: "spec.machine", Code: api.FieldNotFound, Message: "There's no machine named " + p.Machine + "."}})
 	} else if err != nil {
 		return err
+	}
+	if m.IsEdge() {
+		return api.Validation([]api.FieldError{{Field: "spec.machine", Code: api.FieldNotAllowed, Message: p.Machine + " is an edge machine: it only relays visitors, and nothing runs on it."}})
 	}
 	return nil
 }
@@ -602,4 +654,27 @@ func labelsEqual(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// relaysOn names the relay tunnels that run on an edge machine.
+func relaysOn(ctx context.Context, q *store.Queries, machine string) []string {
+	tunnels, err := q.ResourcesOfKind(ctx, api.KindTunnel)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, t := range tunnels {
+		var s api.TunnelSpec
+		if json.Unmarshal(t.Spec, &s) == nil && s.Provider == api.TunnelRelay && s.Machine == machine {
+			out = append(out, qualifiedRef(t))
+		}
+	}
+	return out
+}
+
+func edgeAgentPort(m store.Machine) int {
+	if m.AgentPort != 0 {
+		return m.AgentPort
+	}
+	return api.AgentPortDefault
 }

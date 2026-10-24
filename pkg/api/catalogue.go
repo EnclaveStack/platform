@@ -13,6 +13,15 @@ const (
 	ParamHostname = "hostname"
 )
 
+// Catalogue categories: products to install, and ways in from the internet (L2-014 TUN-15).
+const (
+	CategoryApps         = "apps"
+	CategoryPublicAccess = "public-access"
+)
+
+// CatalogueCategories lists the categories, in the order the console shows them.
+var CatalogueCategories = []string{CategoryApps, CategoryPublicAccess}
+
 // ParameterTypes lists the parameter types.
 var ParameterTypes = []string{ParamString, ParamNumber, ParamBoolean, ParamSecret, ParamHostname}
 
@@ -45,15 +54,18 @@ type TemplateMember struct {
 
 // CatalogueEntry is one stack of the catalogue.
 type CatalogueEntry struct {
-	Name        string              `json:"name"`
-	Title       string              `json:"title"`
-	Description string              `json:"description"`
-	Version     string              `json:"version"`
-	Versions    []string            `json:"versions"`
-	BuiltIn     bool                `json:"builtIn"`
-	Parameters  []TemplateParameter `json:"parameters"`
-	Members     []TemplateMember    `json:"members"`
-	Outputs     []string            `json:"outputs"`
+	Name        string   `json:"name"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Version     string   `json:"version"`
+	Versions    []string `json:"versions"`
+	BuiltIn     bool     `json:"builtIn"`
+	// Category groups entries; Signup is where to make the account a way in needs (TUN-15).
+	Category   string              `json:"category"`
+	Signup     string              `json:"signup,omitempty"`
+	Parameters []TemplateParameter `json:"parameters"`
+	Members    []TemplateMember    `json:"members"`
+	Outputs    []string            `json:"outputs"`
 }
 
 // CatalogueList wraps entries.

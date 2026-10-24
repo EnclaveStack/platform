@@ -648,6 +648,35 @@ func (m *Remote) NetworkEndpoints(ctx context.Context) ([]engine.NetworkInfo, er
 	return call[[]engine.NetworkInfo](ctx, m, pathDriver+"NetworkEndpoints", none{})
 }
 
+func (m *Remote) EnsureConnector(ctx context.Context, c engine.Connector) (engine.ConnectorState, error) {
+	return call[engine.ConnectorState](ctx, m, pathDriver+"EnsureConnector", connectorArgs{C: c})
+}
+
+func (m *Remote) RemoveConnector(ctx context.Context, c engine.Connector) error {
+	return m.driverCall(ctx, "RemoveConnector", connectorArgs{C: c})
+}
+
+func (m *Remote) ConnectorState(ctx context.Context, c engine.Connector) (engine.ConnectorState, error) {
+	return call[engine.ConnectorState](ctx, m, pathDriver+"ConnectorState", connectorArgs{C: c})
+}
+
+func (m *Remote) ConnectorExec(ctx context.Context, c engine.Connector, cmd []string) (string, int, error) {
+	res, err := call[connectorExecResult](ctx, m, pathDriver+"ConnectorExec", connectorExecArgs{C: c, Cmd: cmd})
+	return res.Output, res.ExitCode, err
+}
+
+func (m *Remote) ConnectorFetch(ctx context.Context, c engine.Connector, port int, path string) ([]byte, error) {
+	return call[[]byte](ctx, m, pathDriver+"ConnectorFetch", connectorFetchArgs{C: c, Port: port, Path: path})
+}
+
+func (m *Remote) GateBindAddress(ctx context.Context) (string, error) {
+	return call[string](ctx, m, pathDriver+"GateBindAddress", none{})
+}
+
+func (m *Remote) EdgeAddress(ctx context.Context, network string) (string, error) {
+	return call[string](ctx, m, pathDriver+"EdgeAddress", edgeNetworkArgs{Network: network})
+}
+
 func (m *Remote) StopResource(ctx context.Context, r *domain.Resource) error {
 	return m.driverCall(ctx, "StopResource", resourceArgs{R: bare(r)})
 }

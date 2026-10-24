@@ -167,6 +167,13 @@ func TypeScript() string {
 		api.SegmentSecondsMin, api.SegmentSecondsMax, api.SegmentSecondsDefault, q(api.HLSNameDefault), q(api.OutputNamePatternSource), q(api.TagNamePatternSource), presetFiles())
 	// Bucket objects (L3-002 §14).
 	w("  objectUploadMax: %d,\n  objectTagsMax: %d,\n  objectTagValueMax: %d,\n", api.ObjectUploadMax, api.ObjectTagsMax, api.ObjectTagValueMax)
+	// Public access (L3-002 §16).
+	w("  tunnelProviders: %s,\n  appLinkProviders: %s,\n  domainTunnelProviders: %s,\n  credentialKeys: %s,\n",
+		q(api.TunnelProviders), q(api.AppLinkProviders), q(api.DomainTunnelProviders), q(api.CredentialedProviders))
+	w("  gateModes: %s,\n  tailscaleModes: %s,\n  gateOpenPathsMax: %d,\n  gatePathMax: %d,\n  gatePathPrefix: %s,\n",
+		q(api.GateModes), q(api.TailscaleModes), api.GateOpenPathsMax, api.GatePathMaxLen, q(api.GatePathPrefix))
+	w("  accessEmailsMax: %d,\n  accessEmailDomainsMax: %d,\n  upstreamEnv: %s,\n  userHeader: %s,\n  machineRoles: %s,\n  catalogueCategories: %s,\n",
+		api.AccessEmailsMax, api.AccessEmailDomainMax, q(api.UpstreamEnv), q(api.UserHeader), q(api.MachineRoles), q(api.CatalogueCategories))
 	w("} as const;\n\n")
 	w("export const ROLES = %s as const;\n", q(api.Roles))
 	w("export const METRIC_UNITS = %s as const;\nexport type MetricUnit = (typeof METRIC_UNITS)[number];\n",

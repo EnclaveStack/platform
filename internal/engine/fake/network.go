@@ -202,6 +202,20 @@ func (d *Driver) NetworkEndpoints(ctx context.Context) ([]engine.NetworkInfo, er
 			n.Members = append(n.Members, engine.NetworkMember{Container: rt.container, Address: rt.ip, Aliases: rt.aliases, ResourceID: id})
 		}
 	}
+	// The edge proxy and relays are on the default network too (ADR-052), like the real ones.
+	if d.edge.running {
+		byNet[engine.NetworkName].Members = append(byNet[engine.NetworkName].Members, engine.NetworkMember{Container: engine.EdgeName, Address: fakeEdgeAddress})
+	}
+	conns := make([]string, 0, len(d.connectors))
+	for name := range d.connectors {
+		conns = append(conns, name)
+	}
+	slices.Sort(conns)
+	for _, name := range conns {
+		if k := d.connectors[name]; k.running && k.cfg.Network == engine.NetworkName {
+			byNet[engine.NetworkName].Members = append(byNet[engine.NetworkName].Members, engine.NetworkMember{Container: name, Address: k.address, ResourceID: k.cfg.TunnelID})
+		}
+	}
 	names := make([]string, 0, len(byNet))
 	for n := range byNet {
 		names = append(names, n)

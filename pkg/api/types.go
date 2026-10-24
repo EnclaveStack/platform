@@ -43,20 +43,22 @@ const (
 	KindSecretStore Kind = "secretstore"
 	// v0.8 (L2-010).
 	KindStack Kind = "stack"
+	// Public access (L2-014).
+	KindTunnel Kind = "tunnel"
 )
 
 // Kinds lists every kind in display order.
 var Kinds = []Kind{KindApp, KindDatabase, KindCache, KindBucket, KindSecret, KindDomain, KindJob, KindBackup,
 	KindNetwork, KindFirewall, KindLoadBalancer, KindZone, KindRecord, KindVM, KindVolume, KindSnapshot,
 	KindQueue, KindTopic, KindSearch, KindTranscoder, KindCDN, KindEmail,
-	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore, KindStack}
+	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore, KindStack, KindTunnel}
 
 // IDPrefix is the prefix of resource IDs per kind (L3-005 §2).
 var IDPrefix = map[Kind]string{KindApp: "app", KindDatabase: "db", KindCache: "cache", KindBucket: "bkt", KindSecret: "sec", KindDomain: "dom", KindJob: "job", KindBackup: "bak",
 	KindNetwork: "net", KindFirewall: "fw", KindLoadBalancer: "lb", KindZone: "zone", KindRecord: "rec",
 	KindVM: "vm", KindVolume: "vol", KindSnapshot: "snap",
 	KindQueue: "q", KindTopic: "tpc", KindSearch: "srch", KindTranscoder: "tc", KindCDN: "cdn", KindEmail: "mail",
-	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst", KindStack: "stk"}
+	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst", KindStack: "stk", KindTunnel: "tun"}
 
 // Valid reports whether k is a known kind.
 func (k Kind) Valid() bool {
@@ -237,6 +239,11 @@ type DomainSpec struct {
 	// Zone names a zone resource: the certificate comes through DNS-01, and a wildcard hostname is
 	// allowed (ADR-024).
 	Zone string `json:"zone,omitempty"`
+	// Tunnel makes the domain public through a domain tunnel (L2-014 PUB-01); Gate and CloudflareAccess
+	// protect it (GATE-01, GATE-09).
+	Tunnel           string            `json:"tunnel,omitempty"`
+	Gate             *Gate             `json:"gate,omitempty"`
+	CloudflareAccess *CloudflareAccess `json:"cloudflareAccess,omitempty"`
 }
 
 // Overlap policies for jobs (L2-005 JOB-03).

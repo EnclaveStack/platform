@@ -264,7 +264,13 @@ type EdgeConfig struct {
 	Routes       []Route
 	ACMEEmail    string
 	Certificates []LoadedCertificate
+	// Listeners are the tunnels' servers and Gate how they reach the gate listener (ADR-051 – ADR-053).
+	Listeners []Listener
+	Gate      GateConfig
 }
+
+// Empty reports whether nothing is served: the edge proxy isn't needed.
+func (c EdgeConfig) Empty() bool { return len(c.Routes) == 0 && len(c.Listeners) == 0 }
 
 // Certificate states (L3-002 §6.2).
 const (
@@ -438,6 +444,22 @@ type Driver interface {
 	// stream, consistent while it is stopped; ImportData fills the same volume on this machine from one.
 	ExportData(ctx context.Context, r *domain.Resource, w io.Writer) error
 	ImportData(ctx context.Context, r *domain.Resource, src io.Reader) error
+
+	// Public access (ADR-051 – ADR-053). Each call goes to c.Machine (the main machine when "").
+	// EnsureConnector makes a connector run with exactly its configuration and returns what the engine sees;
+	// RemoveConnector removes it, and its state volume when it has one. ConnectorState reports a missing
+	// connector as not existing, never as an error.
+	EnsureConnector(ctx context.Context, c Connector) (ConnectorState, error)
+	RemoveConnector(ctx context.Context, c Connector) error
+	ConnectorState(ctx context.Context, c Connector) (ConnectorState, error)
+	// ConnectorExec runs a fixed command in a connector (tailscale status, tailscale logout) and returns its
+	// output and exit code. ConnectorFetch reads an HTTP endpoint of a connector from inside its network.
+	ConnectorExec(ctx context.Context, c Connector, cmd []string) (string, int, error)
+	ConnectorFetch(ctx context.Context, c Connector, port int, path string) ([]byte, error)
+	// GateBindAddress is where the gate listener binds so this machine's containers, and nothing outside
+	// it, reach it (ADR-053). EdgeAddress is the edge proxy's address on network, "" when it doesn't run.
+	GateBindAddress(ctx context.Context) (string, error)
+	EdgeAddress(ctx context.Context, network string) (string, error)
 }
 
 // MeshConfig is one machine's part of the mesh (ADR-045).
@@ -460,6 +482,7 @@ type MeshConfig struct {
 type MeshMember struct {
 	ID, Name  string
 	Main      bool
+	Edge      bool // an edge machine: it peers only with the main machine, for its relays
 	Online    bool
 	Driver    Driver
 	PublicKey string
@@ -474,6 +497,10 @@ type MeshPeer struct {
 	PublicKey string
 	Endpoint  string
 	Addresses []string
+	// Limited peers are edge machines: their traffic may reach only Reach, TCP "address:port" pairs on this
+	// machine (L2-014 EDG-04).
+	Limited bool
+	Reach   []string
 }
 
 // StandIn holds, on this machine, a container's address and names that live on another one.

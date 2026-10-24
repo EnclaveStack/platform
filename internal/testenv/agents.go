@@ -111,3 +111,40 @@ func freePort(t testing.TB) int {
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
 }
+
+// AddEdge adds an edge machine on loopback and runs its agent, which waits for the control plane to join
+// it (L2-014 EDG-02), then serves; it returns once the machine is online.
+func (e *Env) AddEdge(t testing.TB, c *client.Client, name string) *Agent {
+	t.Helper()
+	ctx := context.Background()
+	port := freePort(t)
+	added, err := c.AddMachine(ctx, api.AddMachine{Name: name, Role: api.MachineEdge, Address: "127.0.0.1", AgentPort: port})
+	if err != nil {
+		t.Fatalf("add edge machine %s: %v", name, err)
+	}
+	a := &Agent{Name: name, Driver: fake.New(0), Hypervisor: fake.NewHypervisor(), StateDir: filepath.Join(t.TempDir(), "edge-"+name), Port: port, t: t}
+	ready := make(chan string, 1)
+	joined := make(chan error, 1)
+	go func() {
+		id, err := agent.WaitForMain(ctx, agent.EdgeJoinOptions{Code: added.JoinCode, Listen: "127.0.0.1:" + strconv.Itoa(port), StateDir: a.StateDir, Ready: ready})
+		a.ID = id.MachineID
+		joined <- err
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("edge agent %s didn't start waiting", name)
+	}
+	select {
+	case err := <-joined:
+		if err != nil {
+			t.Fatalf("edge join %s: %v", name, err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the control plane didn't join %s", name)
+	}
+	a.Start()
+	t.Cleanup(a.Stop)
+	e.WaitMachine(t, c, name, api.MachineOnline)
+	return a
+}

@@ -6,9 +6,9 @@
 | Document ID | L3-005-data-model-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v15 |
+| Version | v16 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -153,6 +153,24 @@ These ship as migration `0013_machines` with the phases they serve (`L2-010`, AD
 | Docker objects | On every machine: `es-system-mesh` and the volume `es-system-mesh-data` (two or more machines); stand-ins `es-standin-<12 hex>` labelled `enclave.standin-of=<container>` and `enclave.standin-machine=<machine id>`; every managed object gains the label `enclave.machine=<machine id>` |
 | Agent state | `~/.enclave-agent`: `key.pem`, `cert.pem`, `ca.pem`, `agent.json` (machine ID, server URL, ports), mode 0700/0600; `files/` holds uploaded snapshot copies by digest |
 
+## 11 · Public access changes (`L2-014`)
+
+These ship as migration `0015_public_access`, with the step of `L2-014` §7 that needs them. Existing rows stay valid: every machine is a `worker`, and no domain is public.
+
+| Change | Detail |
+|---|---|
+| `resources.kind` | The CHECK gains `tunnel` (table rebuild, as `0008`) |
+| `machines` | Gains `role TEXT NOT NULL DEFAULT 'worker' CHECK (role IN ('worker','edge'))` and `join_key_ciphertext BLOB` (the edge join key sealed with the master key; null once joined or expired, ADR-052). An edge machine's `address` is its public address, and `schedulable` is always 0 |
+| `tunnel_ports` (new) | `tunnel_id` primary key (cascades with the resource), `http_port`, `https_port` (null for Cloudflare and quick tunnels): the edge proxy's listeners for that tunnel, from 11000 (Cloudflare, quick) and 12000 (relay) up, unique; kept for the tunnel's life so the edge configuration stays stable (ADR-051, ADR-052) |
+| `gate_sessions` (new) | `token_hash` primary key (SHA-256 of the cookie), `user_id` (cascades with the user), `hostname`, `created_at`, `expires_at`, `checked_at` (last role check); index `(user_id)`, `(expires_at)`; expired rows deleted hourly (ADR-053) |
+| Settings | `gate_edge_key`: random, sealed with the master key, made at first start (ADR-053) |
+| Managed secrets | None: a Cloudflare tunnel's run token is fetched from Cloudflare each time its connector is made, never stored |
+| Catalogue | Built-in templates in the category `public-access`, one per way in (ADR-048, ADR-051); nothing new in the tables |
+| `resource_refs.field` values | `spec.tunnel`, `spec.gate.passwordSecret` (domain, app link), `spec.credentialsSecret`, `spec.app` (app link), `spec.secretEnv.<KEY>` (custom connector). A relay's edge machine is a machine, not a resource: removing it is refused while the relay exists |
+| Domain outputs | `public`, `tunnel`, `tunnelState`, `url`, `gate`, `dnsRecord`, `dnsRecordOwned` and `dnsZone` (which record EnclaveStack made, so only that one is ever deleted), `accessApplicationId` (the record and the Access application are the domain's: deleted with it, PUB-04) |
+| Docker objects | Main machine: the network `es-system-tunnel` (the edge proxy and the probe helper join it), connectors `es-tunnel-<12 hex>` labelled `enclave.kind=tunnel` and `enclave.resource-id=<id>`, the volume `es-tunnel-<12 hex>-files` for a connector's files (its root is read-only), and for Tailscale the volume `es-tunnel-<12 hex>-state` (its device identity), deleted with the tunnel after `tailscale logout`. Edge machines: relays `es-relay-<12 hex>` labelled the same, and a stand-in for `es-system-edge` |
+| Agent state | An edge agent waiting to join keeps its key and request in `~/.enclave-agent` (0700) until the main machine signs it |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -172,3 +190,4 @@ These ship as migration `0013_machines` with the phases they serve (`L2-010`, AD
 | v13 | 2026-10-22 | Soupler | §9 v0.7 changes (planned): projects and the project column, users and roles, members, invites, tokens with roles, audit, metric series, points and rollups, alert state, incidents, notifications, log export cursors and stats, refs |
 | v14 | 2026-10-22 | Soupler | §10 v0.8 changes (planned): machines, machine CA, machine and stack columns on resources, address pools, machine events, catalogue templates, stack secrets, engine labels, agent state |
 | v15 | 2026-10-23 | Soupler | Migration `0014`, `machines.is_main`; the main machine's row is made at first start, not by migration; no `'main'` default |
+| v16 | 2026-10-24 | Soupler | §11 public access changes: tunnel kind, machine role and join key, tunnel ports, gate sessions, edge key, references, Docker objects (L2-014) |

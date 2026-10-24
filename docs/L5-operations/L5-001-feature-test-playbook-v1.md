@@ -6,7 +6,7 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v28 |
+| Version | v29 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-24 |
 | Owner | Soupler |
@@ -473,6 +473,45 @@ Run against `make demo` (fake engine, sample data) in Chrome, light and dark, at
 - **Error paths**: a viewer lists → `403`; a key with `..` or a leading `/` → `422`; over 5 GiB → `413`; a bucket still being made → `409`; a missing object → `404`.
 - **Details**: on every kind's page, no label or value is cut at 1280 px or 375 px; every detail shows its explanation; copy buttons copy the raw value.
 
+## 2h · Public access walk-throughs (`L2-014`)
+
+Run the live checks with a phone on **mobile data** (not the home Wi-Fi), so the request really comes from the internet.
+
+### Feature: Quick links and the gate — L2-014 TUN-01, TUN-04 – TUN-07, GATE-01 – GATE-08, CON-76, CON-79, CLI-56, TF-51, ADR-051, ADR-053
+- **Golden path (live, no account)**: app `web` (`nginx:1.27-alpine`); `enclave tunnel create demo --provider quick --app web --wait` prints a `trycloudflare.com` URL. On the phone: the sign-in page naming the host → sign in as the admin → nginx's page. The app's log shows `X-Forwarded-For` with the phone's address.
+- **Restart**: stop the connector by its exact container ID (`docker ps --filter label=enclave.resource-id=<tunnel id>`): the tunnel goes **Reconnecting**, comes back, and the console shows a new URL with a toast; the old URL no longer answers.
+- **Gate**: a person with no role in the project signs in → "This environment is private."; ten wrong passwords → throttled, all in the audit log; **Sign out** → back to sign-in; remove a person from the project while they're signed in → their next request after a minute goes to sign-in; a request with `X-Enclave-User: admin@…` from the phone → the app sees the real user or none.
+- **Password and open gates**: `--gate password --gate-password-secret demo-pass` → the browser's prompt; the right pair passes, a wrong one doesn't; change the secret → the old pair stops working within a minute. `--gate none` → the CLI asks to confirm; with `--yes` the page opens for anyone; the console shows **Open to everyone**.
+- **Isolation**: through the quick URL, `/api/v1/machine` reaches the app (nginx's 404), never EnclaveStack; with `Host` set to another domain or `localhost` → the fixed 404.
+- **Error paths**: `--provider quick` without `--app` → `422`; a missing app → `422 NOT_FOUND`; deleting `web` while the tunnel uses it → `409 RESOURCE_IN_USE`.
+
+### Feature: Tailscale, ngrok, custom connectors, the catalogue and Make public — L2-014 TUN-12 – TUN-16, CON-80, CLI-56, TF-51, ADR-051, DAR-043
+- **Tailscale private (live)**: a free tailnet set up as `L4-001` asks; **Catalogue › Public access › Tailscale › Install** for app `web`, mode **Private** → within a minute the link shows `https://default-web.<tailnet>.ts.net`. A phone with Tailscale signed in opens it (no gate by default); a phone without Tailscale can't resolve or reach it.
+- **Tailscale public**: switch the link to **Public** → the gate becomes **Sign in** unless changed; a phone without Tailscale, on mobile data, reaches the sign-in page, then the app. Restart the connector by its exact ID → the same address afterwards. Delete the link → the device is gone from the Tailscale admin console.
+- **Tailscale errors**: HTTPS certificates off in the tailnet → the link `failed` saying where to turn them on; Funnel not allowed → `failed` naming the policy attribute; a revoked key → `failed` asking for a new key.
+- **ngrok (live)**: install with a free token → the account's address serves the app after ngrok's warning page; the page shows the plan's limits. A second ngrok link on the same free account → `failed` with ngrok's reason.
+- **Custom**: a custom connector with `cloudflare/cloudflared`, command `tunnel --url $ENCLAVE_UPSTREAM` → it runs and the app answers at the URL it logs (typed as `url`); `env` setting `ENCLAVE_UPSTREAM` → `422`.
+- **Make public**: from an app's page, pick an installed way in → the link is created and listed under **Public addresses**; pick Cloudflare → the domain form opens prefilled.
+
+### Feature: Cloudflare tunnels and public domains — L2-014 TUN-02, TUN-08 – TUN-11, PUB-01 – PUB-10, GATE-09, CON-76, CON-77, CLI-56, CLI-57, TF-51, TF-52, ADR-051
+- **Setup (live)**: a Cloudflare account with a test zone, a token as `L4-001` asks, `enclave zone create test --provider cloudflare …`, `enclave tunnel create home --provider cloudflare --credentials cf --account-id <id> --wait`. Cloudflare's dashboard shows tunnel `enclave-default-home`, **Healthy**.
+- **Golden path**: `enclave domain create dev.<zone> --app web --tunnel home --zone test --gate signin --wait` → a proxied CNAME to `<id>.cfargotunnel.com` and a routing rule appear at Cloudflare. On the phone, `https://dev.<zone>` → sign-in → the app; the certificate is Cloudflare's. Records that were already in the zone (stand-ins for prod) are unchanged afterwards. A second project with a subdomain zone `stage.<zone>` (Route 53 delegation) and its own tunnel → its own domain and gate (a dev-only member can't pass stage); naming another project's tunnel or zone → `422 NOT_FOUND`; a subdomain zone that isn't a zone at the provider → the zone `failed` with PUB-09's message.
+- **Access**: add `--access-email <your email>` → Cloudflare asks for the one-time code first, then EnclaveStack's sign-in. Remove it → the Access application is gone.
+- **Drift**: delete the CNAME and edit the routing rules in Cloudflare's dashboard → both are back within 10 minutes, with events.
+- **Moving**: `domain update dev.<zone> --tunnel ""` → the record and rule are removed and the domain is local again; back with `--tunnel home`.
+- **Teardown**: delete the domains, then the tunnel → nothing EnclaveStack made is left at Cloudflare (tunnel, records, rules, Access).
+- **Error paths**: a token without Tunnel Edit → the tunnel `failed` with the permission to add; a zone at Route 53 with a Cloudflare tunnel → `422` with PUB-02's text; `--tls internal` with a tunnel → `422`; deleting `home` while domains use it → `409` naming them; a zone in another Cloudflare account → the domain `failed` saying so.
+
+### Feature: Edge machines and relays — L2-014 EDG-01 – EDG-06, TUN-03, PUB-03, CON-78, CLI-58, TF-53, ADR-052
+- **Setup (live)**: a VPS with Docker and the four ports open; the main machine at home behind its router, nothing forwarded. `enclave machine add vps1 --edge --address <vps ip>` prints the command; run it on the VPS → within 10 s the machine is **Online** with the **Edge** chip; `docker exec es-system-mesh wg show` on both sides shows a recent handshake.
+- **Golden path**: `enclave tunnel create edge --provider relay --machine vps1`; `enclave domain create stage.<zone> --app web --tunnel edge --zone r53 --wait` (zone at Route 53) → an A record to the VPS; Let's Encrypt issues the certificate through the relay; the phone opens `https://stage.<zone>` → gate → app; the app's log shows the phone's address.
+- **Nothing on the VPS**: `docker exec` into the relay and the VPS's files hold no certificate, key or secret; `tcpdump` on the VPS shows only TLS on 443.
+- **Placement**: create ten apps → none lands on `vps1`; `machine update vps1 --schedulable` → `422`.
+- **Failure**: power off the VPS → the tunnel and `stage` show **Reconnecting** and the machine-offline alert fires; power on → back with no action.
+- **Join error paths**: a wrong code on the VPS → the main machine keeps trying and nothing joins; five wrong proofs → the agent stops listening; an expired code → "The join code expired" on the machine; deleting `vps1` while the relay names it → `409 MACHINE_NOT_EMPTY`.
+- **Automated stand-in**: `make e2e-machines EDGE=1` runs this walk with a Docker-in-Docker edge machine and Pebble as the CA (the join from the main side, the relay, the certificate through it, the visitor's address, nothing on the edge machine, removal refused); run it before the live walk.
+- **Surfaces**: the console, CLI and OpenTofu each add the edge machine, create the relay tunnel and the public domain, and show them.
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -509,3 +548,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v26 | 2026-10-24 | Soupler | Per-app bucket access: golden path, change, removal, jobs, error paths, secrets, surfaces (L2-011) |
 | v27 | 2026-10-24 | Soupler | Transcoder renditions, ladder, notify and tags: golden path, keyframes, scaling, failure, delivery, errors, surfaces (L2-012) |
 | v28 | 2026-10-24 | Soupler | Bucket objects and readable details: golden path, errors, details (L2-013) |
+| v29 | 2026-10-24 | Soupler | §2h public access walk-throughs: quick links and the gate, Cloudflare tunnels and public domains, edge machines and relays, each with live checks from a phone on mobile data (L2-014) |

@@ -89,7 +89,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 
 // Resources implements provider.Provider (TF-01).
 func (p *Provider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{newDatabase, newCache, newBucket, newApp, newSecret, newDomain, newMachineSettings, newJob, newBackup,
+	return []func() resource.Resource{newDatabase, newCache, newBucket, newApp, newSecret, newDomain, newTunnel, newMachineSettings, newJob, newBackup,
 		newNetwork, newFirewall, newLoadBalancer, newZone, newRecord, newVM, newVolume, newSnapshot,
 		newQueue, newTopic, newSearch, newTranscoder, newCDN, newEmail, newProject, newUser,
 		newDashboard, newAlert, newChannel, newLogExport, newSecretStore,

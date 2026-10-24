@@ -550,6 +550,64 @@ func (rt *Router) NetworkEndpoints(ctx context.Context) ([]engine.NetworkInfo, e
 	return rt.main().NetworkEndpoints(ctx)
 }
 
+// Public access (ADR-051, ADR-052): a connector runs on its Machine, the main machine when it names none (a
+// relay names its edge machine). The gate and the edge proxy are the main machine's.
+
+func (rt *Router) connectorDriver(c engine.Connector) (engine.Driver, error) {
+	if c.Machine == "" {
+		return rt.main(), nil
+	}
+	return rt.driver(c.Machine)
+}
+
+func (rt *Router) EnsureConnector(ctx context.Context, c engine.Connector) (engine.ConnectorState, error) {
+	d, err := rt.connectorDriver(c)
+	if err != nil {
+		return engine.ConnectorState{}, err
+	}
+	return d.EnsureConnector(ctx, c)
+}
+
+func (rt *Router) RemoveConnector(ctx context.Context, c engine.Connector) error {
+	d, err := rt.connectorDriver(c)
+	if err != nil {
+		return err
+	}
+	return d.RemoveConnector(ctx, c)
+}
+
+func (rt *Router) ConnectorState(ctx context.Context, c engine.Connector) (engine.ConnectorState, error) {
+	d, err := rt.connectorDriver(c)
+	if err != nil {
+		return engine.ConnectorState{}, err
+	}
+	return d.ConnectorState(ctx, c)
+}
+
+func (rt *Router) ConnectorExec(ctx context.Context, c engine.Connector, cmd []string) (string, int, error) {
+	d, err := rt.connectorDriver(c)
+	if err != nil {
+		return "", 0, err
+	}
+	return d.ConnectorExec(ctx, c, cmd)
+}
+
+func (rt *Router) ConnectorFetch(ctx context.Context, c engine.Connector, port int, path string) ([]byte, error) {
+	d, err := rt.connectorDriver(c)
+	if err != nil {
+		return nil, err
+	}
+	return d.ConnectorFetch(ctx, c, port, path)
+}
+
+func (rt *Router) GateBindAddress(ctx context.Context) (string, error) {
+	return rt.main().GateBindAddress(ctx)
+}
+
+func (rt *Router) EdgeAddress(ctx context.Context, network string) (string, error) {
+	return rt.main().EdgeAddress(ctx, network)
+}
+
 // Moves (ADR-047): through the router these reach the resource's machine. A move itself addresses the old
 // and the new machine directly.
 

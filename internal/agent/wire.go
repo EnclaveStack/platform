@@ -203,3 +203,20 @@ type sweepArgs struct{ Keep []string }
 type sweepResult struct{ Removed []string }
 
 type meshArgs struct{ Cfg engine.MeshConfig }
+
+// Public access (ADR-051, ADR-052): a relay runs on an edge machine.
+type connectorArgs struct{ C engine.Connector }
+type connectorExecArgs struct {
+	C   engine.Connector
+	Cmd []string
+}
+type connectorExecResult struct {
+	Output   string
+	ExitCode int
+}
+type connectorFetchArgs struct {
+	C    engine.Connector
+	Port int
+	Path string
+}
+type edgeNetworkArgs struct{ Network string }

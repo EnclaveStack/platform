@@ -24,8 +24,11 @@ type Template struct {
 	Title       string
 	Description string
 	Version     string
-	Parameters  []api.TemplateParameter
-	Members     []Member
+	// Category groups templates (api.CatalogueCategories); Signup is where to make an account it needs.
+	Category   string
+	Signup     string
+	Parameters []api.TemplateParameter
+	Members    []Member
 	// Outputs are rendered in this order.
 	Outputs     map[string]string
 	outputOrder []string
@@ -90,7 +93,7 @@ var (
 	semverPattern    = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	paramNamePattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]{0,31}$`)
 	placeholder      = regexp.MustCompile(`\$\$|\$\{([a-z]+)(?::([^}]*))?\}`)
-	topKeys          = []string{"name", "title", "description", "version", "parameters", "resources", "outputs"}
+	topKeys          = []string{"name", "title", "description", "version", "category", "signup", "parameters", "resources", "outputs"}
 	memberKeys       = []string{"kind", "name", "spec", "when", "generate", "value"}
 	paramKeys        = []string{"name", "title", "description", "type", "default", "required"}
 )
@@ -126,6 +129,15 @@ func Parse(body []byte) (*Template, error) {
 		return n.Value
 	}
 	t.Name, t.Title, t.Description, t.Version = str("name", true), str("title", true), str("description", false), str("version", true)
+	t.Category, t.Signup = str("category", false), str("signup", false)
+	if t.Category == "" {
+		t.Category = api.CategoryApps
+	} else if !slices.Contains(api.CatalogueCategories, t.Category) {
+		ps = append(ps, Problem{Line: fields["category"].Line, Path: "category", Message: "Use " + strings.Join(api.CatalogueCategories, " or ") + "."})
+	}
+	if t.Signup != "" && !strings.HasPrefix(t.Signup, "https://") {
+		ps = append(ps, Problem{Line: fields["signup"].Line, Path: "signup", Message: "signup is an https:// address."})
+	}
 	if t.Name != "" && api.ValidateName(t.Name) != nil {
 		ps = append(ps, Problem{Line: fields["name"].Line, Path: "name", Message: "A catalogue name follows the resource name rules: lowercase letters, digits and hyphens."})
 	}
@@ -442,7 +454,7 @@ func typed(p api.TemplateParameter, v any) (any, error) {
 
 // Entry describes a template for the catalogue.
 func (t *Template) Entry(builtIn bool, versions []string) api.CatalogueEntry {
-	e := api.CatalogueEntry{Name: t.Name, Title: t.Title, Description: t.Description, Version: t.Version, Versions: versions, BuiltIn: builtIn,
+	e := api.CatalogueEntry{Name: t.Name, Title: t.Title, Description: t.Description, Version: t.Version, Versions: versions, BuiltIn: builtIn, Category: t.Category, Signup: t.Signup,
 		Parameters: t.Parameters, Members: []api.TemplateMember{}, Outputs: slices.Clone(t.outputOrder)}
 	if e.Parameters == nil {
 		e.Parameters = []api.TemplateParameter{}

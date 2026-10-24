@@ -191,6 +191,8 @@ func TestTwoMachines(t *testing.T) {
 				}
 			}
 		}
+		// The server stops first, or it puts back the mesh as it goes.
+		_ = exec.Command("docker", "rm", "-f", srv).Run()
 		out, _ := exec.Command("docker", "ps", "-aq", "--filter", "label=enclave.standin-of").Output()
 		for _, id := range strings.Fields(string(out)) {
 			_ = exec.Command("docker", "rm", "-f", id).Run()

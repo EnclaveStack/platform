@@ -48,7 +48,7 @@ func TestWireGuardConfRendersPeersAndRefusesJunk(t *testing.T) {
 
 func TestRulesKeepNetworksApart(t *testing.T) {
 	nets := []Network{{CIDR: "10.20.0.0/16"}, {CIDR: "10.30.0.0/24"}, {CIDR: "10.40.0.0/24"}}
-	rules, err := Rules(nets, map[string]string{"10.20.0.0/16": "eth1", "10.30.0.0/24": "eth2"})
+	rules, err := Rules(nets, map[string]string{"10.20.0.0/16": "eth1", "10.30.0.0/24": "eth2"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func TestRulesKeepNetworksApart(t *testing.T) {
 	if strings.Contains(rules, "10.40.0.0/24") {
 		t.Error("a network this machine isn't on got rules")
 	}
-	if _, err := Rules([]Network{{CIDR: "10.20.0.1/16"}}, map[string]string{"10.20.0.1/16": "eth1"}); err == nil {
+	if _, err := Rules([]Network{{CIDR: "10.20.0.1/16"}}, map[string]string{"10.20.0.1/16": "eth1"}, nil); err == nil {
 		t.Error("an unmasked range accepted")
 	}
-	if _, err := Rules(nets, map[string]string{"10.20.0.0/16": `eth1"; flush ruleset; "`}); err == nil {
+	if _, err := Rules(nets, map[string]string{"10.20.0.0/16": `eth1"; flush ruleset; "`}, nil); err == nil {
 		t.Error("an interface name with quotes accepted")
 	}
 }
@@ -113,5 +113,45 @@ func TestBuildContextCompilesForLinux(t *testing.T) {
 	first, again := ImageTag(), ImageTag()
 	if !strings.HasPrefix(first, "enclave.local/mesh:") || first != again {
 		t.Errorf("tag %s, then %s", first, again)
+	}
+}
+
+// A peer behind NAT has no endpoint: no Endpoint and no keepalive from this side (L2-014 EDG-05).
+func TestPeerWithoutEndpoint(t *testing.T) {
+	key := strings.Repeat("A", 43) + "="
+	conf, err := WireGuardConf(key, Config{ListenPort: 51820, Peers: []Peer{{PublicKey: key, Addresses: []string{"10.0.0.7"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(conf, "Endpoint") || strings.Contains(conf, "PersistentKeepalive") || !strings.Contains(conf, "AllowedIPs = 10.0.0.7/32") {
+		t.Fatalf("peer without endpoint:\n%s", conf)
+	}
+}
+
+func TestAnEdgePeerReachesOnlyItsListeners(t *testing.T) {
+	// L2-014 EDG-04: a rented server's relay reaches the edge proxy's relay listeners and nothing else here.
+	nets := []Network{{CIDR: "10.20.0.0/16"}}
+	edge := Peer{PublicKey: "k", Addresses: []string{"10.20.5.9"}, Limited: true, Reach: []string{"10.20.0.3:12000", "10.20.0.3:12001"}}
+	rules, err := Rules(nets, map[string]string{"10.20.0.0/16": "eth1"}, []Peer{{PublicKey: "w", Addresses: []string{"10.20.7.1"}}, edge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := `iifname "es0" ip saddr { 10.20.5.9 } ip daddr . tcp dport { 10.20.0.3 . 12000, 10.20.0.3 . 12001 } accept`
+	drop := `iifname "es0" ip saddr { 10.20.5.9 } drop`
+	general := `iifname "es0" oifname "eth1"`
+	if !strings.Contains(rules, allow) || !strings.Contains(rules, drop) || strings.Index(rules, drop) > strings.Index(rules, general) ||
+		strings.Index(rules, allow) > strings.Index(rules, drop) || strings.Contains(rules, "10.20.7.1") {
+		t.Fatalf("rules:\n%s", rules)
+	}
+	// A limited peer with nothing to reach is dropped entirely; bad entries are refused.
+	none := edge
+	none.Reach = nil
+	if r, _ := Rules(nets, map[string]string{"10.20.0.0/16": "eth1"}, []Peer{none}); !strings.Contains(r, drop) || strings.Contains(r, "dport") {
+		t.Errorf("rules:\n%s", r)
+	}
+	bad := edge
+	bad.Reach = []string{"10.20.0.3:0; flush ruleset"}
+	if _, err := Rules(nets, map[string]string{"10.20.0.0/16": "eth1"}, []Peer{bad}); err == nil {
+		t.Error("a bad reach entry was accepted")
 	}
 }

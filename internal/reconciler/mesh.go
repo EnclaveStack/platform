@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,21 +126,45 @@ func (r *Reconciler) SyncMesh(ctx context.Context) error {
 	for _, n := range nets {
 		networks[n.name] = n.cidr
 	}
+	// An edge machine is a stranger's computer (L2-014 EDG-04): it peers only with the main machine, is on
+	// the default network only, learns only the edge proxy's address, and its relays may reach only their
+	// own listeners there.
+	edgeProxy := ""
+	for _, n := range infos[r.Store.MainID()] {
+		for _, mem := range n.Members {
+			if n.Name == engine.NetworkName && mem.Container == engine.EdgeName {
+				edgeProxy = mem.Address
+			}
+		}
+	}
 	var errs []error
 	for _, m := range online {
 		cfg := engine.MeshConfig{Enabled: true, TunnelPort: m.TunnelPort, DefaultRange: defaultRange, Networks: networks, Pools: pools[m.ID]}
+		if m.Edge {
+			cfg.Networks = map[string]string{engine.NetworkName: networks[engine.NetworkName]}
+			cfg.Pools = map[string][]string{engine.NetworkName: pools[m.ID][engine.NetworkName]}
+		}
 		for _, p := range online {
-			if p.ID == m.ID {
+			if p.ID == m.ID || (m.Edge || p.Edge) && !(m.Main || p.Main) {
 				continue
 			}
 			peer := engine.MeshPeer{MachineID: p.ID, PublicKey: p.PublicKey, Endpoint: p.Endpoint}
 			for _, n := range infos[p.ID] {
 				for _, mem := range n.Members {
+					switch {
+					case m.Edge && (n.Name != engine.NetworkName || mem.Container != engine.EdgeName):
+						continue
+					case p.Edge && (n.Name != engine.NetworkName || !strings.HasPrefix(mem.Container, engine.RelayPrefix)):
+						continue
+					}
 					peer.Addresses = append(peer.Addresses, mem.Address)
 					cfg.StandIns = append(cfg.StandIns, engine.StandIn{Network: n.Name, Address: mem.Address, Aliases: mem.Aliases, Of: mem.Container, Machine: p.ID})
 				}
 			}
 			slices.Sort(peer.Addresses)
+			if p.Edge {
+				peer.Limited, peer.Reach = true, r.relayReach(ctx, p.Name, edgeProxy)
+			}
 			cfg.Peers = append(cfg.Peers, peer)
 		}
 		if err := r.applyMesh(ctx, m, cfg); err != nil {
@@ -321,4 +348,28 @@ func (r *Reconciler) MeshLinks(ctx context.Context, machineID string) []api.Mach
 		links = append(links, l)
 	}
 	return links
+}
+
+// relayReach is where an edge machine's relays may connect on the main machine: the edge proxy's
+// listeners for the relays that run there (ADR-052).
+func (r *Reconciler) relayReach(ctx context.Context, edgeMachine, edgeProxy string) []string {
+	if edgeProxy == "" {
+		return nil
+	}
+	tunnels, err := r.Store.ResourcesOfKind(ctx, api.KindTunnel)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, t := range tunnels {
+		s, err := tunnelSpecOf(t)
+		if err != nil || s.Provider != api.TunnelRelay || s.Machine != edgeMachine {
+			continue
+		}
+		if ports, err := r.Store.GetTunnelPorts(ctx, t.ID); err == nil {
+			out = append(out, net.JoinHostPort(edgeProxy, strconv.Itoa(ports.HTTPPort)), net.JoinHostPort(edgeProxy, strconv.Itoa(ports.HTTPSPort)))
+		}
+	}
+	slices.Sort(out)
+	return out
 }

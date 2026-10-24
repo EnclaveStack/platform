@@ -393,6 +393,22 @@ func (s *Server) driverCalls() map[string]handler {
 		"ConfigureMesh":    unary(func(ctx context.Context, a meshArgs) (engine.MeshStatus, error) { return d.ConfigureMesh(ctx, a.Cfg) }),
 		"MeshStatus":       unary(func(ctx context.Context, _ none) (engine.MeshStatus, error) { return d.MeshStatus(ctx) }),
 		"NetworkEndpoints": unary(func(ctx context.Context, _ none) ([]engine.NetworkInfo, error) { return d.NetworkEndpoints(ctx) }),
+		"EnsureConnector": unary(func(ctx context.Context, a connectorArgs) (engine.ConnectorState, error) {
+			return d.EnsureConnector(ctx, a.C)
+		}),
+		"RemoveConnector": unary(func(ctx context.Context, a connectorArgs) (none, error) { return done(d.RemoveConnector(ctx, a.C)) }),
+		"ConnectorState": unary(func(ctx context.Context, a connectorArgs) (engine.ConnectorState, error) {
+			return d.ConnectorState(ctx, a.C)
+		}),
+		"ConnectorExec": unary(func(ctx context.Context, a connectorExecArgs) (connectorExecResult, error) {
+			out, code, err := d.ConnectorExec(ctx, a.C, a.Cmd)
+			return connectorExecResult{Output: out, ExitCode: code}, err
+		}),
+		"ConnectorFetch": unary(func(ctx context.Context, a connectorFetchArgs) ([]byte, error) {
+			return d.ConnectorFetch(ctx, a.C, a.Port, a.Path)
+		}),
+		"GateBindAddress": unary(func(ctx context.Context, _ none) (string, error) { return d.GateBindAddress(ctx) }),
+		"EdgeAddress":     unary(func(ctx context.Context, a edgeNetworkArgs) (string, error) { return d.EdgeAddress(ctx, a.Network) }),
 	}
 }
 

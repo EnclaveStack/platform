@@ -424,6 +424,34 @@ export const GUIDES: Record<Exclude<SectionSlug, 'records'>, Guide> = {
     ],
     related: ['domains', 'secrets', 'cdn'],
   },
+  tunnels: {
+    what: [
+      'A tunnel is a way in from the internet to an app on this machine, with nothing opened on your router. A small connector here dials out to a service on the internet, and visitors come back through that connection.',
+      'An address for one app comes from the service: a quick random link, Tailscale, ngrok, or any other tunnel from its own image. Your own domains come through Cloudflare, or through a small server you rent and join as an edge machine.',
+      'Every public address has a gate in front: people sign in with their EnclaveStack account, or use a shared password, unless you open it to everyone.',
+    ],
+    when: [
+      'Show a demo to someone outside your network in a minute, with no account and no domain.',
+      'Reach a dev or stage environment from your phone or a client’s laptop, at stage.example.com.',
+      'Keep an environment private to your own devices, with a Tailscale link.',
+    ],
+    how: [
+      'Open Tunnels and choose New tunnel, or install a way in from the catalogue’s Public access category.',
+      'For an app link, choose the app and its gate. For your own domain, add the tunnel, then a domain with From the internet chosen.',
+      'Choose Create. The address appears once the connector is connected; open it, sign in, and you see the app.',
+    ],
+    command: 'enclave tunnel create demo --provider quick --app web --wait',
+    example: [
+      'Create a quick link demo to the app web.',
+      'Send its https://….trycloudflare.com address to a colleague: they sign in with their EnclaveStack account and see the app.',
+    ],
+    note: [
+      'A quick link’s address changes whenever it restarts, and it handles at most 200 requests at once: use it for demos.',
+      'EnclaveStack only writes the DNS records of its own domains. Other records in the zone, such as production, are never changed.',
+      'Webhooks from other services can skip the gate on the paths you list as open paths.',
+    ],
+    related: ['domains', 'zones', 'apps'],
+  },
   cdn: {
     what: [
       'A CDN is a cache with its own web address in front of an app or a bucket. It keeps copies of what visitors ask for, so pages and files come back faster and the app does less work.',

@@ -816,7 +816,7 @@ components:
       description: Error envelope (L0-003)
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
-    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack] }
+    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack, tunnel] }
     Role: { type: string, enum: [viewer, editor, admin] }
     Phase: { type: string, enum: [pending, provisioning, ready, updating, deleting, failed] }
     ErrorEnvelope:
@@ -947,11 +947,13 @@ components:
     CreatedToken: { type: object, required: [token, secret], properties: { token: { $ref: '#/components/schemas/Token' }, secret: { type: string } } }
     CatalogueEntry:
       type: object
-      required: [name, title, description, version, versions, builtIn, parameters, members, outputs]
+      required: [name, title, description, version, versions, builtIn, category, parameters, members, outputs]
       properties:
         name: { type: string }
         title: { type: string }
         description: { type: string }
+        category: { type: string, enum: [apps, public-access] }
+        signup: { type: string, description: "where to make the account a way in needs" }
         version: { type: string }
         versions: { type: array, items: { type: string } }
         builtIn: { type: boolean }
@@ -977,12 +979,13 @@ components:
       properties: { machine: { type: string }, connected: { type: boolean }, lastHandshakeAt: { type: [string, 'null'], format: date-time } }
     MachineSummary:
       type: object
-      required: [id, name, title, main, state, since, labels, schedulable, address, os, arch, agentVersion, engine, cpus, memoryTotalBytes, memoryReservedBytes, vms, lastSeenAt, resources, versionMismatch, links, message]
+      required: [id, name, title, main, state, since, labels, schedulable, address, os, arch, agentVersion, engine, cpus, memoryTotalBytes, memoryReservedBytes, vms, lastSeenAt, resources, versionMismatch, links, message, role]
       properties:
         id: { type: string }
         name: { type: string }
         title: { type: string, description: "The main machine's title is the machine name given at setup" }
         main: { type: boolean }
+        role: { type: string, enum: [worker, edge] }
         state: { type: string, enum: [waiting, online, offline] }
         since: { type: string, format: date-time }
         labels: { type: object, additionalProperties: { type: string } }
@@ -1008,7 +1011,12 @@ components:
       type: object
       required: [name]
       additionalProperties: false
-      properties: { name: { type: string }, labels: { type: object, maxProperties: 10, additionalProperties: { type: string } } }
+      properties:
+        name: { type: string }
+        labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }
+        role: { type: string, enum: [worker, edge], description: "edge: a server with a public address that only relays visitors; the main machine joins it (L2-014 EDG-02)" }
+        address: { type: string, description: "edge only: its public IPv4 address or host name" }
+        agentPort: { type: integer, minimum: 1, maximum: 65535, description: "edge only: where its agent waits; default 7071" }
     AddedMachine:
       type: object
       required: [machine, joinCode, joinCommand, expiresAt]
@@ -1245,7 +1253,46 @@ components:
         port: { type: integer, minimum: 1, maximum: 65535, description: "Default: the app's port" }
         tls: { type: string, enum: [auto, internal, 'off'], description: "Default: internal for *.localhost, else auto" }
         redirectHttp: { type: boolean, default: true }
-        zone: { type: string, description: "a zone resource: the certificate comes through ACME DNS-01 and the hostname may be a wildcard (*.example.com); needs tls auto (ADR-024)" }
+        zone: { type: string, description: "a zone resource: the certificate comes through ACME DNS-01 and the hostname may be a wildcard (*.example.com); needs tls auto (ADR-024). With a tunnel, the zone the public DNS record is written in (PUB-02, PUB-03)" }
+        tunnel: { type: string, description: "a tunnel of provider cloudflare or relay: the domain is public through it, and not served on the machine's own ports (L2-014 PUB-01); \"\" makes it local again. Public outputs: public, url, dnsRecord {type, name, value, state: created|adopted|manual}, certificateState edge (Cloudflare) or issued, accessApplicationId, tunnelState" }
+        gate: { $ref: '#/components/schemas/Gate' }
+        cloudflareAccess:
+          type: object
+          additionalProperties: false
+          description: "Cloudflare tunnels only: who Cloudflare lets through before the gate (GATE-09)"
+          properties:
+            emails: { type: array, maxItems: 50, items: { type: string } }
+            emailDomains: { type: array, maxItems: 10, items: { type: string } }
+    Gate:
+      type: object
+      required: [mode]
+      additionalProperties: false
+      description: "What stands between the internet and a public app (L2-014 GATE-01 – GATE-07). A public domain or app link defaults to signin (a private Tailscale link to none)."
+      properties:
+        mode: { type: string, enum: [signin, password, none] }
+        passwordSecret: { type: string, description: 'password only: a secret {"username","password"}' }
+        openPaths: { type: array, maxItems: 10, items: { type: string, maxLength: 255 }, description: "path prefixes that skip the gate, e.g. /webhooks/; never under /.enclave/" }
+    TunnelSpec:
+      type: object
+      required: [provider]
+      additionalProperties: false
+      description: "A way in from the internet (L2-014, ADR-051, ADR-052); provider and machine are immutable. App links (quick, tailscale, ngrok, custom) give one app an address the provider hands out; domain tunnels (cloudflare, relay) serve the public domains that name them. Outputs: connection (connected, reconnecting), connections, url (app links), tunnelId (cloudflare), publicAddress (relay), serves, device and funnel (tailscale)."
+      properties:
+        provider: { type: string, enum: [quick, tailscale, ngrok, custom, cloudflare, relay] }
+        credentialsSecret: { type: string, description: 'cloudflare, tailscale, ngrok: a secret holding the token itself, or {"apiToken"} / {"authKey"} / {"authToken"}' }
+        accountId: { type: string, pattern: '^[a-f0-9]{32}$', description: "cloudflare only: the account the tunnel is made in" }
+        machine: { type: string, description: "relay only: an edge machine (one relay each)" }
+        app: { type: string, description: "app links: the app to make public" }
+        port: { type: integer, minimum: 1, maximum: 65535, description: "app links: default the app's port" }
+        gate: { $ref: '#/components/schemas/Gate' }
+        mode: { type: string, enum: [private, public], description: "tailscale only: Serve (your tailnet) or Funnel (anyone); default private" }
+        hostname: { type: string, maxLength: 63, description: "tailscale only: the device's name; default <project>-<app>" }
+        domain: { type: string, description: "ngrok only: a domain reserved in the account" }
+        image: { type: string, description: "custom only: the connector's image" }
+        command: { type: array, maxItems: 32, items: { type: string } }
+        env: { type: object, additionalProperties: { type: string }, description: "custom only; may not set ENCLAVE_UPSTREAM" }
+        secretEnv: { type: object, additionalProperties: { type: string } }
+        url: { type: string, description: "custom only: the https:// address the service gives, for display" }
     NetworkSpec:
       type: object
       required: [cidr]
@@ -1650,6 +1697,7 @@ components:
             - { $ref: '#/components/schemas/ChannelSpec' }
             - { $ref: '#/components/schemas/LogExportSpec' }
             - { $ref: '#/components/schemas/SecretStoreSpec' }
+            - { $ref: '#/components/schemas/TunnelSpec' }
     MetricData:
       type: object
       required: [from, to, stepSeconds, items]

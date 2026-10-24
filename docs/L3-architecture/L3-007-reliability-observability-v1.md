@@ -6,9 +6,9 @@
 | Document ID | L3-007-reliability-observability-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v13 |
+| Version | v14 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-22 |
+| Last Updated | 2026-10-24 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -155,6 +155,26 @@ slog JSON (text on a TTY). Every HTTP request logs once on completion: `request_
 | Metrics | `enclave_machines{state}`, `enclave_machine_up{machine}`, `enclave_agent_calls_total{machine,method,result}`, `enclave_agent_call_duration_seconds{machine}`, `enclave_moves_total{kind,result}`, `enclave_move_bytes_total`, `enclave_rescheduled_total`, `enclave_mesh_sync_total{result}`, `enclave_mesh_peers_connected{machine}` |
 | Logs | Every call to an agent logs its machine, method, duration and result at debug, and failures at warn; machine state changes at info |
 
+## 14 · Public access behaviour (`L2-014`)
+
+| Topic | Rule |
+|---|---|
+| Connector health (ADR-051) | `/ready` read every 10 s through the probe helper; `connection: connected` with ≥ 1 connection, else `reconnecting` (an event); after 30 s with none the connector is restarted (`provisioning`, "No connection for 30 s: restarting the connector.") with the usual backoff (§2); public domains follow their tunnel's state in `tunnelState`, with an event |
+| Tailscale and ngrok links | `tailscale status --json` (by exec) or ngrok's `:4040/api/tunnels` read every 10 s; `ready` when the device is online with its name (and Funnel on, for `public`) or the tunnel is listed; `reconnecting` otherwise, and restarted after 30 s with backoff. A Tailscale device keeps its name across restarts through its state volume |
+| Custom connectors | `ready` while the container runs; restarted with backoff when it exits |
+| Quick links | The hostname is read after every connector start; a new one replaces the old within 15 s of the restart and is an event. The edge route for the old one is removed |
+| Provider calls | Cloudflare API calls take 15 s each. Rate limits (`429`) and `5xx` are transient with backoff; `401`/`403` are permanent, naming the permission (TUN-09). Creation is idempotent: a tunnel with the expected name is adopted |
+| Drift (TUN-10) | Every 10 minutes per Cloudflare tunnel: routing rules, public domains' DNS records and Access applications compared and put back; a tunnel missing at Cloudflare → `failed` until **Retry** |
+| Moving a domain between tunnels (PUB-06) | New route and DNS record first, old ones removed after the new route answers; at most the DNS TTL of mixed answers |
+| Relay health (ADR-052) | HAProxy checks the edge proxy's relay listeners every 2 s (`rise 1 fall 3`), so a relay that started before its listener serves within seconds; the relay's state is read through the agent; an offline edge machine (`L3-007` §13) makes its relay tunnels `reconnecting` at once; one still waiting to join says to run its join command |
+| Mesh behind NAT | Keepalive every 25 s from machines without an address; a peer whose last handshake is older than 3 minutes shows as not connected (XNET-06) |
+| The edge join | The control plane tries a waiting edge machine every 5 s, 10 s timeout per try, until its code expires; each failure is a debug log, the expiry an event |
+| The gate | `/check` answers from the store with one indexed read; roles re-checked at most every 30 s per session; the edge proxy waits 2 s to connect to the gate and 2 s for its answer, then answers `502` or `504`; a gate that can't check answers `503`. Nothing reaches the app either way (fail closed). Expired sessions are deleted hourly |
+| Control-plane restart | Connectors and relays keep running; gated hosts answer `502` until the gate listener is back (open paths and `none` gates keep serving); sessions survive (they are in the store) |
+| Timeouts | Provider call 15 s; `/ready` 5 s; `/check` 2 s; join try 10 s |
+| Metrics | `enclave_tunnels{provider,state}`, `enclave_tunnel_connections{tunnel}`, `enclave_tunnel_provider_calls_total{provider,result}`, `enclave_gate_checks_total{result}` (`allowed`, `signin`, `denied`, `error`), `enclave_gate_signins_total{result}`, `enclave_relay_up{tunnel}` |
+| Logs | Tunnel and relay state changes at info; provider calls at debug with method, path (never the token) and status; gate sign-ins at info with the hostname and user ID, failures at warn, never a password or cookie |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -172,3 +192,4 @@ slog JSON (text on a TTY). Every HTTP request logs once on completion: `request_
 | v11 | 2026-10-22 | Soupler | §11 metrics as built: `enclave_purges_total{kind}` for queues and CDNs; transcodes counted by the shared run metrics |
 | v12 | 2026-10-22 | Soupler | §12 v0.7 behaviour (planned): sampler, metric storage, alert evaluation, notification retries, log export, secret sync, timeouts, metrics |
 | v13 | 2026-10-22 | Soupler | §13 v0.8 behaviour (planned): machine health, offline calls, restarting elsewhere, mesh sync, address pools, agent calls and restarts, moves, join expiry, timeouts, metrics, logs |
+| v14 | 2026-10-24 | Soupler | §14 public access behaviour: connector and relay health, quick links, provider calls, drift, moving domains, mesh behind NAT, the edge join, the gate, restarts, timeouts, metrics, logs (L2-014) |

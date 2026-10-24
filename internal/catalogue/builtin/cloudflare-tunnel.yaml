@@ -1,0 +1,13 @@
+name: cloudflare-tunnel
+title: Cloudflare Tunnel
+category: public-access
+signup: https://dash.cloudflare.com/sign-up
+description: "Your own domain, like stage.example.com, through your free Cloudflare account; the domain's DNS must be at Cloudflare. Cloudflare serves the certificate, and can check visitors' emails with Cloudflare Access. Add public domains through it afterwards."
+version: 1.0.0
+parameters:
+  - { name: apiToken, title: API token, description: "A token with Account › Cloudflare Tunnel › Edit and Zone › DNS › Edit (and Access › Apps and Policies › Edit for Access).", type: secret, required: true }
+  - { name: accountId, title: Account ID, description: "Your account ID, on the domain's overview page at Cloudflare.", type: string, required: true }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: cloudflare, credentialsSecret: "${stack}-apitoken", accountId: "${param:accountId}" }

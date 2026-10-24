@@ -83,6 +83,57 @@ export interface DomainSpec {
   redirectHttp?: boolean;
   /** A zone resource: the certificate comes through DNS-01, and a wildcard hostname is allowed (ADR-024). */
   zone?: string;
+  /** A cloudflare or relay tunnel: the domain is served to the internet through it (L2-014 PUB-01). */
+  tunnel?: string;
+  /** Who may pass on a public domain; absent: signin (GATE-01). */
+  gate?: Gate;
+  /** Through a Cloudflare tunnel: Cloudflare Access checks these people first (GATE-09). */
+  cloudflareAccess?: CloudflareAccess;
+}
+
+export type GateMode = 'signin' | 'password' | 'none';
+
+/** What stands between the internet and a public app (L2-014 GATE-01 – GATE-06). */
+export interface Gate {
+  mode: GateMode;
+  /** With mode password: a secret holding {"username","password"}. */
+  passwordSecret?: string;
+  /** Path prefixes that skip the gate, like /webhooks/. */
+  openPaths?: string[];
+}
+
+export interface CloudflareAccess {
+  emails?: string[];
+  emailDomains?: string[];
+}
+
+export type TunnelProvider = 'quick' | 'tailscale' | 'ngrok' | 'custom' | 'cloudflare' | 'relay';
+export type TailscaleMode = 'private' | 'public';
+
+/** A way in from the internet (L2-014 TUN-01 – TUN-16, L3-002 §16). App links give one app an address; cloudflare and relay serve public domains. */
+export interface TunnelSpec {
+  provider: TunnelProvider;
+  /** cloudflare, tailscale, ngrok: the secret holding the token, as the value or {"apiToken"} / {"authKey"} / {"authToken"}. */
+  credentialsSecret?: string;
+  /** cloudflare: the account the tunnel is made in. */
+  accountId?: string;
+  /** relay: the edge machine it runs on. */
+  machine?: string;
+  /** App links: the app and its port (default the app's). */
+  app?: string;
+  port?: number;
+  /** App links: absent is signin (none for a private Tailscale link). */
+  gate?: Gate;
+  mode?: TailscaleMode;
+  hostname?: string;
+  /** ngrok: a domain reserved in the account. */
+  domain?: string;
+  image?: string;
+  command?: string[];
+  env?: Record<string, string>;
+  secretEnv?: Record<string, string>;
+  /** custom: the https:// address the service gives. */
+  url?: string;
 }
 
 export type Overlap = 'forbid' | 'allow';
@@ -525,6 +576,7 @@ export interface SpecByKind {
   logexport: LogExportSpec;
   secretstore: SecretStoreSpec;
   stack: StackSpec;
+  tunnel: TunnelSpec;
 }
 
 /** A stack: a catalogue entry or a template of one's own, installed as one thing (ADR-048, L3-002 §11.7). Exactly one of template and templateBody. */
@@ -562,6 +614,8 @@ export interface TemplateMember {
   optional: boolean;
 }
 
+export type CatalogueCategory = 'apps' | 'public-access';
+
 export interface CatalogueEntry {
   name: string;
   title: string;
@@ -569,12 +623,23 @@ export interface CatalogueEntry {
   version: string;
   versions: string[];
   builtIn: boolean;
+  /** apps, or public-access: a way in from the internet (L2-014 TUN-15). */
+  category: CatalogueCategory;
+  /** Where to make the account a way in needs. */
+  signup?: string;
   parameters: TemplateParameter[];
   members: TemplateMember[];
   outputs: string[];
 }
 
 export type MachineState = 'waiting' | 'online' | 'offline';
+export type MachineRole = 'worker' | 'edge';
+
+/** An edge machine is added with its public address, and its agent's port (default 7071) (EDG-02). */
+export interface EdgeMachineInput {
+  address: string;
+  agentPort?: number;
+}
 
 export interface MachineLink {
   machine: string;
@@ -588,6 +653,8 @@ export interface MachineSummary {
   name: string;
   title: string;
   main: boolean;
+  /** edge: a server with a public address that only relays visitors (L2-014 EDG-01). */
+  role: MachineRole;
   state: MachineState;
   since: string;
   labels: Record<string, string>;

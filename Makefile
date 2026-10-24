@@ -33,8 +33,9 @@ console:
 embed:
 	rm -rf internal/webui/dist && cp -R console/dist internal/webui/dist
 
-contracts: ## regenerate console/src/api/generated.ts from pkg/api
+contracts: ## regenerate console/src/api/generated.ts from pkg/api, and the gate's stylesheet from packages/ui
 	$(GO) run ./cmd/gencontracts
+	cat packages/ui/src/tokens.css packages/ui/src/gate.css > internal/gate/static/gate.css
 
 lint:
 	$(GO) vet ./... && $(GO) vet -tags docker ./internal/engine/docker/ && $(GO) vet -tags qemu ./internal/engine/qemu/ && $(GO) vet -tags e2e ./tests/e2e/ && $(GO) vet -tags "e2e machines" ./tests/e2e/
@@ -61,8 +62,8 @@ engine-qemu: ## QEMU hypervisor against real QEMU (skips without QEMU or acceler
 e2e: ## built binaries + Docker + OpenTofu
 	$(GO) test -tags e2e -count=1 -timeout 30m ./tests/e2e/...
 
-e2e-machines: ## two machines: the server in a container and a Docker-in-Docker agent (L5-001 §2f)
-	$(GO) test -tags "e2e machines" -count=1 -timeout 20m -run TestTwoMachines ./tests/e2e/
+e2e-machines: ## two machines: the server in a container and a Docker-in-Docker agent (L5-001 §2f); EDGE=1 joins an edge machine instead (§2h)
+	$(GO) test -tags "e2e machines" -count=1 -timeout 20m -run $(if $(EDGE),TestEdgeMachine,TestTwoMachines) ./tests/e2e/
 
 load: ## k6 load test against the fake engine (L5-003)
 	tests/load/run.sh

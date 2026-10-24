@@ -229,6 +229,8 @@ var StepNames = map[api.Kind][]string{
 	api.KindSecretStore: {"credentials", "connect"},
 	// v0.8 (L2-010).
 	api.KindStack: {"members"},
+	// Public access (L2-014).
+	api.KindTunnel: {"check", "connector", "address"},
 }
 
 // SecretRefs returns the secret names an app spec references, in key order.

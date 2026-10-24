@@ -167,7 +167,8 @@ resource "enclave_stack" "small" {
 			{
 				Config: config("1.0.0", "256"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.enclave_catalogue.all", "entries.#", "6"),
+					resource.TestCheckResourceAttr("data.enclave_catalogue.all", "entries.#", "12"), // 6 stacks, 6 ways in (L2-014)
+					resource.TestCheckTypeSetElemNestedAttrs("data.enclave_catalogue.all", "entries.*", map[string]string{"name": "quick-link", "category": api.CategoryPublicAccess}),
 					resource.TestCheckResourceAttr("enclave_stack.blog", "members.#", "4"),
 					resource.TestCheckResourceAttr("enclave_stack.blog", "outputs.url", "https://blog.localhost"),
 					resource.TestCheckResourceAttr("enclave_stack.blog", "template_version", "1.0.0"),

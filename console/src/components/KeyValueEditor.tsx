@@ -61,3 +61,40 @@ export function fromRows(rows: Row[]): Record<string, string> | undefined {
   for (const r of rows) if (r.key.trim()) out[r.key.trim()] = r.value;
   return Object.keys(out).length ? out : undefined;
 }
+
+/** A list of plain values, one row each: open paths, emails (L2.5-002 §21). */
+export function ListEditor({ idPrefix, label, rows, onChange, errors, errorField, addLabel, emptyHint, placeholder, max }: {
+  idPrefix: string;
+  label: string;
+  rows: string[];
+  onChange: (rows: string[]) => void;
+  errors: Record<string, string>;
+  /** The field a row's error is reported on, like spec.gate.openPaths[0]. */
+  errorField: (i: number) => string;
+  addLabel: string;
+  emptyHint: string;
+  placeholder?: string;
+  max?: number;
+}) {
+  return (
+    <Fieldset legend={label}>
+      {rows.length === 0 && <FieldHint>{emptyHint}</FieldHint>}
+      {rows.map((row, i) => {
+        const err = errors[errorField(i)];
+        return (
+          <KeyValueRow key={i}>
+            <Input aria-label={`${label} ${i + 1}`} id={`${idPrefix}-${i}`} mono placeholder={placeholder} value={row}
+              onChange={(e) => onChange(rows.map((r, j) => (j === i ? e.target.value : r)))} spellCheck={false} aria-invalid={Boolean(err)} />
+            <IconButton label={`Remove ${row || 'row ' + (i + 1)}`} icon={<Icons.X />} variant="ghost" onClick={() => onChange(rows.filter((_, j) => j !== i))} />
+            {err && <FieldError>{err}</FieldError>}
+          </KeyValueRow>
+        );
+      })}
+      {(max === undefined || rows.length < max) && (
+        <div>
+          <Button variant="ghost" size="sm" icon={<Icons.Plus />} onClick={() => onChange([...rows, ''])}>{addLabel}</Button>
+        </div>
+      )}
+    </Fieldset>
+  );
+}

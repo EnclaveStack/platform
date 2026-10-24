@@ -28,6 +28,7 @@ import (
 	"github.com/enclavestack/platform/internal/engine/docker"
 	"github.com/enclavestack/platform/internal/engine/fake"
 	"github.com/enclavestack/platform/internal/engine/qemu"
+	"github.com/enclavestack/platform/internal/gate"
 	"github.com/enclavestack/platform/internal/httpapi"
 	"github.com/enclavestack/platform/internal/machines"
 	"github.com/enclavestack/platform/internal/mail"
@@ -41,6 +42,7 @@ import (
 	"github.com/enclavestack/platform/internal/secretbox"
 	"github.com/enclavestack/platform/internal/service"
 	"github.com/enclavestack/platform/internal/store"
+	"github.com/enclavestack/platform/internal/tunnel/cloudflare"
 	"github.com/enclavestack/platform/internal/version"
 	"github.com/enclavestack/platform/internal/webui"
 	"github.com/enclavestack/platform/pkg/api"
@@ -85,6 +87,19 @@ type Config struct {
 	// before its apps start elsewhere; 0 = 60 s (ADR-046).
 	MeshEvery       time.Duration
 	RescheduleAfter time.Duration
+	// Public access (ADR-051 – ADR-053). GateListen is where the gate listens ("" = the address the engine's
+	// containers reach the machine at, port 7172; an ephemeral loopback port with the fake engine).
+	// CloudflareAPI points Cloudflare tunnels at another API (tests); "" = Cloudflare's, or an in-memory
+	// stand-in with the fake engine. The durations pace tunnels for tests; 0 = defaults.
+	GateListen        string
+	CloudflareAPI     string
+	TunnelCheck       time.Duration
+	TunnelConnectWait time.Duration
+	TunnelDrift       time.Duration
+	TunnelRestart     time.Duration
+	// ACMEDirectory and ACMERootFile point automatic certificates at another CA (e2e tests use Pebble).
+	ACMEDirectory string
+	ACMERootFile  string
 }
 
 // Running is a started control plane.
@@ -109,8 +124,16 @@ type Running struct {
 	Monitor *monitor.Monitor
 	// Machines knows every machine and checks their agents (ADR-042 – ADR-046).
 	Machines *machines.Manager
-	Store    *store.Store
-	Log      *slog.Logger
+	// Cloudflare is the in-memory Cloudflare used with the fake engine; GateURL and GateKey reach the gate
+	// listener as the edge does (tests).
+	Cloudflare *cloudflare.Fake
+	GateURL    string
+	GateKey    string
+	// Rec and GateService are the running reconciler and gate (tests drive a tunnel pass or move the clock).
+	Rec         *reconciler.Reconciler
+	GateService *service.Gate
+	Store       *store.Store
+	Log         *slog.Logger
 
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -186,8 +209,16 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	var memBroker *memorybroker.Broker
 	var mailClient mail.Client = mail.Mailpit{}
 	var memMail *memorymail.Client
+	var fakeCF *cloudflare.Fake
 	switch cfg.Driver {
 	case "fake":
+		if cfg.CloudflareAPI == "" { // nor Cloudflare (ADR-051)
+			fakeCF = cloudflare.NewFake("", "")
+			cfg.CloudflareAPI = fakeCF.URL()
+		}
+		if cfg.GateListen == "" {
+			cfg.GateListen = "127.0.0.1:0"
+		}
 		memBroker, memMail = memorybroker.New(), memorymail.New() // nor a broker or email services
 		openBroker, mailClient = memBroker.Open, memMail
 		localACME = &acme.Local{} // nor a certificate authority
@@ -210,7 +241,15 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		fakeHV = fake.NewHypervisor()
 		hv = fakeHV
 	case "docker":
-		d, err := docker.New(docker.Options{PublishAddress: cfg.PublishAddress, EdgeAddress: cfg.EdgeAddress, EdgeHTTPPort: cfg.EdgeHTTPPort, EdgeHTTPSPort: cfg.EdgeHTTPSPort, Log: log})
+		opts := docker.Options{PublishAddress: cfg.PublishAddress, EdgeAddress: cfg.EdgeAddress, EdgeHTTPPort: cfg.EdgeHTTPPort, EdgeHTTPSPort: cfg.EdgeHTTPSPort, Log: log,
+			ACMEDirectory: cfg.ACMEDirectory}
+		if cfg.ACMERootFile != "" {
+			if opts.ACMERootPEM, err = os.ReadFile(cfg.ACMERootFile); err != nil {
+				st.Close()
+				return nil, fmt.Errorf("read the ACME CA's root: %w", err)
+			}
+		}
+		d, err := docker.New(opts)
 		if err != nil {
 			st.Close()
 			return nil, err
@@ -284,6 +323,13 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		rec.DriftEvery = cfg.DriftEvery
 	}
 	rec.Broker, rec.HTTP = messaging.NewPool(openBroker, rec.BrokerEndpoint), &http.Client{}
+	rec.CloudflareAPI, rec.TunnelCheckEvery, rec.TunnelConnectWait, rec.TunnelDriftEvery = cfg.CloudflareAPI, cfg.TunnelCheck, cfg.TunnelConnectWait, cfg.TunnelDrift
+	rec.TunnelRestartAfter = cfg.TunnelRestart
+	edgeKey, err := gateEdgeKey(ctx, st, box)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
 	authSvc := &service.Auth{Store: st, Throttle: auth.NewThrottle(5, 15*time.Minute, time.Now), Now: time.Now, Log: log}
 	authSvc.ConsoleURL = func(context.Context) string { return cfg.ConsoleURL } // invite links (IAM-04)
 	resSvc := &service.Resources{Store: st, Box: box, Engine: router, Hypervisor: router, SnapshotDir: rec.SnapshotDir, Queue: rec, Now: time.Now, Log: log,
@@ -311,6 +357,21 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 
+	// The gate listens where the edge proxy's container reaches this machine, and nowhere else (ADR-053).
+	gateSvc := &service.Gate{Store: st, Throttle: auth.NewThrottle(10, 15*time.Minute, time.Now), Now: time.Now, Log: log.With("component", "gate"), Metrics: metrics}
+	gateHandler := &gate.Handler{Gate: gateSvc, EdgeKey: edgeKey, Log: log.With("component", "gate"), Metrics: metrics}
+	gateSrv := &http.Server{Handler: gateHandler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second,
+		IdleTimeout: 120 * time.Second, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
+	gateLn, err := listenGate(ctx, cfg.GateListen, drv)
+	if err != nil {
+		log.Warn("the gate isn't listening yet; public apps with a sign-in gate answer 502 until it does", "error", err)
+	}
+	gatePort := engine.GatePort
+	if gateLn != nil {
+		gatePort = gateLn.Addr().(*net.TCPAddr).Port
+	}
+	rec.Gate = engine.GateConfig{Upstream: net.JoinHostPort(engine.GateHost, fmt.Sprint(gatePort)), EdgeKey: edgeKey}
+
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	listenURL = "http://" + ln.Addr().String()
 	r := &Running{URL: listenURL, SetupCode: code, Fake: fk, FakeHypervisor: fakeHV, Backups: memBackups, Git: memGit, DNS: memDNS, ACME: localACME, Broker: memBroker, Mail: memMail, Store: st, Log: log, Machines: mgr, cancel: cancel, done: make(chan struct{})}
@@ -318,9 +379,30 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		Metrics: metrics, Now: time.Now, Log: log.With("component", "monitor"), DataDir: cfg.DataDir, Interval: cfg.MetricInterval, TelegramAPI: cfg.TelegramAPI,
 		ConsoleURL: serverURL}
 	r.Monitor = mon
+	r.Cloudflare, r.GateKey, r.Rec, r.GateService = fakeCF, edgeKey, rec, gateSvc
+	if gateLn != nil {
+		r.GateURL = "http://" + gateLn.Addr().String()
+	}
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(6)
+	go func() {
+		defer wg.Done()
+		if gateLn == nil {
+			gateLn = retryListenGate(runCtx, cfg.GateListen, drv, log)
+			if gateLn == nil {
+				return
+			}
+		}
+		log.Info("gate listening", "address", gateLn.Addr().String())
+		if err := gateSrv.Serve(gateLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("the gate stopped", "error", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		gateHandler.Sweep(runCtx, time.Hour)
+	}()
 	go func() {
 		defer wg.Done()
 		mgr.Run(runCtx)
@@ -364,6 +446,10 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 		if e := srv.Shutdown(shutCtx); e != nil && err == nil {
 			err = e
 		}
+		_ = gateSrv.Shutdown(shutCtx)
+		if fakeCF != nil {
+			fakeCF.Close()
+		}
 		wg.Wait()
 		_ = rec.Broker.Close()
 		if e := st.Close(); e != nil && err == nil {
@@ -391,3 +477,55 @@ func (r *Running) Done() <-chan struct{} { return r.done }
 
 // Err is the reason the server stopped (nil for a clean shutdown).
 func (r *Running) Err() error { return r.err }
+
+// gateEdgeKey returns the key the edge proxy shows the gate, made once and kept sealed (ADR-053).
+func gateEdgeKey(ctx context.Context, st *store.Store, box *secretbox.Box) (string, error) {
+	if sealed, err := st.GetSetting(ctx, store.SettingGateEdgeKey); err == nil {
+		key, err := box.Open([]byte(sealed), []byte(store.SettingGateEdgeKey))
+		if err == nil {
+			return string(key), nil
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	key := auth.NewSessionID()
+	sealed, err := box.Seal([]byte(key), []byte(store.SettingGateEdgeKey))
+	if err != nil {
+		return "", err
+	}
+	if err := st.SetSetting(ctx, store.SettingGateEdgeKey, string(sealed)); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// listenGate binds the gate: at addr when given, else at the address the engine's containers reach this
+// machine at, port engine.GatePort.
+func listenGate(ctx context.Context, addr string, drv engine.Driver) (net.Listener, error) {
+	if addr == "" {
+		host, err := drv.GateBindAddress(ctx)
+		if err != nil {
+			return nil, err
+		}
+		addr = net.JoinHostPort(host, fmt.Sprint(engine.GatePort))
+	}
+	return net.Listen("tcp", addr)
+}
+
+// retryListenGate keeps trying to bind the gate until it can or ctx ends (Docker may start after us).
+func retryListenGate(ctx context.Context, addr string, drv engine.Driver, log *slog.Logger) net.Listener {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			ln, err := listenGate(ctx, addr, drv)
+			if err == nil {
+				return ln
+			}
+			log.Debug("the gate can't listen yet", "error", err)
+		}
+	}
+}
