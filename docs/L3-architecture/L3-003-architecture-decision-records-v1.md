@@ -6,9 +6,9 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v18 |
+| Version | v19 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -854,6 +854,30 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
   - **Cloudflare Access.** `Protect` creates a self-hosted Access application for the hostname, with one allow policy for the listed emails and email domains, and keeps its ID in the domain's outputs. `Unprotect` deletes it.
 - **Consequences**: the control plane is in the path of every gated request, with one indexed lookup in the store. The edge caches nothing, so revocation is quick. If the control plane is down, gated hosts answer `503` rather than letting anyone in: the gate fails closed.
 
+## ADR-054 — Releases: our own Go release builder, keyless signatures, a Homebrew tap and an install script
+- **Status**: Accepted — 2026-10-25, issue #3, `L4-002` §3
+- **Context**: Until now EnclaveStack could only be built from source: Go, Node and pnpm on the user's computer, `git clone`, `make start`. `L4-002` §3 planned GoReleaser and a signing key "at public launch". The repository is public, `main` has received its first release PR, and issue #3 asks for an install without building. Four things are needed: archives for macOS and Linux on Intel and ARM, a way to check they weren't changed, a one-line install, and a Homebrew formula. A server image is also wanted for Linux servers.
+- **Decision**:
+  - **Our own builder: `cmd/release`, logic in `internal/release`.** `make release VERSION=vX.Y.Z` builds the console, then `enclave` (console embedded) and `terraform-provider-enclave` for `darwin` and `linux` on `amd64` and `arm64`. Builds use `CGO_ENABLED=0` (the SQLite driver is pure Go) and `-trimpath`, with `version.Version` set to `X.Y.Z`. The output in `build/release/` is:
+    - `enclave_X.Y.Z_<os>_<arch>.tar.gz`, holding `enclave`, `LICENSE`, `NOTICE` and `README.md`;
+    - the provider in the registry's layout: `terraform-provider-enclave_X.Y.Z_<os>_<arch>.zip` holding `terraform-provider-enclave_vX.Y.Z`, plus `terraform-provider-enclave_X.Y.Z_manifest.json` (protocol 6.0) and `terraform-provider-enclave_X.Y.Z_SHA256SUMS`;
+    - `SHA256SUMS` over every file above;
+    - `enclave.rb`, the Homebrew formula, with the URL and SHA-256 of each archive;
+    - `install.sh`, a copy of `scripts/install.sh`;
+    - `linux_<arch>/enclave`, unpacked, for the server image.
+
+    We chose this over GoReleaser for three reasons. Everything runs with the Go already needed to build, so `make release` works on any contributor's computer and in CI the same way. The naming, checksums and formula are unit-tested in `go test ./...`, so a mistake fails a pull request rather than a release. And GoReleaser's Homebrew support is changing (`brews` is deprecated in favour of casks), while a formula is a short template.
+  - **Keyless signatures.** `release.yml` signs `SHA256SUMS` with cosign through GitHub's OIDC token (Sigstore), which gives `SHA256SUMS.sigstore.json`. No private key exists, so none has to be stored or rotated. A signature proves the file came from `EnclaveStack/platform`'s `release.yml` on a `v*` tag. The command to check it is in `L4-002` §3.
+  - **Publishing on a tag.** `.github/workflows/release.yml` runs when a `vX.Y.Z` tag is pushed. Before building, it checks three things: the tag is semantic, its commit is on `main`, and `CHANGELOG.md` has a `## [X.Y.Z]` section, which becomes the release notes. It then builds, signs, and creates the GitHub release with every file. It pushes `ghcr.io/enclavestack/enclave:X.Y.Z` and `:latest` for both Linux architectures, built from the release's own binaries (`Dockerfile`). Last, if the `HOMEBREW_TAP_TOKEN` secret exists, it commits `enclave.rb` to `EnclaveStack/homebrew-tap` as `Formula/enclave.rb`; without the secret it warns and skips this step. Only the maintainer can create `v*` tags (`release-tags.json`).
+  - **The install script.** The source is `scripts/install.sh`, plain POSIX `sh`. It works out the OS and CPU and finds the latest release (or `ENCLAVE_VERSION`). It downloads the archive and `SHA256SUMS`, and refuses to install unless the archive's SHA-256 matches. If `cosign` is installed, it also checks the signature. It installs `enclave` into `/usr/local/bin` when that folder is writable, otherwise into `~/.local/bin`, or into `ENCLAVE_INSTALL_DIR`, and says when that folder isn't on `PATH`. `ENCLAVE_DOWNLOAD_BASE` points it at a mirror, which is also how the tests serve a fake release. The release attaches the script, and the website serves a copy at `https://enclavestack.soupler.com/install.sh`; `marketing` copies it from here after each release, because this repository is the source of truth.
+  - **Agent services survive upgrades.** `enclave agent join --install` writes the path of the running program into its systemd or launchd file. A Homebrew install runs from a versioned folder (`…/Cellar/enclave/X.Y.Z/bin/enclave`) that an upgrade deletes, so the agent writes Homebrew's stable `…/opt/enclave/bin/enclave` instead (`agent.StableExecutable`).
+- **Consequences**:
+  - A release is one tag. Nothing is built on a laptop and uploaded by hand.
+  - **Done once by hand (`L4-002` §3.1):** create the tap repository and its token secret, and make the GHCR package public after the first push.
+  - **Still open:** publishing the provider to the OpenTofu registry needs the mirror repository `EnclaveStack/terraform-provider-enclave` and a registry entry (ADR-009). Until then, `L5-004` explains how to install the provider from the release's zip. Other package managers (apt, `.deb`/`.rpm`, Scoop) are not built.
+  - The console has to be built before the binaries, so a release needs Node and pnpm as well as Go, as `make build` does.
+  - The server image runs the control plane beside the Docker it drives. The gate listens inside the container by default, so public access (ADR-053) needs the installed program; the image is for apps, data and the console.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -884,3 +908,4 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v16 | 2026-10-24 | Soupler | ADR-049: per-app bucket access, one object store user per app or job (L2-011) |
 | v17 | 2026-10-24 | Soupler | ADR-050: transcoder renditions, HLS ladders, tags and notifications (L2-012) |
 | v18 | 2026-10-24 | Soupler | ADR-051 – ADR-053 for public access: tunnel connectors and per-tunnel edge listeners, edge machines joined from the main machine with relays over the mesh, the gate (planned; L2-014) |
+| v19 | 2026-10-25 | Soupler | ADR-054: releases built by `cmd/release`, signed keyless with cosign, published on a `v*` tag with a Homebrew tap, an install script and a server image (issue #3) |

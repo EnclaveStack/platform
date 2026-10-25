@@ -6,7 +6,7 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v6 |
+| Version | v7 |
 | Created | 2026-10-23 |
 | Last Updated | 2026-10-25 |
 | Owner | Soupler |
@@ -33,13 +33,36 @@ There are **three ways to tell it what you want**, and all three talk to the sam
 | **The `enclave` command** | The same program, used from a terminal | Quick one-off changes, scripts, anything you would otherwise click twice |
 | **OpenTofu** | Text files that describe what you want; OpenTofu makes EnclaveStack match them | Setups you want to repeat, review in Git and change safely |
 
-There is no installer yet. You **build the program from its source code** once, then run it. "Build" here only means turning the source into the one program; it does not install anything system-wide.
+There are two ways to get the program. **Install it** (§1a): one command, and no build tools needed. Or **build it from its source code** (§2 – §4), which you want if you change EnclaveStack itself or want the newest unreleased work. Either way you get the same single program.
 
 What runs where:
 
 - **The server** (`enclave server`) is the program running. It serves the console and the API on port 7070, keeps its database and keys in a folder (`~/.enclave`), and talks to Docker to create and watch containers.
 - **Docker** (Docker Desktop on a Mac, Docker Engine on Linux) is what actually runs your databases and apps. EnclaveStack does not replace Docker; it drives it.
 - **Your containers** are named `es-<kind>-<name>` (for example `es-database-orders`). They keep running if you stop the server, and EnclaveStack picks them up again when you start it.
+
+## 1a · Install it without building
+
+You need a Mac or a 64-bit Linux computer, and Docker running for real work (§2.1). Pick one way:
+
+```bash
+brew install enclavestack/tap/enclave                       # with Homebrew, on a Mac or Linux
+curl -fsSL https://enclavestack.soupler.com/install.sh | sh   # without Homebrew
+```
+
+- **Homebrew** downloads the program for your computer and keeps it up to date with `brew upgrade`.
+- **The install script** works out whether you have a Mac or Linux, and an Intel or ARM processor. It downloads the latest release from GitHub and checks it against the release's checksums, and stops without installing anything if they don't match. If `cosign` is installed, it also checks the release's signature. It puts `enclave` in `/usr/local/bin`, or in `~/.local/bin` if it can't write there, and tells you if that folder needs adding to your `PATH`. Options go before `sh`: `curl -fsSL … | ENCLAVE_VERSION=v0.9.0 ENCLAVE_INSTALL_DIR=$HOME/bin sh`.
+- **On a Linux server with Docker**, you can run the server as a container instead: `docker run -d --name enclave -v /var/run/docker.sock:/var/run/docker.sock -v enclave-data:/data -p 7070:7070 ghcr.io/enclavestack/enclave server --listen 0.0.0.0:7070 --data-dir /data`. The one-time setup code is in `docker logs enclave`. In a container, the gate in front of public apps (§15) listens inside the container, where the edge proxy can't reach it, so for public access run the installed program instead.
+
+Check it worked with `enclave version`. Then start it, with Docker running:
+
+```bash
+enclave server
+```
+
+It prints the console's address (**http://127.0.0.1:7070**) and a one-time setup code; carry on at §5. `enclave server` is what `make start` runs (§4.2), so everything after §5 is the same. Your data is kept in `~/.enclave`. For the OpenTofu plug-in without building, see §8.9.
+
+If you install this way, skip §2.2 – §4: they are for building from source.
 
 ## 2 · Before you start
 
@@ -502,6 +525,18 @@ OpenTofu prints a warning that "provider development overrides are in effect". T
 
 Create a token with the `editor` role (`enclave token create --name ci --role editor --expires-in-days 90`), store it as a secret in your CI, and set `ENCLAVE_SERVER` and `ENCLAVE_TOKEN`. The server must be reachable from CI, which means it is behind your own TLS (§4.2, `--console-url`).
 
+### 8.9 The plug-in from a release (without building)
+
+If you installed `enclave` without building (§1a), get the OpenTofu plug-in from the same release until it is published on the OpenTofu registry. Pick the zip for your computer from the release page (`terraform-provider-enclave_X.Y.Z_<os>_<arch>.zip`) and put it where OpenTofu looks for plug-ins on this computer:
+
+```bash
+V=0.9.0; OS=darwin; ARCH=arm64      # your release, and linux / amd64 as they apply
+D=~/.terraform.d/plugins/registry.opentofu.org/enclavestack/enclave/$V/${OS}_$ARCH
+mkdir -p $D && unzip -o terraform-provider-enclave_${V}_${OS}_$ARCH.zip -d $D
+```
+
+Then, in your files, ask for that version (`source = "enclavestack/enclave"`, `version = "0.9.0"`) and run `tofu init`. OpenTofu takes the plug-in from that folder instead of the registry.
+
 ## 9 · Connecting your own code to what you created
 
 Everything you make has **two addresses**:
@@ -681,6 +716,10 @@ In the console these are **Renditions**, **HLS ladder** and **Notify when a file
 | Docker containers named `es-…` | Your resources | Delete them through EnclaveStack, not with `docker rm` |
 
 ### 10.3 Updating
+
+**If you installed it** (§1a): stop the server, then `brew upgrade enclave`, or run the install script again. Start it again with `enclave server`; the database upgrades itself on the first start. An agent installed as a service on another computer (`enclave agent join --install`) keeps working after `brew upgrade` there, because its service names Homebrew's stable path. To run the new version, restart it: `launchctl kickstart -k gui/$(id -u)/com.enclavestack.agent` on a Mac or `systemctl --user restart enclave-agent` on Linux.
+
+**If you built it from source:**
 
 ```bash
 git pull
@@ -1275,3 +1314,4 @@ Open the stack, choose **Edit parameters**, paste the new key and save (keys you
 | v4 | 2026-10-24 | Soupler | §9 files in a bucket (console, CLI, OpenTofu); §14 what each detail means (L2-013) |
 | v5 | 2026-10-24 | Soupler | §15 reach your apps from the internet: how a visit works, NAT and CGNAT, the tunnel, the ways in from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, your own server), why it's safe, a quick link, Tailscale private and public, ngrok and custom, stage beside prod on AWS with Cloudflare (moving DNS, token, commands), more environments as subdomain zones, DNS at GoDaddy or another provider, your own server with Route 53, troubleshooting; glossary words (L2-014) |
 | v6 | 2026-10-25 | Soupler | §16 use a service that runs elsewhere: connect Supabase, use it from an app, change a key (L2-015) |
+| v7 | 2026-10-25 | Soupler | §1a install without building (Homebrew, the install script, the server image); §8.9 the OpenTofu plug-in from a release; §10.3 updating an installed program (ADR-054) |

@@ -1,0 +1,133 @@
+name: Release
+
+# Builds, signs and publishes a release when the maintainer pushes a vX.Y.Z tag on main (ADR-054, L4-002 §3).
+# The only workflow that runs on a push: a tag is a release, never a change to review, and the commit it points
+# at reached main through PRs that already ran every check. Only the maintainer can create v* tags
+# (.github/governance/rulesets/release-tags.json).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the GitHub release
+      packages: write # push ghcr.io/enclavestack/enclave
+      id-token: write # keyless signing with cosign (Sigstore)
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag, main and the changelog
+        id: check
+        run: |
+          set -eu
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::a release tag looks like v1.2.3, not $TAG"; exit 1; }
+          version="${TAG#v}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$TAG isn't on main: tag a commit that main has received (L4-002 §3)"; exit 1; }
+          # The release notes are the version's CHANGELOG.md section, which the promotion PR added.
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || { echo "::error::CHANGELOG.md has no '## [$version]' section: move the Unreleased entries under it on develop and promote first"; exit 1; }
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build every file of the release
+        run: SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) make release VERSION="$TAG"
+
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign SHA256SUMS (keyless)
+        working-directory: build/release
+        run: |
+          cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.sigstore.json
+          cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+        run: |
+          set -eu
+          flags="--verify-tag --title $TAG --notes-file $RUNNER_TEMP/notes.md"
+          [ "$PRERELEASE" = true ] && flags="$flags --prerelease"
+          # Top-level files only: build/release/linux_*/ are the image's unpacked programs.
+          find build/release -maxdepth 1 -type f -print0 | xargs -0 gh release create "$TAG" $flags
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Image tags
+        id: image
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+        run: |
+          tags="ghcr.io/enclavestack/enclave:$VERSION"
+          [ "$PRERELEASE" = true ] || tags="$tags,ghcr.io/enclavestack/enclave:latest"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.check.outputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Update the Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.check.outputs.version }}
+          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+        run: |
+          set -eu
+          if [ "$PRERELEASE" = true ]; then echo "A pre-release: the tap keeps the last release."; exit 0; fi
+          if [ -z "$TAP_TOKEN" ]; then echo "::warning::HOMEBREW_TAP_TOKEN isn't set, so the tap wasn't updated (L4-002 §3.1)"; exit 0; fi
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/EnclaveStack/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Formula"
+          cp build/release/enclave.rb "$RUNNER_TEMP/tap/Formula/enclave.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/enclave.rb
+          git diff --cached --quiet && { echo "The formula is already current."; exit 0; }
+          git commit -m "enclave $VERSION"
+          git push origin HEAD

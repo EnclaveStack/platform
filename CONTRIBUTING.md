@@ -224,7 +224,7 @@ The rules are kept as code in [`.github/governance/rulesets/`](.github/governanc
 
 ## Releases
 
-Versions follow [SemVer](https://semver.org/): a new capability is a minor release, a fix-only release is a patch, and a breaking change to a public contract (the API, CLI flags or the provider schema) is a major one. The maintainer promotes `develop` to `main`, tags `main` with `vX.Y.Z`, and moves the `## [Unreleased]` entries in `CHANGELOG.md` under that version.
+Versions follow [SemVer](https://semver.org/): a new capability is a minor release, a fix-only release is a patch, and a breaking change to a public contract (the API, CLI flags or the provider schema) is a major one. The maintainer moves the `## [Unreleased]` entries in `CHANGELOG.md` under the new version on `develop`, promotes `develop` to `main`, and tags `main` with `vX.Y.Z`. The tag starts the **Release** workflow, which builds, signs and publishes the archives, the Homebrew formula, the install script and the server image ([`L4-002` §3](docs/L4-infrastructure/L4-002-ci-release-runbook-v1.md)).
 
 ## Licence of contributions
 

@@ -25,10 +25,10 @@ Registry of every artifact in layer **L5 — Operations & GTM** (test playbook, 
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v31 | Soupler | 2026-10-25 |
+| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v32 | Soupler | 2026-10-25 |
 | L5-002-test-strategy-v1 | Test Strategy | Draft | v20 | Soupler | 2026-10-24 |
 | L5-003-performance-baseline-v1 | Performance Baseline | Draft | v3 | Soupler | 2026-10-22 |
-| L5-004-user-guide-v1 | User Guide: install, run and use EnclaveStack | Draft | v6 | Soupler | 2026-10-25 |
+| L5-004-user-guide-v1 | User Guide: install, run and use EnclaveStack | Draft | v7 | Soupler | 2026-10-25 |
 
 ## Version history
 

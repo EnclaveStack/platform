@@ -423,7 +423,7 @@ func (a *app) installAgentService(id agent.Identity) error {
 	if err != nil {
 		return err
 	}
-	u, err := agent.Unit(runtime.GOOS, home, exe, id.Dir())
+	u, err := agent.Unit(runtime.GOOS, home, agent.StableExecutable(exe), id.Dir())
 	if err != nil {
 		return err
 	}

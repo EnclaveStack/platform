@@ -6,9 +6,9 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v8 |
+| Version | v9 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-23 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -26,8 +26,9 @@ How platform is built, tested and released in CI, and how to reproduce each CI j
 | `ci.yml` — **Console Checks** (governance template) | PR into `develop`/`main`; manual | Quality Checks (`pnpm -r lint`, `pnpm -r type-check`), Tests (`pnpm -r test`): the JavaScript workspace only. Go is `go.yml`'s, so the race-enabled Go suite runs once per PR, not twice |
 | `go.yml` — **Go and End-to-End Tests** | PR into `develop`/`main`; manual | **Go Quality** (vet incl. tagged suites, staticcheck, generated contract current), **Go Tests** (race, coverage), **Provider Acceptance** (OpenTofu), **Console E2E** (Playwright + Chrome; the server is compiled in its own step first); **Engine E2E** (Docker driver, the QEMU hypervisor with KVM, built-binary e2e including a VM), **Load Test** (k6, 30 s, 10 read + 2 write users, `L5-003` §2) |
 | `pr-governance.yml`, `secret-scan.yml`, `branch-policy.yml` | Governance template | Unchanged, except `secret-scan.yml` is PR-only too |
+| `release.yml` — **Release** | push of a `v*` tag | Build, sign and publish a release (§3, ADR-054) |
 
-Every workflow runs on pull requests only (plus **Run workflow** for a one-off), and every job above is a required check. There are no push or nightly runs: each commit reaches `develop` or `main` through a PR that already ran the full suite, so a push trigger only re-ran it on the same commit. `L5-002` §5 sets that the real-engine e2e and load test run on every PR.
+Every workflow except **Release** runs on pull requests only (plus **Run workflow** for a one-off), and every job of those PR workflows is a required check. There are no push or nightly runs: each commit reaches `develop` or `main` through a PR that already ran the full suite, so a push trigger only re-ran it on the same commit. `L5-002` §5 sets that the real-engine e2e and load test run on every PR.
 
 ## 2 · Reproduce locally
 
@@ -41,14 +42,52 @@ make engine-qemu                                       # needs QEMU 8+ with HVF 
 make load                                              # needs k6; DURATION=30s to shorten
 ```
 
-## 3 · Release (at public launch)
+## 3 · Release (ADR-054)
 
-1. Promote `develop` → `main` (`release:` PR).
-2. Tag `vX.Y.Z` on `main`. GoReleaser builds `enclave` and `terraform-provider-enclave` for darwin/linux × amd64/arm64, embeds the console, signs checksums, and publishes a GitHub release.
-3. The release job pushes the tag's sources to `EnclaveStack/terraform-provider-enclave` and publishes the provider release there for the OpenTofu and Terraform registries (ADR-009).
-4. `install.sh` downloads the matching `enclave` build and verifies its checksum.
+A release is a `vX.Y.Z` tag on `main`. `.github/workflows/release.yml` (**Release**) does the rest. It is the only workflow that runs on a push rather than a pull request.
 
-⚠️ GAP: GoReleaser config, signing key and mirror repository are created at public launch; until then releases are local builds (`make build`, version from `git describe` via `-ldflags`). Required-check names in the rulesets gain the `go.yml` jobs when the repository goes public.
+1. **Promote.** Merge the `develop` → `main` release PR. Before that, on `develop`, move the `## [Unreleased]` entries in `CHANGELOG.md` under `## [X.Y.Z] — YYYY-MM-DD`; the workflow refuses a tag whose version has no section.
+2. **Tag.** Only the maintainer can do this (`release-tags.json`):
+   ```bash
+   git fetch origin && git tag -a vX.Y.Z origin/main -m "vX.Y.Z" && git push origin vX.Y.Z
+   ```
+3. **The workflow** then:
+   - checks the tag is `vMAJOR.MINOR.PATCH`, its commit is on `main` and `CHANGELOG.md` has its section;
+   - runs `make release VERSION=vX.Y.Z`, which builds the console, then `enclave` and `terraform-provider-enclave` for darwin/linux × amd64/arm64 into `build/release/` (ADR-054 lists the files);
+   - signs `SHA256SUMS` keyless with cosign (`SHA256SUMS.sigstore.json`);
+   - creates the GitHub release, with that `CHANGELOG.md` section as its notes;
+   - pushes `ghcr.io/enclavestack/enclave:X.Y.Z` and `:latest` (linux/amd64, linux/arm64);
+   - commits `Formula/enclave.rb` to `EnclaveStack/homebrew-tap` (skipped, with a warning, without `HOMEBREW_TAP_TOKEN`).
+4. **Website.** In `marketing`, copy the new `install.sh` and switch any version shown (`marketing`'s own runbook).
+5. **Check it** (`L5-001` §2j): `brew install enclavestack/tap/enclave` and `curl -fsSL https://enclavestack.soupler.com/install.sh | sh` on a clean Mac and a clean Linux machine, then `enclave version`.
+
+To build the same files locally without publishing anything, run `make release VERSION=v0.0.0-test`. The output goes to `build/release/`.
+
+### 3.1 · Set up once, by hand
+
+| What | How | Why |
+|---|---|---|
+| The tap repository | Create the public `EnclaveStack/homebrew-tap` with a `Formula/` folder and a README | `brew install enclavestack/tap/enclave` reads it |
+| `HOMEBREW_TAP_TOKEN` | A fine-grained token with **Contents: read and write** on `EnclaveStack/homebrew-tap` only, saved as an Actions secret of `platform` | lets `release.yml` commit the formula; the default `GITHUB_TOKEN` can't write to another repository |
+| The image's visibility | After the first release: the org's **Packages › enclave › Package settings › Change visibility › Public** | GHCR packages start private |
+
+The workflow needs no other secret. Signing is keyless, `GITHUB_TOKEN` creates the release and pushes the image (`contents: write`, `packages: write`, `id-token: write`), and nothing has to be rotated.
+
+### 3.2 · Check a download by hand
+
+```bash
+sha256sum --ignore-missing -c SHA256SUMS                     # shasum -a 256 --ignore-missing -c SHA256SUMS on macOS
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/EnclaveStack/platform/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+### 3.3 · When a release goes wrong
+
+- **The workflow failed before the release was created:** fix the problem on `develop`, promote it, then tag the next patch version. Tags are never moved or reused.
+- **A published release is bad:** mark it a pre-release on GitHub, so `releases/latest` and the install script skip it, and publish a fixed patch release. Homebrew picks up the next formula commit.
+
+⚠️ GAP: the provider isn't on the OpenTofu registry yet. That needs the mirror repository `EnclaveStack/terraform-provider-enclave` and a registry entry (ADR-009). Until then, the release's provider zips install by hand (`L5-004` §8.9). apt, `.deb`/`.rpm` and Scoop aren't built. Required-check names in the rulesets gain the `go.yml` jobs when the repository's rulesets are next updated.
 
 ## 4 · VMs in CI (v0.5)
 
@@ -72,3 +111,4 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 | v6 | 2026-10-22 | Soupler | §5: what Machines E2E covers, as built |
 | v7 | 2026-10-22 | Soupler | Load Test runs at 10 + 2 virtual users (`L5-003` v3); Console E2E compiles the server before Playwright starts it |
 | v8 | 2026-10-23 | Soupler | `make engine-docker` runs with a 30 m timeout; the rolling-deploy failure message lists Docker's container states |
+| v9 | 2026-10-25 | Soupler | §3 rewritten as built (ADR-054): `release.yml` on a `v*` tag, `make release`, keyless signing, GHCR image, Homebrew tap; one-time set-up, checking a download, a bad release (issue #3) |
