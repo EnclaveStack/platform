@@ -6,7 +6,7 @@ BINDIR    ?=
 TOFU      ?= $(shell command -v tofu 2>/dev/null)
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 
-.PHONY: install tofu start demo build console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
+.PHONY: install tofu start demo build release console contracts embed lint test test-race integration provider-acceptance console-e2e engine-docker engine-qemu e2e e2e-machines linux-binary server-in-docker machine2 machine2-down load load-lb provider-dev clean
 
 install: build ## put `enclave` on your PATH so any terminal can run it (BINDIR=/some/folder to choose where)
 	@dir="$(BINDIR)"; \
@@ -26,6 +26,9 @@ demo: build ## one command to a running server with sample data (fake engine; DR
 build: console embed ## console + both binaries in ./build (console embedded)
 	$(GO) build -tags embedconsole -ldflags '$(LDFLAGS)' -o build/enclave ./cmd/enclave
 	$(GO) build -ldflags '$(LDFLAGS)' -o build/terraform-provider-enclave ./cmd/terraform-provider-enclave
+
+release: console embed ## every file of a release in ./build/release, for all four platforms (L4-002 §3); VERSION=vX.Y.Z
+	$(GO) run ./cmd/release --version $(VERSION) --out build/release
 
 console:
 	pnpm --filter @enclavestack/console build

@@ -1,0 +1,3 @@
+# The server image copies only the release's Linux programs (Dockerfile, ADR-054).
+*
+!build/release/linux_*/enclave

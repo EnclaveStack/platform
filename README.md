@@ -42,9 +42,23 @@ It is one program. Install it and open the console. Everything after that is a c
 
 ## Quick start
 
-EnclaveStack is one program. You download the source, build the program once, and run it. It then serves a web console on your computer (port 7070) and creates your databases, apps and buckets as containers on the Docker that is already installed there. Everything runs on your machine.
+EnclaveStack is one program. Once running, it serves a web console on your computer (port 7070) and creates your databases, apps and buckets as containers on the Docker that is already installed there. Everything runs on your machine.
 
-There is no installer yet, so you build it from the source code. Pick what you want to do:
+### Install it
+
+On a Mac or a 64-bit Linux computer, with Docker running:
+
+```bash
+brew install enclavestack/tap/enclave                         # with Homebrew
+curl -fsSL https://enclavestack.soupler.com/install.sh | sh     # or without it: checks the download before installing
+enclave server                                                # then open http://127.0.0.1:7070 and enter the setup code it prints
+```
+
+That's all you need: no Go, Node or source code. The install script checks the release's checksums, and its signature too when `cosign` is installed. On a Linux server you can run it as a container instead: `docker run -d -v /var/run/docker.sock:/var/run/docker.sock -v enclave-data:/data -p 7070:7070 ghcr.io/enclavestack/enclave`. Every option, the OpenTofu plug-in and updating are covered in the [user guide, §1a](docs/L5-operations/L5-004-user-guide-v1.md#1a--install-it-without-building).
+
+### Or build it from source
+
+Build it yourself to change EnclaveStack, or to get work that isn't released yet. Pick what you want to do:
 
 | I want to… | Use | You need |
 |---|---|---|
@@ -53,7 +67,7 @@ There is no installer yet, so you build it from the source code. Pick what you w
 
 Go 1.26+, Node 22.12+ and pnpm 9 are needed by both. Only VMs need **QEMU** (`brew install qemu`, or `qemu-system` and `qemu-utils` on Linux); skip it until you want one.
 
-### Option 1: try it with sample data
+#### Option 1: try it with sample data
 
 ```bash
 git clone https://github.com/EnclaveStack/platform.git enclavestack && cd enclavestack
@@ -63,7 +77,7 @@ make demo        # builds the program, starts it with sample data (script: examp
 
 When it says *EnclaveStack is running*, open **http://127.0.0.1:7070** and sign in as `admin@enclave.local` with the password `enclave-demo`. It starts with sample apps, databases, a cache, a bucket, a job, a WordPress site and a second project, all on a simulated engine, so no Docker is needed. Press Ctrl-C to stop it and remove everything.
 
-### Option 2: run it for real
+#### Option 2: run it for real
 
 **1. Get the code.** Once:
 
@@ -338,7 +352,7 @@ Yes. `enclave server --driver fake` simulates the engine. For the console alone,
 <details>
 <summary><strong>Is it production-ready?</strong></summary>
 
-Not yet: it is pre-release. Each release is built and tested, but there is no published version or upgrade promise yet.
+Not yet: it is pre-release. Releases are published and every one is built and tested, but until 1.0 there is no upgrade promise: a 0.x release may change the API, the CLI or the provider.
 </details>
 
 ## Documentation

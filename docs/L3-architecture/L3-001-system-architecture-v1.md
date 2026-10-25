@@ -6,9 +6,9 @@
 | Document ID | L3-001-system-architecture-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v18 |
+| Version | v19 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-25 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -45,6 +45,7 @@ EnclaveStack is **one Go binary** (`enclave`) that is both the control plane (`e
 | Go client SDK | `pkg/client` | HTTP client with auth, retries, idempotency keys, typed errors | The API | Server internals |
 | CLI | `internal/cli`, `cmd/enclave` | Commands, config file, output formats, exit codes (`L2-002`) | `pkg/client`; `internal/server` only for `enclave server` | Store, engine |
 | OpenTofu provider | `internal/provider`, `cmd/terraform-provider-enclave` | Resource schemas, plan modifiers, waits (`L2-003`) | `pkg/client` | Store, engine |
+| Release builder | `internal/release`, `cmd/release`, `scripts/install.sh`, `Dockerfile`, `.github/workflows/release.yml` | The files of a release: archives, provider zips, checksums, the Homebrew formula, the install script and the server image (ADR-054, `L4-002` §3) | The Go toolchain; GitHub, GHCR and the tap only from `release.yml` | The store, the engine, the API |
 | Console | `console/` | Operator UI (`L2-001`): behaviour and copy only | The API through `EnclaveApi` (ADR-002); `@enclavestack/ui` for every visual | Everything else; its own stylesheets, inline styles or class names (ADR-014) |
 | Design system | `packages/ui` (`@enclavestack/ui`) | Tokens (light/dark), typography, components and application layout (`L2.5-001`, `L2.5-002` §9) | React, lucide icons, Fontsource fonts | The API, routing, product copy |
 | Edge proxy *(v0.3: shipped)* | `es-system-edge` container (Caddy); rendered by `internal/engine/docker/edge.go` | Routes for domains, TLS, certificates (ADR-015) | Configured only by the reconciler via engine copy + exec | The store |
@@ -147,3 +148,4 @@ ADR-001 and ADR-002 are recorded here; ADR-003 onward are in `L3-003`, with thei
 | v16 | 2026-10-22 | Soupler | v0.7 components (planned): monitor (sampler, alerts, notifier, log shipper), secret stores and the shared SigV4 signer, authorization (ADR-035 – ADR-041) |
 | v17 | 2026-10-22 | Soupler | v0.8 components (planned): agent, engine router, machines, mesh, catalogue; runtime flow 8 (ADR-042 – ADR-048) |
 | v18 | 2026-10-24 | Soupler | §2: tunnels, relays and the gate components (L2-014, ADR-051 – ADR-053) |
+| v19 | 2026-10-25 | Soupler | §2: the release builder and install script (ADR-054) |
