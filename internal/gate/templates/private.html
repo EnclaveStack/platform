@@ -1,0 +1,8 @@
+{{template "head" .}}
+<h1 class="es-gate-title">This environment is private.</h1>
+<p class="es-gate-lede">You signed in as {{.Email}}, but you have no access to <span class="es-gate-host">{{.Host}}</span>. Ask an owner of its project in EnclaveStack to add you.</p>
+<form class="es-gate-form" method="get" action="/.enclave/gate/signin">
+<input type="hidden" name="next" value="{{.Next}}">
+<button class="es-gate-button es-gate-button-quiet" type="submit">Sign in as someone else</button>
+</form>
+{{template "foot" .}}

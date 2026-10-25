@@ -1,0 +1,11 @@
+name: own-server
+title: Your own server
+category: public-access
+description: "Your own domain through a small server you rent (about $4–6 a month) and join as an edge machine. No third party sees your traffic: it passes encrypted bytes and never holds a key. Add the edge machine first, then public domains through this."
+version: 1.0.0
+parameters:
+  - { name: machine, title: Edge machine, description: "The edge machine the relay runs on (Machines › Add an edge machine).", type: string, required: true }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: relay, machine: "${param:machine}" }

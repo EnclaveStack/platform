@@ -1,0 +1,20 @@
+name: supabase
+title: Supabase
+category: connections
+signup: https://supabase.com/dashboard/sign-up
+description: "Your hosted Supabase project's address and keys, kept as secrets for your apps to use. It runs nothing here: your apps reach Supabase over the internet."
+version: 1.0.0
+parameters:
+  - { name: project, title: Project address, description: "Your project's address without https://, like abcd.supabase.co: the Project URL in your project's settings.", type: hostname, required: true }
+  - { name: anonKey, title: anon key, description: "The anon key, or the newer publishable key (sb_publishable_…), under Project Settings › API Keys. Safe to use in browsers.", type: secret, required: true }
+  - { name: serviceKey, title: service_role key, description: "The service_role key, or the newer secret key (sb_secret_…), under Project Settings › API Keys. For servers only: it bypasses row-level security.", type: secret }
+  - { name: dbUrl, title: Database connection string, description: "For apps that use Postgres directly: the pooler's connection string with your password in it, under Connect. The direct one needs IPv6.", type: secret }
+resources:
+  - kind: secret
+    name: url
+    value: "https://${param:project}"
+outputs:
+  SUPABASE_URL: "${name:url}"
+  SUPABASE_ANON_KEY: "${param:anonKey}"
+  SUPABASE_SERVICE_ROLE_KEY: "${param:serviceKey}"
+  DATABASE_URL: "${param:dbUrl}"

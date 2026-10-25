@@ -1,0 +1,14 @@
+name: tailscale
+title: Tailscale
+category: public-access
+signup: https://login.tailscale.com/start
+description: "A stable name.ts.net address for one app, free. Private: only devices in your tailnet open it. Public: anyone can, with Funnel, behind EnclaveStack's gate. Needs a free Tailscale account with MagicDNS and HTTPS certificates on."
+version: 1.0.0
+parameters:
+  - { name: app, title: App, description: "The app to make public.", type: string, required: true }
+  - { name: authKey, title: Auth key, description: "A reusable auth key from the Tailscale admin console (Settings › Keys).", type: secret, required: true }
+  - { name: mode, title: Who can open it, description: "private (your tailnet's devices) or public (anyone, with Funnel).", type: string, default: private }
+resources:
+  - kind: tunnel
+    name: ""
+    spec: { provider: tailscale, app: "${param:app}", credentialsSecret: "${stack}-authkey", mode: "${param:mode}" }

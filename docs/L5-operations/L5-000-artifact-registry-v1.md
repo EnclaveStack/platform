@@ -9,10 +9,10 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -25,10 +25,13 @@ Registry of every artifact in layer **L5 — Operations & GTM** (test playbook, 
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v1 | Soupler Labs | 2026-10-20 |
+| L5-001-feature-test-playbook-v1 | Feature Test Playbook | Draft | v31 | Soupler | 2026-10-25 |
+| L5-002-test-strategy-v1 | Test Strategy | Draft | v20 | Soupler | 2026-10-24 |
+| L5-003-performance-baseline-v1 | Performance Baseline | Draft | v3 | Soupler | 2026-10-22 |
+| L5-004-user-guide-v1 | User Guide: install, run and use EnclaveStack | Draft | v6 | Soupler | 2026-10-25 |
 
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Registry created by soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Registry created by soupler-governance-template v1.2.1 |

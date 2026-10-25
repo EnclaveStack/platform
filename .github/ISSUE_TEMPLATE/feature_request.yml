@@ -1,23 +1,50 @@
 name: Feature request
-description: New capability or behaviour change
-labels: [feature]
+description: A new capability, or a change to how something works
+title: "Feature: "
+labels: [enhancement, needs-triage]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not the solution: the best features come from understanding who needs what and why.
+        Early idea you'd like to talk through first? Use [Discussions → Ideas](https://github.com/EnclaveStack/platform/discussions/categories/ideas).
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: "Who needs this and why (this becomes the L2 requirement)" }
+    attributes:
+      label: The problem
+      description: Who has it, what they're trying to do, and what stops them today.
+      placeholder: When I run a small team's apps, I can't tell who changed an app's settings last…
     validations: { required: true }
   - type: textarea
     id: proposal
-    attributes: { label: Proposal }
+    attributes:
+      label: What you'd like to happen
+      description: How it would work from the user's side. Screens, commands or OpenTofu blocks help.
+    validations: { required: true }
+  - type: dropdown
+    id: surfaces
+    attributes:
+      label: Which surfaces need it?
+      description: A capability isn't done until the console, the CLI and OpenTofu can all use it.
+      multiple: true
+      options: [Web console, CLI (enclave), OpenTofu provider, HTTP API, Not sure]
+    validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria }
-    validations: { required: true }
-  - type: checkboxes
-    id: doc-chain
     attributes:
-      label: Doc chain (doc-first — code starts after these exist)
-      options:
-        - label: L2 PRD or feature brief
-        - label: L3 spec (API / data model / architecture) if the system boundary changes
-        - label: L5 test-playbook section
+      label: How we'd know it's done
+      description: The things that must be true when it ships.
+      placeholder: |
+        - The app page shows who changed it last and when
+        - `enclave app get api` prints the same
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: Other ways to solve it, and what you do today instead.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to build it?
+      options: ["Yes, with some guidance", "Maybe, if it's small", "No, I'm suggesting it"]
+    validations: { required: true }

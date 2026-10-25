@@ -1,0 +1,1857 @@
+openapi: 3.1.0
+info:
+  title: EnclaveStack control-plane API
+  version: v1
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: |
+    The one API behind the EnclaveStack console, the `enclave` CLI and the OpenTofu provider (ADR-003).
+    Human-readable contract: docs/L3-architecture/L3-002. Code form: pkg/api. A test keeps the paths
+    here identical to the server's routes.
+servers:
+  - url: http://127.0.0.1:7070
+security:
+  - bearer: []
+  - session: []
+tags:
+  - { name: auth, description: First-run setup and browser sessions }
+  - { name: tokens, description: 'Personal API tokens for the CLI, CI and OpenTofu' }
+  - { name: people, description: 'Projects, people, roles, invites and the audit list (L3-002 §10.3)' }
+  - { name: resources, description: 'Apps, databases, caches, buckets and secrets' }
+  - { name: data, description: 'Messages of queues and topics, and emails of email services (L3-002 §9.3)' }
+  - { name: machine, description: The host and its container engine }
+  - { name: ops, description: 'Health, readiness and metrics' }
+
+paths:
+  /api/v1/setup:
+    get:
+      operationId: getSetup
+      tags: [auth]
+      summary: Whether first-run setup is still required
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SetupStatus' } } } }
+        '429': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: completeSetup
+      tags: [auth]
+      summary: Complete first-run setup with the code printed by `enclave server`
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SetupRequest' } } } }
+      responses:
+        '201': { description: Admin created and signed in (sets es_session), content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/session:
+    post:
+      operationId: signIn
+      tags: [auth]
+      summary: Sign in (sets es_session); 5 failures per email and IP per 15 minutes are throttled
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SignInRequest' } } } }
+      responses:
+        '200': { description: Signed in, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: The current principal
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: signOut
+      tags: [auth]
+      summary: Sign out
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Signed out }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/session/password:
+    put:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change your own password (sessions only); ends your other sessions
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ChangePassword' } } } }
+      responses:
+        '204': { description: Changed }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/invite:
+    get:
+      operationId: getInvite
+      tags: [auth]
+      summary: Who an invite or reset link is for
+      security: []
+      parameters: [{ name: code, in: query, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/InviteInfo' } } } }
+        '410': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: acceptInvite
+      tags: [auth]
+      summary: Set your password from an invite or reset link and sign in (sets es_session)
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInvite' } } } }
+      responses:
+        '200': { description: Signed in, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '410': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/projects:
+    get:
+      operationId: listProjects
+      tags: [people]
+      summary: The projects you can see
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Project' } } } } } } }
+    post:
+      operationId: createProject
+      tags: [people]
+      summary: Create a project (machine admins)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateProject' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/projects/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getProject
+      tags: [people]
+      summary: One project
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateProject
+      tags: [people]
+      summary: Change a project's description (its admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [description], additionalProperties: false, properties: { description: { type: string, maxLength: 280 } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Project' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteProject
+      tags: [people]
+      summary: Delete an empty project (machine admins); PROJECT_NOT_EMPTY lists what's left
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      tags: [people]
+      summary: People with access (machine admins; project admins see their projects')
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/UserSummary' } } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: inviteUser
+      tags: [people]
+      summary: Invite a person with roles; the link is returned once
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/InviteUser' } } } }
+      responses:
+        '201': { description: Invited, content: { application/json: { schema: { $ref: '#/components/schemas/Invitation' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/users/{userId}:
+    parameters: [{ name: userId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getUser
+      tags: [people]
+      summary: One person
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UserSummary' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateUser
+      tags: [people]
+      summary: Change a person's roles; null removes one
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateUser' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UserSummary' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteUser
+      tags: [people]
+      summary: Remove a person; their sessions and tokens end (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/users/{userId}/reset:
+    post:
+      operationId: resetUser
+      tags: [people]
+      summary: A new invite or password-reset link (machine admins)
+      parameters: [{ name: userId, in: path, required: true, schema: { type: string } }, { $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Invitation' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/audit:
+    get:
+      operationId: listAudit
+      tags: [people]
+      summary: The audit list, newest first (machine admins)
+      parameters: [{ name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }, { name: cursor, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AuditList' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/v1/tokens:
+    get:
+      operationId: listTokens
+      tags: [tokens]
+      summary: List your API tokens (a session or an editor token); all=true lists everyone's (machine admins)
+      parameters: [{ name: all, in: query, schema: { type: boolean } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Token' } } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createToken
+      tags: [tokens]
+      summary: Create a token; the secret is returned once
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateTokenRequest' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/CreatedToken' } } } }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/tokens/{tokenId}:
+    delete:
+      operationId: revokeToken
+      tags: [tokens]
+      summary: Revoke a token (yours; machine admins any)
+      parameters: [{ name: tokenId, in: path, required: true, schema: { type: string } }, { $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/machines:
+    get:
+      operationId: listMachines
+      tags: [machines]
+      summary: Every machine of this EnclaveStack, the main machine first (L3-002 §11.2)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/MachineSummary' } } } } } } }
+    post:
+      operationId: addMachine
+      tags: [machines]
+      summary: Add a machine (machine admins); returns a one-time join code and the command to run on it
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AddMachine' } } } }
+      responses:
+        '201': { description: Added, waiting for its agent, content: { application/json: { schema: { $ref: '#/components/schemas/AddedMachine' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/join:
+    post:
+      operationId: joinMachine
+      tags: [machines]
+      summary: Join with a one-time code (called by `enclave agent join`); throttled like sign-in
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JoinRequest' } } } }
+      responses:
+        '200': { description: Joined, content: { application/json: { schema: { $ref: '#/components/schemas/JoinResponse' } } } }
+        '410': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getMachineByName
+      tags: [machines]
+      summary: One machine
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MachineSummary' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateMachineByName
+      tags: [machines]
+      summary: Change a machine's labels, or whether it takes new resources (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMachine' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MachineSummary' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeMachine
+      tags: [machines]
+      summary: Remove a machine with nothing on it; force removes an offline one, failing what ran there (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }, { name: force, in: query, schema: { type: boolean } }]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/join-code:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: newJoinCode
+      tags: [machines]
+      summary: A new join code for a machine still waiting for its agent (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AddedMachine' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/drain:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post:
+      operationId: drainMachine
+      tags: [machines]
+      summary: Mark a machine not schedulable and move everything on it that isn't pinned there (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '202': { description: Moving, content: { application/json: { schema: { type: object, required: [moving, pinned], properties: { moving: { type: array, items: { type: string } }, pinned: { type: array, items: { type: string } } } } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/events:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: machineEvents
+      tags: [machines]
+      summary: A machine's events, newest first
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Event' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue:
+    get:
+      operationId: listCatalogue
+      tags: [catalogue]
+      summary: The catalogue's entries, built-ins first (L3-002 §11.5)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/CatalogueEntry' } } } } } } }
+    post:
+      operationId: addTemplate
+      tags: [catalogue]
+      summary: Add one of the machine's own templates, or a newer version of one (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], additionalProperties: false, properties: { body: { type: string, maxLength: 65536 } } } } } }
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogueEntry' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getCatalogueEntry
+      tags: [catalogue]
+      summary: One entry, at its newest version or ?version=
+      parameters: [{ name: version, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogueEntry' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeTemplate
+      tags: [catalogue]
+      summary: Remove one of the machine's own templates, refused while stacks use it (machine admins)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/catalogue/{name}/template:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getTemplateSource
+      tags: [catalogue]
+      summary: An entry's template as written
+      parameters: [{ name: version, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: The template, content: { text/yaml: { schema: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/machine:
+    get:
+      operationId: getMachine
+      tags: [machine]
+      summary: The host, version and engine status
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Machine' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateMachine
+      tags: [machine]
+      summary: Set the public address shown in DNS instructions and the ACME account email (null or empty clears)
+      description: Needs a session or a write token. Ready and failed domains are re-checked with the new values.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MachineSettings' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Machine' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/machine/ca:
+    get:
+      operationId: getRootCA
+      tags: [machine]
+      summary: The internal certificate authority's root certificate, to trust internal-TLS domains
+      responses:
+        '200': { description: PEM certificate, content: { application/x-pem-file: { schema: { type: string } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources:
+    get:
+      operationId: listResources
+      tags: [resources]
+      summary: List the resources you can see, oldest first
+      parameters:
+        - { name: project, in: query, description: One project; without it, every project you can see, schema: { type: string } }
+        - { name: kind, in: query, schema: { $ref: '#/components/schemas/Kind' } }
+        - { name: name, in: query, schema: { type: string } }
+        - { name: machine, in: query, description: What runs on this machine (v0.8), schema: { type: string } }
+        - { name: stack, in: query, description: The members of this stack of the project (v0.8), schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceList' } } } }
+        '422': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createResource
+      tags: [resources]
+      summary: Create a resource; provisioning continues asynchronously
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateResourceRequest' } } } }
+      responses:
+        '202': { description: Accepted, headers: { ETag: { $ref: '#/components/headers/ETag' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceID' }]
+    get:
+      operationId: getResource
+      tags: [resources]
+      summary: Get a resource
+      responses:
+        '200': { description: OK, headers: { ETag: { $ref: '#/components/headers/ETag' } }, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: updateResource
+      tags: [resources]
+      summary: Change a resource's spec (present fields replace; null clears)
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [spec], properties: { spec: { type: object } }, additionalProperties: false } } } }
+      responses:
+        '200': { description: Nothing changed, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '202': { description: Accepted, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '412': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteResource
+      tags: [resources]
+      summary: Delete a resource and its data
+      parameters: [{ $ref: '#/components/parameters/IfMatch' }, { $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '202': { description: Deleting, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '412': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/actions/{action}:
+    post:
+      operationId: runAction
+      tags: [resources]
+      summary: Restart (app, database, cache, vm, search, email, cdn), redeploy (app), reconcile (any), run (job, backup, transcoder), restore (backup), start or stop (vm), purge (queue, cdn)
+      description: |
+        run returns the new Run; the other actions return a Resource. run while a run is going under overlap forbid
+        (always for backups) → 409 RUN_IN_PROGRESS. restore takes a RestoreRequest body and returns the database or
+        cache being restored into (a new one for mode new, the source for mode replace); a run that didn't succeed
+        → 409 RUN_NOT_RESTORABLE. start and stop set a VM's power (L2-007 VM-06). purge empties a queue or a CDN's cache
+        (L2-008 QUE-07, CDN-05). run on a transcoder takes a TranscodeRequest body naming the file. test (alerts, channels,
+        secret stores) answers 200 with a TestResult once the outcome is known (L2-009 ALR-06, NCH-05, EXT-07); refresh reads a
+        synced secret from its store again (EXT-03). The other actions take no body.
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [restart, redeploy, reconcile, run, restore, start, stop, purge, test, refresh] } }
+        - { $ref: '#/components/parameters/CSRF' }
+      requestBody: { required: false, content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/RestoreRequest' }, { $ref: '#/components/schemas/TranscodeRequest' }] } } } }
+      responses:
+        '200': { description: The test's outcome, content: { application/json: { schema: { $ref: '#/components/schemas/TestResult' } } } }
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/Resource' }
+                  - { $ref: '#/components/schemas/Run' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/events:
+    get:
+      operationId: listEvents
+      tags: [resources]
+      summary: Event history, newest first
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Event' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/logs:
+    get:
+      operationId: getLogs
+      tags: [resources]
+      summary: Last lines of container output, oldest first — or, with build=true, of a source app's latest build log
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: tail, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 200 } }, { name: build, in: query, schema: { type: boolean, default: false } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/LogLine' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/value:
+    get:
+      operationId: revealSecret
+      tags: [resources]
+      summary: Reveal a secret's value (session or write token; audited)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [value], properties: { value: { type: string } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/runs:
+    get:
+      operationId: listRuns
+      tags: [resources]
+      summary: A job's runs, newest first (without output)
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Run' } }
+                  nextCursor: { type: [string, 'null'] }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/runs/{runId}:
+    get:
+      operationId: getRun
+      tags: [resources]
+      summary: One run with its output tail (session or write token — output may contain secrets)
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { name: runId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Run' }
+                  - { type: object, required: [outputTail], properties: { outputTail: { type: string, description: "The last 64 KiB of output, as printed" } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/objects:
+    get:
+      operationId: listObjects
+      tags: [data]
+      summary: One folder of a bucket, one page at a time (L2-013 OBJ-01; session or write token)
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { name: prefix, in: query, schema: { type: string }, description: 'a folder: "" or ending in /' }
+        - { name: cursor, in: query, schema: { type: string }, description: the nextCursor of the page before }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 1000 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ObjectList' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/objects/{key}:
+    parameters:
+      - { $ref: '#/components/parameters/ResourceID' }
+      - { name: key, in: path, required: true, schema: { type: string }, description: "the object's key; its / are kept, each part is escaped" }
+    put:
+      operationId: putObject
+      tags: [data]
+      summary: Upload an object, up to 5 GiB, with tags as X-Enclave-Tag-<name> headers (OBJ-02)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+      responses:
+        '201': { description: Uploaded, content: { application/json: { schema: { $ref: '#/components/schemas/ObjectInfo' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: getObject
+      tags: [data]
+      summary: Download an object as an attachment; tags come back as X-Enclave-Tag-<name> headers (OBJ-03)
+      responses:
+        '200': { description: The bytes, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteObject
+      tags: [data]
+      summary: Delete an object; a missing one is already gone (OBJ-03)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/messages:
+    post:
+      operationId: sendMessage
+      tags: [data]
+      summary: Send a message to a queue, or publish one to a topic (L2-008 QUE-05, TOP-06)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SendMessage' } } } }
+      responses:
+        '201': { description: Sent, content: { application/json: { schema: { $ref: '#/components/schemas/SentMessage' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: listMessages
+      tags: [data]
+      summary: A queue's live stats and its oldest messages, without receiving them (session or write token)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MessageList' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/messages/receive:
+    post:
+      operationId: receiveMessages
+      tags: [data]
+      summary: Receive up to 10 messages, long-polling up to 20 s; each stays hidden for the visibility timeout (QUE-02)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: false, content: { application/json: { schema: { $ref: '#/components/schemas/ReceiveMessages' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/ReceivedMessage' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/messages/delete:
+    post:
+      operationId: deleteMessages
+      tags: [data]
+      summary: Delete received messages by receipt; receipts that delete nothing are listed in failed
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [receipts], additionalProperties: false, properties: { receipts: { type: array, minItems: 1, maxItems: 10, items: { type: string } } } } } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, failed]
+                properties:
+                  deleted: { type: integer }
+                  failed: { type: array, items: { type: object, required: [receipt, message], properties: { receipt: { type: string }, message: { type: string } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/deliveries:
+    get:
+      operationId: listDeliveries
+      tags: [data]
+      summary: A topic's messages published and each subscription's delivered, pending and failed counts (TOP-07)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [published, items]
+                properties:
+                  published: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [target, delivered, pending, failed, lastError]
+                      properties: { target: { type: string }, delivered: { type: integer }, pending: { type: integer }, failed: { type: integer }, lastError: { type: string } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/emails:
+    post:
+      operationId: sendEmail
+      tags: [data]
+      summary: Send a message through an email service (EML-04, EML-05)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SendEmail' } } } }
+      responses:
+        '201': { description: Sent, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: listEmails
+      tags: [data]
+      summary: An email service's kept messages, newest first (session or write token)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/EmailSummary' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/emails/{emailId}:
+    get:
+      operationId: getEmail
+      tags: [data]
+      summary: One kept message with its bodies and headers (session or write token)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: emailId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Email' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/machine/metrics:
+    get:
+      operationId: machineMetrics
+      tags: [machine]
+      summary: The machine's metrics (L3-002 §10.4)
+      parameters: [{ $ref: '#/components/parameters/Metric' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricData' } } } }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/machines/{name}/metrics:
+    get:
+      operationId: machineMetricsOf
+      tags: [machines]
+      summary: One machine's metrics; disk metrics are the main machine's only (L3-002 §11.2)
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { $ref: '#/components/parameters/Metric' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricData' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/metrics:
+    get:
+      operationId: resourceMetrics
+      tags: [resources]
+      summary: A resource's metrics; without metric, its kind's whole catalogue (viewer)
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { $ref: '#/components/parameters/Metric' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricData' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/incidents:
+    get:
+      operationId: listIncidents
+      tags: [resources]
+      summary: An alert's incidents, newest first, with each channel's outcome
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Incident' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/notifications:
+    get:
+      operationId: listNotifications
+      tags: [resources]
+      summary: A channel's deliveries, newest first
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationList' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /healthz:
+    get: { operationId: healthz, tags: [ops], summary: Process is alive, security: [], responses: { '429': { $ref: '#/components/responses/Error' }, '200': { description: OK } } }
+  /readyz:
+    get: { operationId: readyz, tags: [ops], summary: Database reachable, security: [], responses: { '429': { $ref: '#/components/responses/Error' }, '200': { description: Ready }, '503': { description: Not ready } } }
+  /metrics:
+    get: { operationId: metrics, tags: [ops], summary: Prometheus metrics, security: [], responses: { '429': { $ref: '#/components/responses/Error' }, '200': { description: OK, content: { text/plain: {} } } } }
+
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, description: 'API token, "es_pat_…"' }
+    session: { type: apiKey, in: cookie, name: es_session, description: Browser session; writes also need X-Enclave-CSRF }
+  parameters:
+    ResourceID: { name: id, in: path, required: true, schema: { type: string, examples: [db_abcdefghijklmnop] } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, schema: { type: string, maxLength: 255 } }
+    IfMatch: { name: If-Match, in: header, schema: { type: string, examples: ['"3"'] } }
+    CSRF: { name: X-Enclave-CSRF, in: header, description: Required with cookie sessions, schema: { type: string, const: '1' } }
+    Metric: { name: metric, in: query, description: Repeatable; a metric name of the catalogue, schema: { type: string } }
+    From: { name: from, in: query, description: 'RFC 3339; default an hour before to', schema: { type: string, format: date-time } }
+    To: { name: to, in: query, description: 'RFC 3339; default now', schema: { type: string, format: date-time } }
+  headers:
+    ETag: { schema: { type: string }, description: 'The resource generation, quoted, e.g. "3"' }
+  responses:
+    Error:
+      description: Error envelope (L0-003)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+  schemas:
+    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack, tunnel] }
+    Role: { type: string, enum: [viewer, editor, admin] }
+    Phase: { type: string, enum: [pending, provisioning, ready, updating, deleting, failed] }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum: [MALFORMED_REQUEST, UNAUTHENTICATED, INVALID_CREDENTIALS, FORBIDDEN, CSRF_REQUIRED, INVALID_SETUP_CODE, NOT_FOUND, METHOD_NOT_ALLOWED,
+                NAME_TAKEN, HOSTNAME_TAKEN, RUN_IN_PROGRESS, RUN_NOT_RESTORABLE, RESOURCE_IN_USE, VOLUME_ATTACHED, RESOURCE_BUSY, ACTION_NOT_SUPPORTED, SETUP_COMPLETE, SETUP_REQUIRED, PRECONDITION_FAILED, PAYLOAD_TOO_LARGE,
+                UNSUPPORTED_MEDIA_TYPE, VALIDATION_FAILED, IMMUTABLE_FIELD, IDEMPOTENCY_KEY_REUSED, TOO_MANY_ATTEMPTS, RATE_LIMITED, INTERNAL, ENGINE_UNAVAILABLE,
+                PROJECT_NOT_EMPTY, LAST_ADMIN, EMAIL_TAKEN, INVITE_INVALID, MACHINE_NOT_EMPTY, MACHINE_ONLINE, MACHINE_OFFLINE, JOIN_CODE_INVALID, PART_OF_STACK]
+            message: { type: string }
+            requestId: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, code, message]
+                properties:
+                  field: { type: string }
+                  code: { type: string, enum: [REQUIRED, INVALID_FORMAT, TOO_SHORT, TOO_LONG, OUT_OF_RANGE, NOT_ALLOWED, NOT_FOUND, IMMUTABLE, INVALID_SCHEDULE, EXACTLY_ONE, OVERLAPS, GROW_ONLY] }
+                  message: { type: string }
+    SetupStatus: { type: object, required: [required, suggestedMachineName], properties: { required: { type: boolean }, suggestedMachineName: { type: string, description: The computer's own name, for the setup form to start with } } }
+    SetupRequest:
+      type: object
+      required: [setupCode, machineName, email, password]
+      additionalProperties: false
+      properties:
+        setupCode: { type: string }
+        machineName: { type: string, minLength: 1, maxLength: 64 }
+        email: { type: string, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 256 }
+    SignInRequest: { type: object, required: [email, password], additionalProperties: false, properties: { email: { type: string }, password: { type: string } } }
+    Session:
+      type: object
+      required: [user, machineName, authMethod, scope]
+      properties:
+        user: { type: object, required: [id, email], properties: { id: { type: string }, email: { type: string } } }
+        machineName: { type: string }
+        authMethod: { type: string, enum: [session, token] }
+        scope: { type: string, enum: [read, write, full] }
+        machineRole: { oneOf: [{ $ref: '#/components/schemas/Role' }, { type: 'null' }] }
+        projectRoles: { type: object, additionalProperties: { $ref: '#/components/schemas/Role' } }
+        token: { oneOf: [{ type: 'null' }, { type: object, required: [role, projects], properties: { role: { $ref: '#/components/schemas/Role' }, projects: { type: [array, 'null'], items: { type: string } } } }] }
+    Token:
+      type: object
+      required: [id, name, prefix, scope, createdAt, lastUsedAt, expiresAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string }
+        scope: { type: string, enum: [read, write], description: 'Kept for v0.6 clients: read for viewer tokens, write otherwise' }
+        role: { $ref: '#/components/schemas/Role' }
+        projects: { type: [array, 'null'], items: { type: string }, description: null means every project }
+        userEmail: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    CreateTokenRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        role: { $ref: '#/components/schemas/Role' }
+        projects: { type: array, minItems: 1, maxItems: 50, items: { type: string } }
+        scope: { type: string, enum: [read, write], description: 'v0.6 form: read means viewer, write editor' }
+        expiresInDays: { type: integer, minimum: 1, maximum: 365 }
+    ChangePassword: { type: object, required: [currentPassword, newPassword], additionalProperties: false, properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 12, maxLength: 256 } } }
+    InviteInfo: { type: object, required: [email, kind], properties: { email: { type: string }, kind: { type: string, enum: [invite, reset] } } }
+    AcceptInvite: { type: object, required: [code, password], additionalProperties: false, properties: { code: { type: string }, password: { type: string, minLength: 12, maxLength: 256 } } }
+    Project:
+      type: object
+      required: [name, description, createdAt, resources]
+      properties: { name: { type: string }, description: { type: string }, createdAt: { type: string, format: date-time }, resources: { type: integer } }
+    CreateProject: { type: object, required: [name], additionalProperties: false, properties: { name: { type: string, pattern: '^[a-z][a-z0-9-]{1,38}[a-z0-9]$' }, description: { type: string, maxLength: 280 } } }
+    UserSummary:
+      type: object
+      required: [id, email, machineRole, projectRoles, status, createdAt, lastSignInAt]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        machineRole: { oneOf: [{ $ref: '#/components/schemas/Role' }, { type: 'null' }] }
+        projectRoles: { type: object, additionalProperties: { $ref: '#/components/schemas/Role' } }
+        status: { type: string, enum: [active, invited] }
+        createdAt: { type: string, format: date-time }
+        lastSignInAt: { type: [string, 'null'], format: date-time }
+    InviteUser:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email: { type: string, maxLength: 254 }
+        machineRole: { $ref: '#/components/schemas/Role' }
+        projectRoles: { type: object, additionalProperties: { $ref: '#/components/schemas/Role' } }
+    UpdateUser:
+      type: object
+      additionalProperties: false
+      properties:
+        machineRole: { oneOf: [{ $ref: '#/components/schemas/Role' }, { type: 'null' }] }
+        projectRoles: { type: object, additionalProperties: { oneOf: [{ $ref: '#/components/schemas/Role' }, { type: 'null' }] } }
+    Invitation: { type: object, required: [user, url, expiresAt, emailed], properties: { user: { $ref: '#/components/schemas/UserSummary' }, url: { type: string }, expiresAt: { type: string, format: date-time }, emailed: { type: boolean, description: "The link was also sent by email (IAM-04)" }, emailError: { type: string, description: "Why it wasn't emailed; the link works anyway" } } }
+    InviteEmail:
+      type: object
+      additionalProperties: false
+      required: [service, from]
+      description: "The email service that sends invite and reset links (IAM-04)."
+      properties:
+        project: { type: string, description: "default when omitted" }
+        service: { type: string }
+        from: { type: string, maxLength: 254 }
+    AuditList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        nextCursor: { type: [string, 'null'] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, at, actor, action, target, detail, clientIp]
+            properties: { id: { type: integer }, at: { type: string, format: date-time }, actor: { type: string }, action: { type: string }, target: { type: string }, detail: { type: string }, clientIp: { type: string } }
+    CreatedToken: { type: object, required: [token, secret], properties: { token: { $ref: '#/components/schemas/Token' }, secret: { type: string } } }
+    CatalogueEntry:
+      type: object
+      required: [name, title, description, version, versions, builtIn, category, parameters, members, outputs]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        category: { type: string, enum: [apps, public-access, connections] }
+        signup: { type: string, description: "where to make the account a way in needs" }
+        version: { type: string }
+        versions: { type: array, items: { type: string } }
+        builtIn: { type: boolean }
+        parameters:
+          type: array
+          items:
+            type: object
+            required: [name, title, type]
+            properties:
+              name: { type: string }
+              title: { type: string }
+              description: { type: string }
+              type: { type: string, enum: [string, number, boolean, secret, hostname] }
+              default: {}
+              required: { type: boolean }
+        members:
+          type: array
+          items: { type: object, required: [kind, name, optional], properties: { kind: { $ref: '#/components/schemas/Kind' }, name: { type: string }, optional: { type: boolean } } }
+        outputs: { type: array, items: { type: string } }
+    MachineLink:
+      type: object
+      required: [machine, connected, lastHandshakeAt]
+      properties: { machine: { type: string }, connected: { type: boolean }, lastHandshakeAt: { type: [string, 'null'], format: date-time } }
+    MachineSummary:
+      type: object
+      required: [id, name, title, main, state, since, labels, schedulable, address, os, arch, agentVersion, engine, cpus, memoryTotalBytes, memoryReservedBytes, vms, lastSeenAt, resources, versionMismatch, links, message, role]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        title: { type: string, description: "The main machine's title is the machine name given at setup" }
+        main: { type: boolean }
+        role: { type: string, enum: [worker, edge] }
+        state: { type: string, enum: [waiting, online, offline] }
+        since: { type: string, format: date-time }
+        labels: { type: object, additionalProperties: { type: string } }
+        schedulable: { type: boolean }
+        address: { type: [string, 'null'] }
+        os: { type: string }
+        arch: { type: string }
+        agentVersion: { type: string }
+        engine:
+          type: object
+          required: [driver, available, version, message]
+          properties: { driver: { type: string }, available: { type: boolean }, version: { type: string }, message: { type: string } }
+        cpus: { type: integer }
+        memoryTotalBytes: { type: integer }
+        memoryReservedBytes: { type: integer }
+        vms: { type: object }
+        lastSeenAt: { type: [string, 'null'], format: date-time }
+        resources: { type: integer, description: Resources placed here, in the projects you can see }
+        versionMismatch: { type: boolean }
+        links: { type: array, items: { $ref: '#/components/schemas/MachineLink' } }
+        message: { type: string }
+    AddMachine:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string }
+        labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }
+        role: { type: string, enum: [worker, edge], description: "edge: a server with a public address that only relays visitors; the main machine joins it (L2-014 EDG-02)" }
+        address: { type: string, description: "edge only: its public IPv4 address or host name" }
+        agentPort: { type: integer, minimum: 1, maximum: 65535, description: "edge only: where its agent waits; default 7071" }
+    AddedMachine:
+      type: object
+      required: [machine, joinCode, joinCommand, expiresAt]
+      properties:
+        machine: { $ref: '#/components/schemas/MachineSummary' }
+        joinCode: { type: string, description: Shown once }
+        joinCommand: { type: string }
+        expiresAt: { type: string, format: date-time }
+    UpdateMachine:
+      type: object
+      additionalProperties: false
+      properties: { labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }, schedulable: { type: boolean }, title: { type: string, minLength: 1, maxLength: 64, description: The display name; only the main machine has one of its own } }
+    JoinRequest:
+      type: object
+      required: [code, csr, advertise, agentPort, tunnelPort]
+      additionalProperties: false
+      properties:
+        code: { type: string }
+        csr: { type: string, description: A PEM certificate request for the agent's ECDSA P-256 key }
+        advertise: { type: string, description: An IPv4 address or host name the main machine reaches the agent at }
+        agentPort: { type: integer, minimum: 1, maximum: 65535 }
+        tunnelPort: { type: integer, minimum: 1, maximum: 65535 }
+        os: { type: string }
+        arch: { type: string }
+        agentVersion: { type: string }
+    JoinResponse:
+      type: object
+      required: [machineId, name, certificate, ca, server]
+      properties: { machineId: { type: string }, name: { type: string }, certificate: { type: string }, ca: { type: string }, server: { type: string } }
+    Machine:
+      type: object
+      required: [id, handle, name, hostname, version, os, arch, cpus, memoryTotalBytes, memoryReservedBytes, engine]
+      properties:
+        id: { type: string, description: The main machine's ID (mch_…), made at first start }
+        handle: { type: string, description: The name commands use for the main machine, made from the computer's own name }
+        name: { type: string }
+        hostname: { type: string }
+        version: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        cpus: { type: integer }
+        memoryTotalBytes: { type: integer }
+        memoryReservedBytes: { type: integer }
+        engine:
+          type: object
+          required: [driver, available, version, message]
+          properties: { driver: { type: string }, available: { type: boolean }, version: { type: string }, message: { type: string } }
+        publicAddress: { type: [string, 'null'], description: "Shown in DNS instructions for domains; never auto-detected" }
+        inviteEmail: { oneOf: [{ $ref: '#/components/schemas/InviteEmail' }, { type: 'null' }] }
+        acmeEmail: { type: [string, 'null'], description: "Let's Encrypt account email; falls back to the admin's" }
+        edge:
+          type: object
+          required: [available, message]
+          properties: { available: { type: boolean }, message: { type: string } }
+        vms:
+          type: object
+          required: [available, message]
+          description: "Whether VMs can run here; when not, message names what's missing and the command to fix it (L2-007 VM-11)"
+          properties: { available: { type: boolean }, message: { type: string }, qemuVersion: { type: string }, accelerator: { type: string, enum: [hvf, kvm] } }
+        reservedCpus: { type: integer, description: "CPUs of running VMs" }
+        images:
+          type: array
+          description: "Downloaded VM images (IMG-05)"
+          items: { type: object, required: [name, arch, sizeBytes, usedBy], properties: { name: { type: string }, arch: { type: string }, sizeBytes: { type: integer }, usedBy: { type: integer } } }
+        snapshotBytes: { type: integer, description: "Space held by snapshots" }
+        broker:
+          type: object
+          required: [available, message]
+          description: "The message broker behind queues and topics (ADR-029)"
+          properties: { available: { type: boolean }, message: { type: string } }
+    MachineSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        publicAddress: { type: [string, 'null'], maxLength: 253 }
+        acmeEmail: { type: [string, 'null'], maxLength: 254 }
+        inviteEmail:
+          description: "Absent keeps it; null turns emailed invites off (L3-002 §10.3)."
+          oneOf: [{ $ref: '#/components/schemas/InviteEmail' }, { type: 'null' }]
+    AppSpec:
+      type: object
+      additionalProperties: false
+      description: "Exactly one of image and source (ADR-019)."
+      properties:
+        image: { type: string, maxLength: 255 }
+        source: { $ref: '#/components/schemas/GitSource' }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        command: { type: array, maxItems: 32, items: { type: string, maxLength: 1024 } }
+        env: { type: object, additionalProperties: { type: string, maxLength: 4096 } }
+        secretEnv: { type: object, additionalProperties: { type: string }, description: "variable name → secret name" }
+        publish: { type: boolean }
+        memoryMiB: { type: integer, minimum: 64, maximum: 16384, default: 256 }
+        strategy: { type: string, enum: [rolling, recreate], default: rolling, description: "rolling starts a new revision and switches only once it is healthy; apps that publish a host port always recreate" }
+        healthCheck: { $ref: '#/components/schemas/HealthCheck' }
+        network: { type: string, description: "network to place it in (ADR-020); default the default network" }
+        subnet: { type: string, description: "subnet of the network; default its first" }
+        replicas: { type: integer, minimum: 1, maximum: 10, default: 1, description: "containers per revision; 1 when publish is true (ADR-022)" }
+        volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' }, description: "filesystem volumes mounted into every container (ADR-027); a change deploys a new revision" }
+        bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "buckets the app reaches with keys of its own, given as AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_ENDPOINT_URL_S3 and AWS_ENDPOINT_URL (L2-011); the list replaces the old one" }
+    GitSource:
+      type: object
+      required: [git, ref]
+      additionalProperties: false
+      description: "Build the app from a Git repository and its Dockerfile with BuildKit. Built images are tagged enclave.local/<app>:r<revision>-<commit> and never pulled."
+      properties:
+        git: { type: string, maxLength: 512, description: "https:// or ssh:// (http:// only for localhost)" }
+        ref: { type: string, minLength: 1, maxLength: 255, description: "branch, tag or 40-hex commit" }
+        dockerfile: { type: string, default: Dockerfile, description: "relative to context" }
+        context: { type: string, default: '.' }
+        credentialsSecret: { type: string, description: 'secret holding {"token"} (https) or {"privateKey","knownHosts"} (ssh)' }
+        buildArgs: { type: object, maxProperties: 50, additionalProperties: { type: string }, description: "not for secrets: build arguments end up in image metadata" }
+    HealthCheck:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: "When a new revision may take traffic. Omitted: tcp on the app's port, or 5 s running without restarts. startPeriodSeconds + retries × intervalSeconds ≤ 900."
+      properties:
+        type: { type: string, enum: [http, tcp, command, none] }
+        path: { type: string, maxLength: 255, pattern: '^/', description: "http only; default /" }
+        port: { type: integer, minimum: 1, maximum: 65535, description: "default: the app's port" }
+        command: { type: array, maxItems: 32, items: { type: string, maxLength: 1024 }, description: "command only; runs inside the container" }
+        intervalSeconds: { type: integer, minimum: 1, maximum: 300, default: 5 }
+        timeoutSeconds: { type: integer, minimum: 1, maximum: 60, default: 3 }
+        retries: { type: integer, minimum: 1, maximum: 100, default: 12 }
+        startPeriodSeconds: { type: integer, minimum: 0, maximum: 600, default: 0 }
+    DatabaseSpec:
+      type: object
+      additionalProperties: false
+      description: "engine and version are immutable (L2-008 DBE-*). Versions: postgres 16 (default) or 17; mysql 8.4; mongodb 7.0 (default) or 8.0; clickhouse 26.3 (default) or 25.8. Outputs add engine, and nativePort/internalNativePort for ClickHouse."
+      properties:
+        engine: { type: string, enum: [postgres, mysql, mongodb, clickhouse], default: postgres }
+        version: { type: string, enum: ['16', '17', '8.4', '8.0', '7.0', '26.3', '25.8'] }
+        network: { type: string }
+        subnet: { type: string }
+    CacheSpec:
+      type: object
+      additionalProperties: false
+      properties: { engine: { type: string, const: redis }, version: { type: string, const: '7' }, maxMemoryMiB: { type: integer, minimum: 64, maximum: 4096, default: 256 }, network: { type: string }, subnet: { type: string } }
+    BucketSpec: { type: object, additionalProperties: false, properties: { versioning: { type: boolean, default: false } } }
+    SecretSpec:
+      type: object
+      additionalProperties: false
+      description: Exactly one of value and source (ADR-041)
+      properties:
+        value: { type: string, minLength: 1, writeOnly: true }
+        source: { type: object, required: [store, key], properties: { store: { type: string }, key: { type: string }, field: { type: string } } }
+    JobSpec:
+      type: object
+      required: [schedule]
+      additionalProperties: false
+      description: "A command run on a schedule. Exactly one of app (inherit its image and environment) or image. Outputs: nextRunAt, lastRunStatus, lastRunAt."
+      properties:
+        schedule: { type: string, description: "5-field cron (minute hour day month weekday) or @hourly, @daily, @weekly, @monthly" }
+        timeZone: { type: string, description: "IANA zone; default the machine's" }
+        app: { type: string }
+        image: { type: string, maxLength: 255 }
+        command: { type: array, maxItems: 32, items: { type: string, maxLength: 1024 } }
+        env: { type: object, additionalProperties: { type: string, maxLength: 4096 } }
+        secretEnv: { type: object, additionalProperties: { type: string } }
+        timeoutSeconds: { type: integer, minimum: 1, maximum: 86400, default: 3600 }
+        overlap: { type: string, enum: [forbid, allow], default: forbid }
+        memoryMiB: { type: integer, minimum: 64, maximum: 16384, default: 256 }
+        network: { type: string, description: "image jobs only; an app job runs in its app's network" }
+        subnet: { type: string }
+        volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' } }
+        bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "a job from an image only; a job with app uses the app's (L2-011)" }
+    BackupSpec:
+      type: object
+      required: [source, destination]
+      additionalProperties: false
+      description: "Scheduled logical backups (pg_dump custom format, Redis RDB) streamed to a bucket. Outputs: nextRunAt, lastRunStatus, lastRunAt, lastSuccessAt. Three failed runs in a row → phase failed."
+      properties:
+        source:
+          type: object
+          additionalProperties: false
+          description: "Exactly one; immutable"
+          properties: { database: { type: string }, cache: { type: string } }
+        destination:
+          type: object
+          additionalProperties: false
+          description: "Exactly one of a EnclaveStack bucket or external S3"
+          properties:
+            bucket: { type: string }
+            s3:
+              type: object
+              required: [endpoint, bucket, credentialsSecret]
+              additionalProperties: false
+              properties:
+                endpoint: { type: string, description: "https:// (http only for localhost)" }
+                region: { type: string }
+                bucket: { type: string, pattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$' }
+                credentialsSecret: { type: string, description: 'Secret holding {"accessKey","secretKey"}' }
+        prefix: { type: string, pattern: '^[a-z0-9][a-z0-9/_-]{0,99}$', default: enclave-backups }
+        schedule: { type: string, default: '0 3 * * *' }
+        timeZone: { type: string }
+        keep: { type: integer, minimum: 1, maximum: 365, default: 7 }
+        keepDays: { type: integer, minimum: 1, maximum: 3650 }
+        timeoutSeconds: { type: integer, minimum: 60, maximum: 86400, default: 7200 }
+    RestoreRequest:
+      type: object
+      required: [runId, mode]
+      additionalProperties: false
+      properties:
+        runId: { type: string }
+        mode: { type: string, enum: [new, replace] }
+        name: { type: string, description: "mode new: the new database's or cache's name" }
+        confirmName: { type: string, description: "mode replace: must equal the source's name" }
+    Run:
+      type: object
+      required: [id, trigger, status, scheduledFor, startedAt, finishedAt, exitCode, message]
+      properties:
+        id: { type: string }
+        trigger: { type: string, enum: [schedule, manual, catch_up, pre_restore, watch] }
+        status: { type: string, enum: [running, succeeded, failed, timed_out, skipped] }
+        scheduledFor: { type: [string, 'null'], format: date-time }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        exitCode: { type: [integer, 'null'] }
+        message: { type: string }
+        skippedCount: { type: integer, description: "On a skipped record: how many occurrences were missed" }
+        artifact:
+          type: object
+          properties: { key: { type: string }, sizeBytes: { type: integer }, sha256: { type: string }, destination: { type: string } }
+        key: { type: string, description: "A transcoder run's input object" }
+        outputs: { type: array, items: { type: string }, description: "The keys a transcoder run wrote" }
+    DomainSpec:
+      type: object
+      required: [hostname, app]
+      additionalProperties: false
+      description: "Routes a hostname to an app port through the edge proxy. Outputs: url, certificateState (pending, issued, failed, none), certificateIssuer, certificateExpiresAt, publicAddress."
+      properties:
+        hostname: { type: string, maxLength: 253, description: "Lowercase DNS name with at least two labels; no IP addresses; a leading *. label only with zone; unique across domains; immutable" }
+        app: { type: string, description: "Name of an existing app" }
+        port: { type: integer, minimum: 1, maximum: 65535, description: "Default: the app's port" }
+        tls: { type: string, enum: [auto, internal, 'off'], description: "Default: internal for *.localhost, else auto" }
+        redirectHttp: { type: boolean, default: true }
+        zone: { type: string, description: "a zone resource: the certificate comes through ACME DNS-01 and the hostname may be a wildcard (*.example.com); needs tls auto (ADR-024). With a tunnel, the zone the public DNS record is written in (PUB-02, PUB-03)" }
+        tunnel: { type: string, description: "a tunnel of provider cloudflare or relay: the domain is public through it, and not served on the machine's own ports (L2-014 PUB-01); \"\" makes it local again. Public outputs: public, url, dnsRecord {type, name, value, state: created|adopted|manual}, certificateState edge (Cloudflare) or issued, accessApplicationId, tunnelState" }
+        gate: { $ref: '#/components/schemas/Gate' }
+        cloudflareAccess:
+          type: object
+          additionalProperties: false
+          description: "Cloudflare tunnels only: who Cloudflare lets through before the gate (GATE-09)"
+          properties:
+            emails: { type: array, maxItems: 50, items: { type: string } }
+            emailDomains: { type: array, maxItems: 10, items: { type: string } }
+    Gate:
+      type: object
+      required: [mode]
+      additionalProperties: false
+      description: "What stands between the internet and a public app (L2-014 GATE-01 – GATE-07). A public domain or app link defaults to signin (a private Tailscale link to none)."
+      properties:
+        mode: { type: string, enum: [signin, password, none] }
+        passwordSecret: { type: string, description: 'password only: a secret {"username","password"}' }
+        openPaths: { type: array, maxItems: 10, items: { type: string, maxLength: 255 }, description: "path prefixes that skip the gate, e.g. /webhooks/; never under /.enclave/" }
+    TunnelSpec:
+      type: object
+      required: [provider]
+      additionalProperties: false
+      description: "A way in from the internet (L2-014, ADR-051, ADR-052); provider and machine are immutable. App links (quick, tailscale, ngrok, custom) give one app an address the provider hands out; domain tunnels (cloudflare, relay) serve the public domains that name them. Outputs: connection (connected, reconnecting), connections, url (app links), tunnelId (cloudflare), publicAddress (relay), serves, device and funnel (tailscale)."
+      properties:
+        provider: { type: string, enum: [quick, tailscale, ngrok, custom, cloudflare, relay] }
+        credentialsSecret: { type: string, description: 'cloudflare, tailscale, ngrok: a secret holding the token itself, or {"apiToken"} / {"authKey"} / {"authToken"}' }
+        accountId: { type: string, pattern: '^[a-f0-9]{32}$', description: "cloudflare only: the account the tunnel is made in" }
+        machine: { type: string, description: "relay only: an edge machine (one relay each)" }
+        app: { type: string, description: "app links: the app to make public" }
+        port: { type: integer, minimum: 1, maximum: 65535, description: "app links: default the app's port" }
+        gate: { $ref: '#/components/schemas/Gate' }
+        mode: { type: string, enum: [private, public], description: "tailscale only: Serve (your tailnet) or Funnel (anyone); default private" }
+        hostname: { type: string, maxLength: 63, description: "tailscale only: the device's name; default <project>-<app>" }
+        domain: { type: string, description: "ngrok only: a domain reserved in the account" }
+        image: { type: string, description: "custom only: the connector's image" }
+        command: { type: array, maxItems: 32, items: { type: string } }
+        env: { type: object, additionalProperties: { type: string }, description: "custom only; may not set ENCLAVE_UPSTREAM" }
+        secretEnv: { type: object, additionalProperties: { type: string } }
+        url: { type: string, description: "custom only: the https:// address the service gives, for display" }
+    NetworkSpec:
+      type: object
+      required: [cidr]
+      additionalProperties: false
+      description: "A private network (ADR-020). Every field is immutable. Outputs: dockerNetwork, gateway."
+      properties:
+        cidr: { type: string, description: "canonical private IPv4 prefix, /16 – /28" }
+        subnets: { type: array, maxItems: 16, items: { type: object, required: [name, cidr], additionalProperties: false, properties: { name: { type: string }, cidr: { type: string } } }, description: "default one subnet named default covering the network" }
+        internet: { type: boolean, default: true }
+    FirewallRule:
+      type: object
+      additionalProperties: false
+      description: "Ingress rules name sources in from, egress rules destinations in to: any, an IPv4 CIDR, network/<name> or <kind>/<name>."
+      properties:
+        from: { type: array, maxItems: 20, items: { type: string } }
+        to: { type: array, maxItems: 20, items: { type: string } }
+        protocol: { type: string, enum: [tcp, udp, icmp, all], default: tcp }
+        ports: { type: array, maxItems: 20, items: { type: string, description: "80 or 8000-8100" } }
+    FirewallSpec:
+      type: object
+      required: [targets]
+      additionalProperties: false
+      description: "Allow rules applied in each target's network namespace (ADR-021). Outputs: appliedContainers, appliedAt."
+      properties:
+        targets: { type: array, minItems: 1, maxItems: 20, items: { type: string, description: "app/, database/, cache/, loadbalancer/, vm/, search/ or email/<name>" } }
+        ingress: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/FirewallRule' } }
+        egressDefault: { type: string, enum: [allow, deny], default: allow }
+        egress: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/FirewallRule' } }
+    LoadBalancerSpec:
+      type: object
+      required: [port, targets]
+      additionalProperties: false
+      description: "HAProxy in front of apps' replicas (ADR-022). Outputs: internalHost, internalPort, privateDns, host, port (published), targets, healthyTargets."
+      properties:
+        port: { type: integer, minimum: 1, maximum: 65535, description: "61999 is reserved" }
+        protocol: { type: string, enum: [http, tcp], default: http }
+        targets: { type: array, minItems: 1, maxItems: 8, items: { type: object, required: [app], additionalProperties: false, properties: { app: { type: string }, port: { type: integer, minimum: 1, maximum: 65535 }, weight: { type: integer, minimum: 1, maximum: 256, default: 1 } } } }
+        algorithm: { type: string, enum: [round_robin, least_conn, source], default: round_robin }
+        healthCheck:
+          type: object
+          required: [type]
+          additionalProperties: false
+          properties:
+            type: { type: string, enum: [tcp, http] }
+            path: { type: string, pattern: '^/' }
+            intervalSeconds: { type: integer, minimum: 1, maximum: 60, default: 2 }
+            timeoutSeconds: { type: integer, minimum: 1, maximum: 30, default: 1 }
+            healthyThreshold: { type: integer, minimum: 1, maximum: 10, default: 2 }
+            unhealthyThreshold: { type: integer, minimum: 1, maximum: 10, default: 3 }
+        publish: { type: boolean, default: false }
+    ZoneSpec:
+      type: object
+      required: [provider, zone, credentialsSecret]
+      additionalProperties: false
+      description: "A zone at a DNS provider (ADR-023); provider and zone are immutable. Outputs: zoneId, nameServers, provider."
+      properties:
+        provider: { type: string, enum: [cloudflare, route53] }
+        zone: { type: string, maxLength: 253 }
+        credentialsSecret: { type: string, description: 'secret holding {"apiToken"} or {"accessKeyId","secretAccessKey"}' }
+    RecordSpec:
+      type: object
+      required: [zone, name, type]
+      additionalProperties: false
+      description: "A record kept at the zone's provider; zone, name and type are immutable. Exactly one of values or machine. Outputs: fqdn, values, owned."
+      properties:
+        zone: { type: string }
+        name: { type: string, description: "relative: api, @ for the apex, *.dev" }
+        type: { type: string, enum: [A, AAAA, CNAME, TXT] }
+        values: { type: array, minItems: 1, maxItems: 20, items: { type: string } }
+        machine: { type: boolean, description: "A/AAAA to the machine's public address" }
+        ttl: { type: integer, minimum: 60, maximum: 86400, default: 300 }
+    BucketGrant:
+      type: object
+      required: [bucket, access]
+      additionalProperties: false
+      properties:
+        bucket: { type: string, description: a bucket of the same project }
+        access: { type: string, enum: [read, readwrite] }
+    VolumeMount:
+      type: object
+      required: [volume, path]
+      additionalProperties: false
+      properties:
+        volume: { type: string, description: "a filesystem volume's name" }
+        path: { type: string, maxLength: 255, description: "absolute and normalised, not /" }
+        readOnly: { type: boolean, default: false }
+    VMSpec:
+      type: object
+      required: [image]
+      additionalProperties: false
+      description: "A virtual machine run by QEMU (ADR-025). image, imageSha256, sshKeys, sshKeySecret and userData are immutable; changing cpus, memoryMiB or disks restarts it. Outputs: power, privateIp, privateDns, sshAddress, sshUser, imageSha256, host."
+      properties:
+        image: { type: string, maxLength: 2048, description: "ubuntu-24.04, debian-12, an https:// URL of a cloud image, or snapshot/<name>" }
+        imageSha256: { type: string, pattern: '^[a-f0-9]{64}$', description: "URL images only" }
+        sshKeys: { type: array, minItems: 1, maxItems: 10, items: { type: string, maxLength: 16384 }, description: "OpenSSH public keys; exactly one of sshKeys or sshKeySecret" }
+        sshKeySecret: { type: string, description: "a secret holding one public key per line" }
+        userData: { type: string, maxLength: 65536, description: "first-boot script starting with #cloud-config or #!" }
+        cpus: { type: integer, minimum: 1, maximum: 16, default: 1 }
+        memoryMiB: { type: integer, minimum: 512, maximum: 65536, multipleOf: 128, default: 1024 }
+        diskGiB: { type: integer, minimum: 5, maximum: 2048, default: 10, description: "root disk; grows only" }
+        network: { type: string }
+        subnet: { type: string }
+        disks: { type: array, maxItems: 8, items: { type: string }, description: "disk volumes, in attach order" }
+        publish: { type: array, maxItems: 10, items: { type: integer, minimum: 1, maximum: 65535 }, description: "VM ports published on the same host port; not 22" }
+        power: { type: string, enum: [running, stopped], default: running }
+    VolumeSpec:
+      type: object
+      required: [type]
+      additionalProperties: false
+      description: "A disk for one VM, or a filesystem for apps and jobs (ADR-027); type and snapshot are immutable. Outputs: attachedTo, sizeGiB, usedBytes."
+      properties:
+        type: { type: string, enum: [disk, filesystem] }
+        sizeGiB: { type: integer, minimum: 1, maximum: 2048, default: 10, description: "disks only; grows only" }
+        snapshot: { type: string, description: "a snapshot of the same type to start from" }
+    SnapshotSpec:
+      type: object
+      required: [source]
+      additionalProperties: false
+      description: "A full copy of a volume or a VM's root disk, kept on the machine (ADR-028); immutable. Outputs: type, sizeBytes, takenAt, inUse."
+      properties:
+        source: { type: string, description: "volume/<name> or vm/<name>" }
+    QueueSpec:
+      type: object
+      additionalProperties: false
+      description: "A queue on the broker (ADR-029), all in place. Outputs: url, internalUrl, subject, stream, consumer, username, passwordSecret, messages, inFlight."
+      properties:
+        visibilityTimeoutSeconds: { type: integer, minimum: 1, maximum: 43200, default: 30 }
+        retentionHours: { type: integer, minimum: 1, maximum: 336, default: 96 }
+        maxMessageBytes: { type: integer, minimum: 1024, maximum: 1048576, default: 262144 }
+        maxReceives: { type: integer, minimum: 0, maximum: 1000, default: 0, description: "0: no limit" }
+        deadLetterQueue: { type: string, description: "another queue; needs maxReceives ≥ 1" }
+    TopicSpec:
+      type: object
+      additionalProperties: false
+      description: "A topic fanning out to subscriptions (ADR-029). Outputs: url, internalUrl, subject, stream, username, passwordSecret, subscriptions."
+      properties:
+        retentionHours: { type: integer, minimum: 1, maximum: 336, default: 24 }
+        subscriptions:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            description: "exactly one of queue or url; secret signs webhook bodies"
+            properties: { queue: { type: string }, url: { type: string, maxLength: 2048 }, secret: { type: string } }
+    SearchSpec:
+      type: object
+      additionalProperties: false
+      description: "An OpenSearch node (ADR-031); version is immutable. Outputs: internalHost, internalPort, internalUrl, host, port, url, username, passwordSecret, version."
+      properties:
+        version: { type: string, enum: ['3', '2'], default: '3' }
+        memoryMiB: { type: integer, minimum: 1024, maximum: 16384, multipleOf: 256, default: 2048 }
+        network: { type: string }
+        subnet: { type: string }
+    BucketFolder:
+      type: object
+      required: [bucket]
+      additionalProperties: false
+      properties: { bucket: { type: string }, prefix: { type: string, maxLength: 255, description: "'' or a/b/" } }
+    TranscoderSpec:
+      type: object
+      required: [input, output]
+      additionalProperties: false
+      description: "Converts media written to a folder (ADR-034, ADR-050): at least one of presets, renditions and hls. The output prefix may use {name} and {meta:<tag>}. Outputs: watching, input, lastRunAt, lastRunStatus."
+      properties:
+        input: { $ref: '#/components/schemas/BucketFolder' }
+        output: { $ref: '#/components/schemas/BucketFolder' }
+        presets: { type: array, maxItems: 7, items: { type: string, enum: [mp4-480p, mp4-720p, mp4-1080p, webm-720p, hls-720p, mp3, thumbnail] } }
+        watch: { type: boolean, default: true }
+        timeoutSeconds: { type: integer, minimum: 60, maximum: 86400, default: 3600 }
+        concurrency: { type: integer, minimum: 1, maximum: 4, default: 1 }
+        memoryMiB: { type: integer, minimum: 256, maximum: 8192, default: 1024 }
+        renditions: { type: array, maxItems: 8, items: { $ref: '#/components/schemas/Rendition' } }
+        hls: { $ref: '#/components/schemas/HLSLadder' }
+        notify: { $ref: '#/components/schemas/TranscodeNotify' }
+    Rendition:
+      type: object
+      required: [name, container, maxWidth, maxHeight, videoKbps]
+      additionalProperties: false
+      description: "One file of a chosen size and bitrate, <name>.<container> in the run's folder (L2-012 TRX-02)."
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$' }
+        container: { type: string, enum: [mp4, webm] }
+        maxWidth: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        maxHeight: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        videoKbps: { type: integer, minimum: 100, maximum: 50000 }
+        audioKbps: { type: integer, minimum: 32, maximum: 512, default: 128 }
+        gopSeconds: { type: integer, minimum: 1, maximum: 10, default: 2 }
+    HLSRung:
+      type: object
+      required: [name, maxWidth, maxHeight, videoKbps]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$' }
+        maxWidth: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        maxHeight: { type: integer, minimum: 16, maximum: 7680, multipleOf: 2 }
+        videoKbps: { type: integer, minimum: 100, maximum: 50000 }
+    HLSLadder:
+      type: object
+      required: [rungs]
+      additionalProperties: false
+      description: "An adaptive stream: <name>/master.m3u8 and <name>/<rung>/index.m3u8 with segments; keyframes line up across rungs (L2-012 TRX-03)."
+      properties:
+        name: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,31}$', default: hls }
+        segmentSeconds: { type: integer, minimum: 2, maximum: 10, default: 6, description: "a multiple of gopSeconds" }
+        gopSeconds: { type: integer, minimum: 1, maximum: 10, default: 2 }
+        audioKbps: { type: integer, minimum: 32, maximum: 512, default: 128 }
+        rungs: { type: array, minItems: 1, maxItems: 6, items: { $ref: '#/components/schemas/HLSRung' } }
+    TranscodeNotify:
+      type: object
+      additionalProperties: false
+      description: "Where a run's TranscodeMessage goes when it ends (L2-012 TRX-05): at least one of webhook and topic."
+      properties:
+        webhook:
+          type: object
+          required: [url]
+          additionalProperties: false
+          properties:
+            url: { type: string, description: "https://, or http:// to localhost" }
+            secret: { type: string, description: "a secret whose value signs the body (X-Enclave-Signature)" }
+        topic: { type: string, description: a topic of the same project }
+    ObjectInfo:
+      type: object
+      required: [key, size, modified, contentType]
+      properties:
+        key: { type: string }
+        size: { type: integer, format: int64 }
+        modified: { type: string, format: date-time }
+        contentType: { type: string }
+        tags: { type: object, additionalProperties: { type: string } }
+    ObjectList:
+      type: object
+      required: [prefix, folders, items, nextCursor]
+      properties:
+        prefix: { type: string }
+        folders: { type: array, items: { type: string } }
+        items: { type: array, items: { $ref: '#/components/schemas/ObjectInfo' } }
+        nextCursor: { type: [string, 'null'] }
+    TranscodeObject:
+      type: object
+      required: [bucket, key, size]
+      properties:
+        bucket: { type: string }
+        key: { type: string }
+        size: { type: integer, format: int64 }
+    TranscodeMessage:
+      type: object
+      description: "The JSON body a transcoder sends to its webhook and topic when a run ends (L2-012 §4)."
+      required: [event, transcoder, project, runId, status, message, input, outputs, hlsMaster, metadata, startedAt, finishedAt]
+      properties:
+        event: { type: string, enum: [transcode.finished] }
+        transcoder: { type: string }
+        project: { type: string }
+        runId: { type: string }
+        status: { type: string, enum: [succeeded, failed, timed_out] }
+        message: { type: string }
+        input: { $ref: '#/components/schemas/TranscodeObject' }
+        outputs: { type: array, items: { $ref: '#/components/schemas/TranscodeObject' } }
+        hlsMaster: { type: [string, 'null'] }
+        metadata: { type: object, additionalProperties: { type: string } }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+    CDNSpec:
+      type: object
+      required: [hostname, origin]
+      additionalProperties: false
+      description: "A cache in front of an app or a bucket, served on a hostname through the edge (ADR-033); hostname is immutable. Outputs: url, origin, certificateState, certificateIssuer, certificateExpiresAt, cachedBytes."
+      properties:
+        hostname: { type: string, maxLength: 253 }
+        origin: { type: string, description: "app/<name> or bucket/<name>" }
+        originPort: { type: integer, minimum: 1, maximum: 65535, description: "apps only" }
+        defaultTtlSeconds: { type: integer, minimum: 0, maximum: 31536000, default: 3600 }
+        maxSizeMiB: { type: integer, minimum: 64, maximum: 102400, default: 1024 }
+        tls: { type: string, enum: [auto, internal, off] }
+        redirectHttp: { type: boolean, default: true }
+        zone: { type: string }
+    EmailSpec:
+      type: object
+      additionalProperties: false
+      description: "An SMTP service for apps that catches every message and, in relay mode, delivers it through the user's provider (ADR-032). Outputs: internalHost, smtpPort, host, port, webUrl, username, passwordSecret, mode."
+      properties:
+        mode: { type: string, enum: [capture, relay], default: capture }
+        relay:
+          type: object
+          required: [host, credentialsSecret]
+          additionalProperties: false
+          properties:
+            host: { type: string, maxLength: 253 }
+            port: { type: integer, minimum: 1, maximum: 65535, default: 587 }
+            tls: { type: string, enum: [starttls, tls, none], default: starttls }
+            credentialsSecret: { type: string, description: 'a secret holding {"username": "…", "password": "…"}' }
+        domain: { type: string, description: "the API refuses other sender domains" }
+        keepMessages: { type: integer, minimum: 10, maximum: 10000, default: 500 }
+        network: { type: string }
+        subnet: { type: string }
+    TranscodeRequest:
+      type: object
+      required: [key]
+      additionalProperties: false
+      properties: { key: { type: string, maxLength: 1024, description: "an object in the transcoder's input folder" } }
+    SendMessage:
+      type: object
+      required: [body]
+      additionalProperties: false
+      properties:
+        body: { type: string, description: "UTF-8, at most the queue's maxMessageBytes (topics: 1 MiB)" }
+        attributes: { type: object, maxProperties: 10, additionalProperties: { type: string, maxLength: 1024 } }
+        deduplicationId: { type: string, maxLength: 128 }
+    SentMessage: { type: object, required: [id, duplicate], properties: { id: { type: string }, duplicate: { type: boolean } } }
+    ReceiveMessages:
+      type: object
+      additionalProperties: false
+      properties: { max: { type: integer, minimum: 1, maximum: 10, default: 1 }, waitSeconds: { type: integer, minimum: 0, maximum: 20, default: 0 } }
+    PeekedMessage:
+      type: object
+      required: [id, body, attributes, sentAt]
+      properties: { id: { type: string }, body: { type: string }, attributes: { type: object, additionalProperties: { type: string } }, sentAt: { type: string, format: date-time } }
+    ReceivedMessage:
+      allOf:
+        - { $ref: '#/components/schemas/PeekedMessage' }
+        - { type: object, required: [receipt, receiveCount], properties: { receipt: { type: string }, receiveCount: { type: integer } } }
+    MessageList:
+      type: object
+      required: [stats, items]
+      properties:
+        stats:
+          type: object
+          required: [messages, inFlight, oldestAgeSeconds, deadLettered]
+          properties: { messages: { type: integer }, inFlight: { type: integer }, oldestAgeSeconds: { type: [integer, 'null'] }, deadLettered: { type: integer } }
+        items: { type: array, items: { $ref: '#/components/schemas/PeekedMessage' } }
+    SendEmail:
+      type: object
+      required: [from, to, subject]
+      additionalProperties: false
+      properties:
+        from: { type: string }
+        to: { type: array, minItems: 1, items: { type: string } }
+        cc: { type: array, items: { type: string } }
+        bcc: { type: array, items: { type: string } }
+        replyTo: { type: string }
+        subject: { type: string, maxLength: 998 }
+        text: { type: string }
+        html: { type: string }
+    EmailSummary:
+      type: object
+      required: [id, from, to, subject, sentAt, sizeBytes, relay]
+      properties:
+        id: { type: string }
+        from: { type: string }
+        to: { type: array, items: { type: string } }
+        subject: { type: string }
+        sentAt: { type: string, format: date-time }
+        sizeBytes: { type: integer }
+        relay: { type: string, enum: [captured, relayed], description: "relayed: handed to the relay; a refusal shows in the service's logs" }
+    Email:
+      allOf:
+        - { $ref: '#/components/schemas/EmailSummary' }
+        - type: object
+          required: [cc, bcc, replyTo, text, html, headers]
+          properties:
+            cc: { type: array, items: { type: string } }
+            bcc: { type: array, items: { type: string } }
+            replyTo: { type: string }
+            text: { type: string }
+            html: { type: string }
+            headers: { type: object, additionalProperties: { type: array, items: { type: string } } }
+    CreateResourceRequest:
+      type: object
+      required: [kind, name, spec]
+      additionalProperties: false
+      properties:
+        kind: { $ref: '#/components/schemas/Kind' }
+        name: { type: string, pattern: '^[a-z][a-z0-9-]{1,38}[a-z0-9]$' }
+        project: { type: string, description: 'The project to create in (ADR-035); default "default"; immutable' }
+        spec:
+          description: The spec for the given kind.
+          anyOf:
+            - { $ref: '#/components/schemas/AppSpec' }
+            - { $ref: '#/components/schemas/DatabaseSpec' }
+            - { $ref: '#/components/schemas/CacheSpec' }
+            - { $ref: '#/components/schemas/BucketSpec' }
+            - { $ref: '#/components/schemas/SecretSpec' }
+            - { $ref: '#/components/schemas/DomainSpec' }
+            - { $ref: '#/components/schemas/JobSpec' }
+            - { $ref: '#/components/schemas/BackupSpec' }
+            - { $ref: '#/components/schemas/NetworkSpec' }
+            - { $ref: '#/components/schemas/FirewallSpec' }
+            - { $ref: '#/components/schemas/LoadBalancerSpec' }
+            - { $ref: '#/components/schemas/ZoneSpec' }
+            - { $ref: '#/components/schemas/RecordSpec' }
+            - { $ref: '#/components/schemas/VMSpec' }
+            - { $ref: '#/components/schemas/VolumeSpec' }
+            - { $ref: '#/components/schemas/SnapshotSpec' }
+            - { $ref: '#/components/schemas/QueueSpec' }
+            - { $ref: '#/components/schemas/TopicSpec' }
+            - { $ref: '#/components/schemas/SearchSpec' }
+            - { $ref: '#/components/schemas/TranscoderSpec' }
+            - { $ref: '#/components/schemas/CDNSpec' }
+            - { $ref: '#/components/schemas/EmailSpec' }
+            - { $ref: '#/components/schemas/DashboardSpec' }
+            - { $ref: '#/components/schemas/AlertSpec' }
+            - { $ref: '#/components/schemas/ChannelSpec' }
+            - { $ref: '#/components/schemas/LogExportSpec' }
+            - { $ref: '#/components/schemas/SecretStoreSpec' }
+            - { $ref: '#/components/schemas/TunnelSpec' }
+    MetricData:
+      type: object
+      required: [from, to, stepSeconds, items]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        stepSeconds: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            required: [metric, unit, points]
+            properties:
+              metric: { type: string }
+              unit: { type: string, enum: [cores, bytes, bytesPerSecond, perSecond, count, seconds, milliseconds, percent] }
+              points: { type: array, items: { type: object, required: [t, v], properties: { t: { type: integer }, v: { type: number }, max: { type: number } } } }
+    TestResult:
+      type: object
+      required: [ok, items]
+      properties:
+        ok: { type: boolean }
+        items: { type: array, items: { type: object, required: [target, ok, message], properties: { target: { type: string }, ok: { type: boolean }, message: { type: string } } } }
+    Incident:
+      type: object
+      required: [id, subject, startedAt, resolvedAt, value, message, notifications]
+      properties:
+        id: { type: string }
+        subject: { type: string }
+        startedAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        value: { type: [number, 'null'] }
+        message: { type: string }
+        notifications: { type: array, items: { type: object, required: [channel, event, status, error], properties: { channel: { type: string }, event: { type: string }, status: { type: string, enum: [pending, sent, failed] }, error: { type: string } } } }
+    NotificationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, event, alert, subject, status, attempts, lastError, createdAt, sentAt]
+            properties:
+              id: { type: string }
+              event: { type: string, enum: [firing, resolved, repeat, test] }
+              alert: { type: string }
+              subject: { type: string }
+              status: { type: string, enum: [pending, sent, failed] }
+              attempts: { type: integer }
+              lastError: { type: string }
+              createdAt: { type: string, format: date-time }
+              sentAt: { type: [string, 'null'], format: date-time }
+    DashboardSpec:
+      type: object
+      required: [widgets]
+      additionalProperties: false
+      properties:
+        widgets: { type: array, minItems: 1, maxItems: 24, items: { type: object, required: [title, metric, resources], properties: { title: { type: string }, metric: { type: string }, resources: { type: array, items: { type: string } } } } }
+    AlertSpec:
+      type: object
+      required: [condition, channels]
+      additionalProperties: false
+      properties:
+        condition:
+          type: object
+          required: [type, resources]
+          properties:
+            type: { type: string, enum: [metric, crash_loop, failed, run_failed] }
+            resources: { type: array, minItems: 1, maxItems: 10, items: { type: string, description: 'kind/name, or machine for a machine metric' } }
+            metric: { type: string }
+            operator: { type: string, enum: [above, below] }
+            threshold: { type: number }
+            forMinutes: { type: integer, minimum: 1, maximum: 60 }
+            restarts: { type: integer, minimum: 1, maximum: 100 }
+            windowMinutes: { type: integer, minimum: 1, maximum: 120 }
+        channels: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+        repeatMinutes: { type: integer, minimum: 0, maximum: 1440 }
+        enabled: { type: boolean }
+    ChannelSpec:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [email, webhook, slack, discord, telegram] }
+        email: { type: object, required: [service, from, to], properties: { service: { type: string }, from: { type: string }, to: { type: array, items: { type: string } } } }
+        webhook: { type: object, required: [url], properties: { url: { type: string }, secret: { type: string } } }
+        secret: { type: string, description: 'Slack and Discord: the secret holding the webhook URL; Telegram: the bot token' }
+        chatId: { type: string }
+    LogExportSpec:
+      type: object
+      required: [destination]
+      additionalProperties: false
+      properties:
+        sources: { type: array, maxItems: 50, items: { type: string } }
+        filter: { type: string, maxLength: 512 }
+        flushSeconds: { type: integer, minimum: 5, maximum: 300 }
+        destination:
+          type: object
+          description: Exactly one destination
+          properties:
+            bucket: { $ref: '#/components/schemas/BucketFolder' }
+            s3: { type: object, required: [endpoint, bucket, credentialsSecret], properties: { endpoint: { type: string }, region: { type: string }, bucket: { type: string }, prefix: { type: string }, credentialsSecret: { type: string } } }
+            http: { type: object, required: [url], properties: { url: { type: string }, headersSecret: { type: string } } }
+            otlp: { type: object, required: [endpoint], properties: { endpoint: { type: string }, headersSecret: { type: string } } }
+            loki: { type: object, required: [url], properties: { url: { type: string }, headersSecret: { type: string }, labels: { type: object, additionalProperties: { type: string } } } }
+    SecretStoreSpec:
+      type: object
+      required: [provider]
+      additionalProperties: false
+      properties:
+        provider: { type: string, enum: [vault, onepassword, aws, doppler, infisical] }
+        refreshSeconds: { type: integer, minimum: 60, maximum: 86400 }
+        vault: { type: object, required: [address, tokenSecret], properties: { address: { type: string }, mount: { type: string }, namespace: { type: string }, tokenSecret: { type: string } } }
+        onepassword: { type: object, required: [connectUrl, vault, tokenSecret], properties: { connectUrl: { type: string }, vault: { type: string }, tokenSecret: { type: string } } }
+        aws: { type: object, required: [region, credentialsSecret], properties: { region: { type: string }, credentialsSecret: { type: string }, endpoint: { type: string } } }
+        doppler: { type: object, required: [tokenSecret], properties: { tokenSecret: { type: string }, endpoint: { type: string } } }
+        infisical: { type: object, required: [projectId, environment, credentialsSecret], properties: { siteUrl: { type: string }, projectId: { type: string }, environment: { type: string }, path: { type: string }, credentialsSecret: { type: string } } }
+    Step: { type: object, required: [name, state], properties: { name: { type: string }, state: { type: string, enum: [pending, active, done, failed] } } }
+    Resource:
+      type: object
+      required: [id, project, kind, name, generation, ownerId, spec, status, outputs, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        project: { type: string }
+        kind: { $ref: '#/components/schemas/Kind' }
+        name: { type: string }
+        generation: { type: integer }
+        ownerId: { type: [string, 'null'] }
+        stack: { type: [string, 'null'], description: 'The ID of the stack this resource is a member of (v0.8)' }
+        spec: { type: object, description: "The kind's spec; a secret returns an empty object, or its source when synced from a secret store" }
+        status:
+          type: object
+          required: [phase, message, observedGeneration, attempts, steps, lastTransitionAt]
+          properties:
+            phase: { $ref: '#/components/schemas/Phase' }
+            message: { type: string }
+            observedGeneration: { type: integer }
+            attempts: { type: integer }
+            steps: { type: array, items: { $ref: '#/components/schemas/Step' } }
+            lastTransitionAt: { type: string, format: date-time }
+        outputs: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ResourceList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Resource' } }
+        nextCursor: { type: [string, 'null'] }
+    Event:
+      type: object
+      required: [id, type, message, createdAt]
+      properties: { id: { type: integer }, type: { type: string }, message: { type: string }, createdAt: { type: string, format: date-time } }
+    LogLine:
+      type: object
+      required: [time, stream, message]
+      properties: { time: { type: string, format: date-time }, stream: { type: string, enum: [stdout, stderr] }, message: { type: string } }

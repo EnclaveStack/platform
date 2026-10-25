@@ -1,0 +1,34 @@
+name: wordpress
+title: WordPress
+description: A WordPress site with its MySQL database and a volume for uploads, themes and plugins.
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "Serve the site at this host name, with HTTPS.", type: hostname }
+  - { name: memoryMiB, title: Memory (MiB), type: number, default: 512 }
+resources:
+  - kind: database
+    name: db
+    spec: { engine: mysql, version: "8.4" }
+  - kind: volume
+    name: content
+    spec: { type: filesystem }
+  - kind: app
+    name: ""
+    spec:
+      image: wordpress:7.1.3-apache
+      port: 80
+      memoryMiB: "${param:memoryMiB}"
+      env:
+        WORDPRESS_DB_HOST: "${host:database/db}"
+        WORDPRESS_DB_USER: "${ident:db}"
+        WORDPRESS_DB_NAME: "${ident:db}"
+      secretEnv:
+        WORDPRESS_DB_PASSWORD: "${name:db}-password"
+      volumes: [{ volume: "${name:content}", path: /var/www/html/wp-content }]
+  - kind: domain
+    name: site
+    when: "${param:domain}"
+    spec: { hostname: "${param:domain}", app: "${name:}" }
+outputs:
+  url: "https://${param:domain}"
+  admin: "https://${param:domain}/wp-admin/"

@@ -9,10 +9,10 @@
 | Version | v2 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -62,5 +62,5 @@ Security/compliance findings and defect classes follow the remediation track: **
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v2 | 2026-10-20 | Homecloud | §2 — Dependabot PRs exempt from the `## Docs update` body rule (title and other body rules still apply) |
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v2 | 2026-10-20 | EnclaveStack | §2 — Dependabot PRs exempt from the `## Docs update` body rule (title and other body rules still apply) |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |

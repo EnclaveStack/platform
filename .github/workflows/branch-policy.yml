@@ -38,7 +38,7 @@ jobs:
           echo "    source : $HEAD_REF"
           echo "    target : $BASE_REF"
           echo ""
-          echo "  Homecloud's promotion path is one-way and has no shortcut (L0-002 §4.2):"
+          echo "  EnclaveStack's promotion path is one-way and has no shortcut (L0-002 §4.2):"
           echo ""
           echo "    feature/fix branch  ->  develop  ->  main"
           echo ""

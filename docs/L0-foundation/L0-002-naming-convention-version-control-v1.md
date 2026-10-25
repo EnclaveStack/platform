@@ -6,13 +6,13 @@
 | Document ID | L0-002-naming-convention-version-control-v1 |
 | Layer | L0 — Foundation Standards |
 | Status | Final |
-| Version | v1 |
+| Version | v2 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Last Updated | 2026-10-23 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -99,9 +99,11 @@ All lowercase, hyphens only, 2–6 words. Same three-tier ID check: an existing 
 | PR-only, no force-push, linear history on `develop`, merge-commit-only on `main` | rulesets `main-develop-protection`, `main-protection` |
 | `main`/`develop` cannot be deleted | `main-develop-undeletable` |
 | CI must pass | required status checks in both rulesets |
+| **Only the maintainer merges**: every PR into `develop` or `main` needs a code owner's approval; stale approvals are dismissed on push | `require_code_owner_review` in both rulesets + `.github/CODEOWNERS`; the organisation admin is the only bypass actor, in `pull_request` mode |
+| Only the maintainer creates, moves or deletes release tags (`v*`) | ruleset `release-tags` |
 | **Only `develop` may PR into `main`** | `.github/workflows/branch-policy.yml` — a ruleset cannot see a PR's head branch |
 
-These are **rulesets, not classic branch protection**; `gh api repos/.../branches/<b>/protection` returns 404 by design. Inspect with `gh api repos/soupler-labs/<repo>/rulesets`.
+These are **rulesets, not classic branch protection**; `gh api repos/.../branches/<b>/protection` returns 404 by design. Inspect with `gh api repos/EnclaveStack/<repo>/rulesets`.
 
 ## 5 · Releases (SemVer)
 
@@ -115,4 +117,5 @@ kebab-case for every new filename. Code/schema artifacts that belong to a layer 
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |
+| v2 | 2026-10-23 | EnclaveStack | §4.3: code-owner approval on `develop` and `main`, the maintainer as the only bypass, and the `release-tags` ruleset, for the public repository. Contributor workflow in `CONTRIBUTING.md`. |

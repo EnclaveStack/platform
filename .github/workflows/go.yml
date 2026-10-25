@@ -1,0 +1,127 @@
+name: Go and End-to-End Tests
+
+# (Named "Go and end-to-end" until 2026-10-22.)
+# Test levels from L5-002 that need more than the governance template's ci.yml: static analysis,
+# race-detected tests with coverage, OpenTofu acceptance, browser e2e, real-engine e2e and load.
+# Every job runs on every pull request, the real-engine e2e and load test included (L5-002 §5), and every job
+# name is a required check in .github/governance/rulesets/*.json; rename a job and rename it there in the same PR.
+# Pull requests only: every commit reaches develop or main through a PR, which already ran these checks, so a
+# push trigger would run them a second time on the same commit (L4-002 §1). Use "Run workflow" for a one-off.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Go Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go vet -tags docker ./internal/engine/docker/ && go vet -tags e2e ./tests/e2e/ && go vet -tags "e2e machines" ./tests/e2e/
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: Generated console contract is current
+        run: go run ./cmd/gencontracts && git diff --exit-code -- console/src/api/generated.ts
+
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out | tail -1
+
+  provider:
+    name: Provider Acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - run: make provider-acceptance TOFU=$(command -v tofu)
+
+  console-e2e:
+    name: Console E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @enclavestack/console exec playwright install --with-deps chrome
+      # Compile the server here: on a cold runner `go run` alone outlasts Playwright's web server timeout.
+      - run: go build -o /dev/null ./cmd/enclave
+      - run: pnpm --filter @enclavestack/console e2e
+
+  machines-e2e:
+    name: Machines E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Two machines (L4-002 §5): the server in a container, a Docker-in-Docker agent (privileged).
+      - run: make e2e-machines
+
+  engine-e2e:
+    name: Engine E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - run: make engine-docker
+      # VMs (ADR-025): QEMU with KVM, which GitHub's Linux runners offer once /dev/kvm is opened to the user.
+      - name: Enable KVM and install QEMU
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils
+      - run: make engine-qemu
+      - run: make e2e
+
+  load:
+    name: Load Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: grafana/setup-k6-action@v1
+      # A fifth of the full load: on a shared runner p95 at 50 + 10 users is luck (L5-003 §2).
+      - run: DURATION=30s READ_VUS=10 WRITE_VUS=2 tests/load/run.sh --quiet

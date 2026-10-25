@@ -6,13 +6,13 @@
 | Document ID | L0-001-master-document-template-v1 |
 | Layer | L0 — Foundation Standards |
 | Status | Final |
-| Version | v1 |
+| Version | v2 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Last Updated | 2026-10-22 |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -35,8 +35,8 @@ The canonical skeleton for every governed document in every layer (L0–L7). SIV
 | Last Updated | YYYY-MM-DD |
 | Owner | Full Name — Role |
 | Reviewers | Full Name — Role |
-| Copyright | © YYYY Org. All rights reserved. |
-| License | Proprietary |
+| Copyright | © YYYY Soupler |
+| License | Apache-2.0 |
 ---
 ```
 
@@ -44,7 +44,7 @@ The canonical skeleton for every governed document in every layer (L0–L7). SIV
 |---|---|
 | Document ID | Equals the filename (minus `.md`). SIVE fails on a mismatch. |
 | Version | Equals the newest row of the document's own Version history. Header and table are two renderings of one fact. |
-| Last Updated | Bumped on every edit. The layer registry row must match (SIVE checks it). |
+| Last Updated | Bumped on every edit, except a licence sweep of the `Copyright`/`License` header fields (`L0-008` §1). The layer registry row must match (SIVE checks it). |
 | Owner | One accountable person or team — never a list. |
 | Status | Draft → In Review → Final. Dependents may rely on Final only. |
 
@@ -71,4 +71,5 @@ The canonical skeleton for every governed document in every layer (L0–L7). SIV
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Initial release from soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Initial release from soupler-governance-template v1.2.1 |
+| v2 | 2026-10-22 | Soupler | Skeleton header: `© YYYY Soupler`, `Apache-2.0` (`L0-008` v2); a licence sweep doesn't bump Last Updated |

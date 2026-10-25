@@ -2,7 +2,7 @@
 # Printed into every Claude Code session by .claude/settings.json (SessionStart hook).
 # A rule in CLAUDE.md can be forgotten mid-session; this puts the gate in front of the agent at the start.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-echo "GOVERNANCE BRIEF — homecloud-platform (Homecloud)"
+echo "GOVERNANCE BRIEF — platform (EnclaveStack)"
 echo "  Branch: $BRANCH"
 case "$BRANCH" in
   main|develop) echo "  !! You are on a protected branch. Never commit here. Cut <type>/<slug> from develop (ask the user before creating a branch)." ;;

@@ -1,12 +1,30 @@
+<!--
+Title: a Conventional Commit, e.g. `fix(reconciler): retry a database stuck in provisioning after a restart`.
+Target: `develop`. Only the `develop` → `main` promotion (titled `release: …`) targets `main`.
+How to fill this in: CONTRIBUTING.md → "Opening a pull request".
+-->
+
 ## Summary
-- <!-- concise summary bullet -->
+- <!-- what changed and why, in a few bullets -->
 
 ## Issues
-- Closes #<!-- issue number, if one exists -->
+- Closes #<!-- the issue this finishes; it closes on merge -->
 - Relates to #<!-- optional -->
+
+## Surfaces
+<!-- tick every one this touches; a capability isn't done until all three can use it -->
+- [ ] Web console
+- [ ] CLI (`enclave`)
+- [ ] OpenTofu provider
+- [ ] HTTP API / `pkg/api` contract
+- [ ] None of these (docs, CI, internal only)
 
 ## Test plan
 - `<!-- the command(s) you actually ran -->`
+- <!-- what you checked by hand in `make demo`: the happy path and at least one error path -->
+
+## Screenshots
+<!-- before / after, for anything visible in the console; delete this section otherwise -->
 
 ## Docs update
 - Status: `UPDATED`
@@ -35,5 +53,6 @@
 
 ### Code
 - [ ] Tests added/updated; at least one fails without the change
-- [ ] No secrets, no hardcoded local paths
+- [ ] Ran the feature in `make demo` and found no `"level":"error"` in the server log
+- [ ] No secrets, no hardcoded local paths; secrets never reach responses, events or logs
 - [ ] Shared logic lives in a shared package/module — nothing copied between places (L0-009)

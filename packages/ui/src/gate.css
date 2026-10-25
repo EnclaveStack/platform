@@ -1,0 +1,24 @@
+/*
+ * The gate's own pages (L2.5-002 §21, ADR-053): the sign-in card a visitor meets on a public hostname, served
+ * by the control plane, not the console. Tokens only; `make embed` copies tokens.css followed by this file into
+ * internal/gate, where a test keeps the copy identical.
+ */
+
+.es-gate { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: var(--es-s-4); background: var(--es-bg); color: var(--es-ink); font-family: var(--es-font); font-size: var(--es-text-base); }
+.es-gate * { box-sizing: border-box; }
+.es-gate-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: var(--es-s-4); padding: var(--es-s-8) var(--es-s-6); background: var(--es-surface); border-radius: var(--es-r-lg); box-shadow: var(--es-shadow-card); }
+.es-gate-brand { display: flex; align-items: center; gap: var(--es-s-2); font-weight: var(--es-weight-heavy); font-size: var(--es-text-md); color: var(--es-ink); }
+.es-gate-brand svg { color: var(--es-accent); flex: none; }
+.es-gate-title { margin: 0; font-size: var(--es-text-xl); font-weight: var(--es-weight-bold); line-height: 1.3; overflow-wrap: anywhere; }
+.es-gate-host { font-family: var(--es-mono); font-weight: var(--es-weight-medium); }
+.es-gate-lede { margin: 0; color: var(--es-muted); line-height: 1.5; }
+.es-gate-form { display: flex; flex-direction: column; gap: var(--es-s-3); }
+.es-gate-label { display: flex; flex-direction: column; gap: var(--es-s-1); font-size: var(--es-text-sm); font-weight: var(--es-weight-semibold); }
+.es-gate-input { width: 100%; min-height: 44px; padding: 0 var(--es-s-3); border: 1px solid var(--es-hair-strong); border-radius: var(--es-r-sm); background: var(--es-panel); color: var(--es-ink); font: inherit; }
+.es-gate-input:focus { outline: 2px solid var(--es-accent); outline-offset: 1px; }
+.es-gate-button { min-height: 44px; border: 0; border-radius: var(--es-r-pill); background: var(--es-act); color: var(--es-on-act); font: inherit; font-weight: var(--es-weight-semibold); cursor: pointer; }
+.es-gate-button:hover { background: var(--es-act-hover); }
+.es-gate-button-quiet { background: var(--es-surface-2); color: var(--es-ink); }
+.es-gate-button-quiet:hover { background: var(--es-sunk); }
+.es-gate-banner { margin: 0; padding: var(--es-s-3); border-radius: var(--es-r-sm); background: var(--es-bad-bg); color: var(--es-bad-ink); font-size: var(--es-text-sm); line-height: 1.5; }
+.es-gate-foot { margin: 0; color: var(--es-subtle); font-size: var(--es-text-xs); line-height: 1.5; }

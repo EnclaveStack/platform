@@ -1,0 +1,66 @@
+/* EnclaveStack design system: the overview, section summaries, guides and Find (L2.5-001 §7, L2.5-002 §16). */
+
+/* ── Stat tiles ─────────────────────────────────────── */
+.es-stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--es-s-3); }
+.es-stat {
+  display: grid; align-content: start; gap: 6px; min-width: 0; padding: var(--es-s-4) var(--es-s-5);
+  background: var(--es-surface); border-radius: var(--es-r-lg); box-shadow: inset 0 0 0 1px var(--es-hair), var(--es-shadow-card);
+}
+.es-stat { transition: transform var(--es-normal) var(--es-ease), box-shadow var(--es-normal) var(--es-ease); }
+.es-stat:hover { transform: translateY(-2px); }
+.es-stat-label { display: flex; align-items: center; gap: var(--es-s-2); font-size: var(--es-text-sm); font-weight: var(--es-weight-semibold); color: var(--es-muted); }
+.es-stat-icon { display: inline-flex; color: var(--es-subtle); }
+.es-stat-icon svg { width: 16px; height: 16px; }
+.es-stat-value { font-size: var(--es-text-2xl); font-weight: var(--es-weight-bold); letter-spacing: -0.01em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.es-stat-note { font-size: var(--es-text-sm); color: var(--es-subtle); }
+.es-stat-bad .es-stat-value, .es-stat-bad .es-stat-icon { color: var(--es-bad-ink); }
+.es-stat-ok .es-stat-icon { color: var(--es-ok-ink); }
+
+/* ── Columns ────────────────────────────────────────── */
+.es-columns { display: grid; gap: var(--es-s-4); align-items: start; min-width: 0; }
+.es-columns > * { min-width: 0; }
+.es-columns-main-side { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.es-columns-even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .es-columns-main-side, .es-columns-even { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Guides (CON-67) ────────────────────────────────── */
+.es-guide-part {
+  --es-guide-tone: var(--es-guide-what);
+  position: relative; display: flex; flex-direction: column; gap: var(--es-s-3); padding: var(--es-s-5) var(--es-s-6) var(--es-s-5) calc(var(--es-s-6) + 4px);
+  border-radius: var(--es-r-lg); background: color-mix(in srgb, var(--es-guide-tone) 7%, var(--es-surface));
+  box-shadow: inset 0 0 0 1px var(--es-hair); overflow: hidden;
+}
+.es-guide-part::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--es-guide-tone); }
+.es-guide-what { --es-guide-tone: var(--es-guide-what); }
+.es-guide-when { --es-guide-tone: var(--es-guide-when); }
+.es-guide-how { --es-guide-tone: var(--es-guide-how); }
+.es-guide-example { --es-guide-tone: var(--es-guide-example); }
+.es-guide-note { --es-guide-tone: var(--es-guide-note); }
+.es-guide-title { margin: 0; font-size: var(--es-text-lg); font-weight: var(--es-weight-bold); letter-spacing: -0.01em; }
+.es-guide-body { display: flex; flex-direction: column; gap: var(--es-s-3); color: var(--es-ink); font-size: var(--es-text-md); line-height: var(--es-leading-normal); max-width: 80ch; }
+.es-guide-body p { margin: 0; }
+.es-guide-steps, .es-guide-bullets { margin: 0; padding-left: var(--es-s-6); display: flex; flex-direction: column; gap: var(--es-s-2); }
+.es-guide-steps li::marker { font-weight: var(--es-weight-bold); color: var(--es-guide-tone); }
+.es-guide-bullets li::marker { color: var(--es-guide-tone); }
+
+/* ── Find (CON-62) ──────────────────────────────────── */
+.es-finder-hint { display: inline-flex; align-items: center; gap: var(--es-s-2); min-height: 40px; min-width: min(320px, 50vw); padding: 0 var(--es-s-3) 0 var(--es-s-4);
+  border-radius: var(--es-r-pill); border: 1px solid var(--es-hair-strong); background: var(--es-surface); color: var(--es-subtle); cursor: pointer;
+  font: inherit; font-size: var(--es-text-sm); transition: border-color var(--es-fast) var(--es-ease); }
+.es-finder-hint:hover { border-color: var(--es-subtle); }
+.es-finder-hint svg { width: 16px; height: 16px; }
+.es-finder-hint kbd { margin-left: auto; padding: 1px 6px; border-radius: var(--es-r-xs); background: var(--es-surface-2); font-family: var(--es-mono); font-size: var(--es-text-xs); color: var(--es-muted); }
+.es-finder { position: absolute; left: 50%; top: 12vh; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); max-height: 70vh;
+  display: flex; flex-direction: column; background: var(--es-surface); border-radius: var(--es-r-xl); box-shadow: var(--es-shadow-pop); overflow: hidden;
+  animation: es-rise var(--es-normal) var(--es-ease) both; }
+.es-finder-field { padding: var(--es-s-3); border-bottom: 1px solid var(--es-hair); }
+.es-finder-results { list-style: none; margin: 0; padding: var(--es-s-2); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.es-finder-option { display: flex; align-items: center; gap: var(--es-s-3); padding: var(--es-s-2) var(--es-s-3); border-radius: var(--es-r-sm); cursor: pointer; color: var(--es-ink); }
+.es-finder-option[aria-selected='true'] { background: var(--es-accent-soft); color: var(--es-accent-ink); }
+.es-finder-option-meta { margin-left: auto; font-size: var(--es-text-xs); color: var(--es-subtle); white-space: nowrap; }
+.es-finder-empty { padding: var(--es-s-6); text-align: center; color: var(--es-subtle); font-size: var(--es-text-sm); }
+
+/* ── Motion (CON-68): CSS only, off under reduced motion (components.css) ── */
+@keyframes es-rise { from { opacity: 0; transform: translateY(6px); } }

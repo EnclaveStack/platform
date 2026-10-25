@@ -1,0 +1,23 @@
+name: uptime-kuma
+title: Uptime Kuma
+description: A status page and uptime monitor, keeping its data in a volume.
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "Serve the status page at this host name, with HTTPS.", type: hostname }
+resources:
+  - kind: volume
+    name: data
+    spec: { type: filesystem }
+  - kind: app
+    name: ""
+    spec:
+      image: louislam/uptime-kuma:2.5.6
+      port: 3001
+      memoryMiB: 256
+      volumes: [{ volume: "${name:data}", path: /app/data }]
+  - kind: domain
+    name: site
+    when: "${param:domain}"
+    spec: { hostname: "${param:domain}", app: "${name:}" }
+outputs:
+  url: "https://${param:domain}"

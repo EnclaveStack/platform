@@ -9,10 +9,10 @@
 | Version | v1 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-20 |
-| Owner | Soupler Labs |
-| Reviewers | Soupler Labs |
-| Copyright | © 2026 Soupler Labs. All rights reserved. |
-| License | MIT |
+| Owner | Soupler |
+| Reviewers | Soupler |
+| Copyright | © 2026 Soupler |
+| License | Apache-2.0 |
 ---
 
 ## Purpose
@@ -25,19 +25,19 @@ Registry of every artifact in layer **L0 — Foundation Standards** (naming, tem
 
 | Document ID | Title | Status | Version | Owner | Last Updated |
 |---|---|---|---|---|---|
-| L0-001-master-document-template-v1 | Master Document Template | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-002-naming-convention-version-control-v1 | Naming Convention, Versioning & Git Conventions | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-003-error-message-api-standards-v1 | Error Message & API Error Standards | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-004-tone-of-voice-writing-guidelines-v1 | Tone of Voice & Writing Guidelines | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-005-github-governance-standard-v1 | GitHub Governance Standard | Final | v2 | Soupler Labs | 2026-10-20 |
-| L0-006-change-propagation-governance-v1 | Change Propagation Governance | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-007-portable-documentation-framework-v1 | Documentation Framework | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-008-copyright-headers-standard-v1 | Copyright Headers Standard | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-009-engineering-principles-v1 | Engineering Principles | Final | v1 | Soupler Labs | 2026-10-20 |
-| L0-010-org-repo-topology-v1 | Repository Topology | Final | v1 | Soupler Labs | 2026-10-20 |
+| L0-001-master-document-template-v1 | Master Document Template | Final | v2 | Soupler | 2026-10-22 |
+| L0-002-naming-convention-version-control-v1 | Naming Convention, Versioning & Git Conventions | Final | v2 | Soupler | 2026-10-23 |
+| L0-003-error-message-api-standards-v1 | Error Message & API Error Standards | Final | v1 | Soupler | 2026-10-20 |
+| L0-004-tone-of-voice-writing-guidelines-v1 | Tone of Voice & Writing Guidelines | Final | v1 | Soupler | 2026-10-20 |
+| L0-005-github-governance-standard-v1 | GitHub Governance Standard | Final | v2 | Soupler | 2026-10-20 |
+| L0-006-change-propagation-governance-v1 | Change Propagation Governance | Final | v1 | Soupler | 2026-10-20 |
+| L0-007-portable-documentation-framework-v1 | Documentation Framework | Final | v1 | Soupler | 2026-10-20 |
+| L0-008-copyright-headers-standard-v1 | Copyright Headers Standard | Final | v2 | Soupler | 2026-10-22 |
+| L0-009-engineering-principles-v1 | Engineering Principles | Final | v1 | Soupler | 2026-10-20 |
+| L0-010-org-repo-topology-v1 | Repository Topology | Final | v1 | Soupler | 2026-10-20 |
 
 ## Version history
 
 | Version | Date | Author | Summary of changes |
 |---|---|---|---|
-| v1 | 2026-10-20 | Homecloud | Registry created by soupler-governance-template v1.2.1 |
+| v1 | 2026-10-20 | EnclaveStack | Registry created by soupler-governance-template v1.2.1 |

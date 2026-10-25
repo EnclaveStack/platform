@@ -3,7 +3,7 @@ name: doc-governance
 description: Use BEFORE starting any change in this repo — feature, fix, refactor, infra, or docs. Classifies the change, finds the owning documentation layer, enforces doc-first ordering, and lists the surface artifacts to update. Also use when creating or editing any file under docs/.
 ---
 
-# Doc governance — how every change is made in homecloud-platform
+# Doc governance — how every change is made in platform
 
 This repo is governed by the **L0–L7 documentation layer system**. Code is the last thing that changes, never the first. Follow these steps for *every* task, however small. If a step does not apply, say so explicitly — do not skip silently.
 
