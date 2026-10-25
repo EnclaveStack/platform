@@ -4,6 +4,14 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-25
+
+The first published release: install it with `brew install enclavestack/tap/enclave` or `curl -fsSL https://enclavestack.soupler.com/install.sh | sh` (ADR-054). It holds everything built so far, v0.2 – v0.9: apps, databases, caches, buckets and secrets; domains, deploys, backups, jobs and builds; networking; VMs and volumes; queues, topics, search, transcoders, CDN and email; projects, metrics, alerts, log export and secret stores; many machines and the catalogue; public access; connections. Each entry below gives its date.
+
+### Changed
+- **Version 0.9.0 (2026-10-25).** The Unreleased entries moved under this version, so the Release workflow has its notes (`L4-002` §3). The version a source build reports without a tag is now `0.10.0-dev`.
+
+
 ### Added
 - **Install without building (2026-10-25, ADR-054, `L4-002` §3, issue #3).** Pushing a `vX.Y.Z` tag on `main` now publishes a release, so EnclaveStack installs without Go, Node or the source:
   - `brew install enclavestack/tap/enclave`.
