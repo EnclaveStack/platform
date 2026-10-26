@@ -4,7 +4,25 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-25
+
+The first published release: install it with `brew install enclavestack/tap/enclave` or `curl -fsSL https://enclavestack.soupler.com/install.sh | sh` (ADR-054). It holds everything built so far, v0.2 – v0.9: apps, databases, caches, buckets and secrets; domains, deploys, backups, jobs and builds; networking; VMs and volumes; queues, topics, search, transcoders, CDN and email; projects, metrics, alerts, log export and secret stores; many machines and the catalogue; public access; connections. Each entry below gives its date.
+
+### Changed
+- **Version 0.9.0 (2026-10-25).** The Unreleased entries moved under this version, so the Release workflow has its notes (`L4-002` §3). The version a source build reports without a tag is now `0.10.0-dev`.
+
+
 ### Added
+- **Install without building (2026-10-25, ADR-054, `L4-002` §3, issue #3).** Pushing a `vX.Y.Z` tag on `main` now publishes a release, so EnclaveStack installs without Go, Node or the source:
+  - `brew install enclavestack/tap/enclave`.
+  - `curl -fsSL https://enclavestack.soupler.com/install.sh | sh`. It works out the system and CPU and refuses an archive that doesn't match the release's `SHA256SUMS`. It also checks the signature when `cosign` is installed.
+  - `ghcr.io/enclavestack/enclave`, a server image for Linux servers.
+
+  - **Built:** `make release VERSION=vX.Y.Z` (`cmd/release`, `internal/release`) builds `enclave` (console embedded) and `terraform-provider-enclave` for macOS and Linux on Intel and ARM. Its output is archives, the provider in the registry's layout, `SHA256SUMS`, the Homebrew formula and `install.sh` (`scripts/install.sh`). The build is static and reproducible. The new **Release** workflow checks that the tag is on `main` and has its `CHANGELOG.md` section. It then builds, signs `SHA256SUMS` keyless with cosign, creates the GitHub release, pushes the image for both Linux architectures and commits the formula to `EnclaveStack/homebrew-tap`.
+  - **Fixed:** `enclave agent join --install` from a Homebrew install wrote the versioned `Cellar` path into its service, which the next `brew upgrade` deletes. It now writes Homebrew's stable `opt` path.
+  - **Docs:** ADR-054; `L4-002` §3 (release steps, one-time set-up, checking a download, a bad release); `L5-001` §2j; `L5-004` §1a (install), §8.9 (the OpenTofu plug-in from a release) and §10.3 (updating); `L3-001` §2; the README's Quick start; `CONTRIBUTING.md`'s Releases.
+  - **Tested:** `internal/release` covers the names, checksums, archive contents, the provider layout, reproducibility and the formula. It also runs the install script against a fake release: the latest or a chosen version, a changed archive, an unsupported system, and a missing or malformed version. `internal/agent` covers the stable path. By hand: `make release VERSION=v0.0.0-test` built all four platforms, and the install script installed it from a local web server. The installed `enclave server` served its embedded console. The server image ran against Docker Desktop and created a ready Redis cache. The formula installed from a local tap, with `brew test`, `brew style` and `brew audit` clean. `tofu init` took the provider from the release zip.
+  - **Still to do by hand:** create `EnclaveStack/homebrew-tap` and the `HOMEBREW_TAP_TOKEN` secret, push the first tag, make the GHCR package public, and walk `L5-001` §2j on a clean Mac and Linux machine. Publishing the provider on the OpenTofu registry still needs its mirror repository (ADR-009). The website's copy of `install.sh` and its getting-started guide change separately in `marketing`.
 - **Connections: use a hosted Supabase project from your apps (2026-10-25, `L2-015`).** The catalogue has a new **Connections** category for services that run elsewhere. Its first entry, **Supabase**, asks for the project's address, the `anon` key and, if wanted, the `service_role` key and the database connection string, and keeps them as secrets of one stack (`<stack>-url`, `-anonkey`, `-servicekey`, `-dburl`). It runs nothing. The stack's outputs say which secret holds each variable (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`), ready for an app's `--secret-env`. It works from the console (CON-81), the CLI (`enclave stack create --template supabase`) and OpenTofu (`enclave_stack`).
   - **Docs:** `L2-015` (CNX-01 – CNX-07), `L2-001` CON-81, `L3-002` §17, `L2.5-002` §22, `L5-001` §2i, `L5-004` §16.
   - **Every template:** an output that uses a `secret` parameter left empty is now left out, so outputs never name a secret that doesn't exist (CNX-05).

@@ -6,7 +6,7 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v31 |
+| Version | v32 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-25 |
 | Owner | Soupler |
@@ -522,6 +522,24 @@ Run the live checks with a phone on **mobile data** (not the home Wi-Fi), so the
 - **Error paths**: no anon key → `422` naming `spec.secretParameters.anonKey`; `https://abcd.supabase.co` as the address → `422` (a host name); deleting the stack while `api` uses `supa-url` → `409 RESOURCE_IN_USE`; after `api` is gone, deleting it removes every `supa-*` secret.
 - **Automated**: `internal/catalogue` (`TestSupabaseConnection`, `TestOutputsSkipEmptySecretParameters`), `internal/httpapi` (`TestASupabaseConnection`), the console's `mock-machines.test.ts` and `machines-flows.test.tsx`.
 
+## 2j · Install walk-throughs (ADR-054, issue #3)
+
+### Feature: Install without building — `L4-002` §3, ADR-054
+- **Prerequisites**: a published `vX.Y.Z` release; a clean Mac and a clean Linux machine (a fresh VM or user is enough), each with no Go, Node or pnpm; Docker for `enclave server`.
+- **Install script**: `curl -fsSL https://enclavestack.soupler.com/install.sh | sh` → prints the version, the OS and CPU it picked and `Checksum OK`, then installs `enclave` into `/usr/local/bin` (or `~/.local/bin` with a note to add it to `PATH`). `enclave version` prints `enclave X.Y.Z`. `ENCLAVE_VERSION=vX.Y.Z` installs that version, and `ENCLAVE_INSTALL_DIR=$HOME/bin` installs there.
+- **Homebrew**: `brew install enclavestack/tap/enclave` → `enclave version` prints `X.Y.Z`. `brew test enclave` passes. After the next release, `brew upgrade enclave` moves to it.
+- **Run it**: `enclave server` → the console opens on `http://127.0.0.1:7070` from the installed program, which shows the console is embedded. Create a database and an app, as in §2.
+- **Agent from an installed program**: on a second computer installed with Homebrew, `enclave agent join … --install` → the service file names `…/opt/enclave/bin/enclave`, not `…/Cellar/…`. After `brew upgrade enclave`, the agent is still running (`enclave agent status`).
+- **Server image**: on Linux, `docker run -d -v /var/run/docker.sock:/var/run/docker.sock -v enclave-data:/data -p 7070:7070 ghcr.io/enclavestack/enclave:X.Y.Z server --listen 0.0.0.0:7070 --data-dir /data` → the console answers on port 7070 and the setup code is in `docker logs`.
+- **Signatures**: `cosign verify-blob` from `L4-002` §3.2 → `Verified OK`.
+- **Error paths**:
+  - A changed archive (or a wrong `SHA256SUMS` line) → the script stops with `checksum mismatch` and installs nothing.
+  - An unsupported system (`ENCLAVE_OS=windows`) → it names what is supported.
+  - A version that doesn't exist (`ENCLAVE_VERSION=v9.9.9`) → it says that download failed and installs nothing.
+  - A tag not on `main`, or a version with no `CHANGELOG.md` section → `release.yml` fails before building.
+- **Automated**: `internal/release` (names, checksums, the provider manifest, the formula, archive contents, and the install script against a fake release: install, checksum mismatch, unsupported OS and CPU, a missing version), `internal/agent` (`TestStableExecutable`). `make release VERSION=v0.0.0-test` builds all four platforms locally.
+- **Known local limitations**: signing and publishing run only in `release.yml` on a real tag. Locally, `make release` and a local web server stand in for GitHub's downloads.
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -561,3 +579,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v29 | 2026-10-24 | Soupler | §2g: the rail keeps every control inside it and opens again; guides link to the website's full guide |
 | v30 | 2026-10-24 | Soupler | §2h public access walk-throughs: quick links and the gate, Cloudflare tunnels and public domains, edge machines and relays, each with live checks from a phone on mobile data (L2-014) |
 | v31 | 2026-10-25 | Soupler | §2i connections: the Supabase connection walk-through (L2-015) |
+| v32 | 2026-10-25 | Soupler | §2j install walk-throughs: install script, Homebrew, the server image, agent services after an upgrade, signatures (ADR-054) |

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"html"
+	"os"
 	"path/filepath"
 )
 
@@ -13,6 +14,25 @@ type ServiceUnit struct {
 	Path    string
 	Content string
 	Enable  []string
+}
+
+// StableExecutable is the path a service should start for the program at exe. Homebrew runs a formula from
+// a versioned folder (<prefix>/Cellar/enclave/X.Y.Z/bin/enclave) that the next upgrade deletes, so a service
+// naming it would stop starting; Homebrew's <prefix>/opt/enclave link always points at the installed version
+// (ADR-054). Any other path is returned as it is.
+func StableExecutable(exe string) string {
+	bin := filepath.Dir(exe)
+	version := filepath.Dir(bin)
+	formula := filepath.Dir(version)
+	cellar := filepath.Dir(formula)
+	if filepath.Base(bin) != "bin" || filepath.Base(cellar) != "Cellar" {
+		return exe
+	}
+	opt := filepath.Join(filepath.Dir(cellar), "opt", filepath.Base(formula), "bin", filepath.Base(exe))
+	if _, err := os.Stat(opt); err != nil {
+		return exe
+	}
+	return opt
 }
 
 // Unit renders the service for goos, running exe with the agent's state directory.
