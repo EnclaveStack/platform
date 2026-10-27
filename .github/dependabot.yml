@@ -1,0 +1,50 @@
+# Monthly version updates, one grouped PR per ecosystem, into develop (L4-002 §6). Security updates for
+# known vulnerabilities are separate: they're on in the repository's settings and open as soon as needed.
+# Every update PR runs the full suite like any other; nothing merges untested. The images EnclaveStack runs
+# for users (PostgreSQL, Redis, MinIO…) are pinned in Go code and upgraded by hand, not here.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    groups:
+      go:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: npm # the pnpm workspace: console and packages/*
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    groups:
+      javascript:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+      include: scope

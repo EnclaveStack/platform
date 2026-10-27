@@ -6,9 +6,9 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v9 |
+| Version | v10 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-25 |
+| Last Updated | 2026-10-27 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -99,6 +99,13 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 
 `make engine-docker` runs with `-timeout 30m` (`go test` stops a package after 10 minutes by default, and this package takes about that long; a run on 2026-10-23 was killed at 10 m while every test was passing, and left `es-system-probe` behind). The rolling-deploy test's failure message lists what Docker reports for each container, so a CI failure says why the driver and the daemon disagree.
 
+## 6 · Dependency updates (Dependabot)
+
+- **Security updates** are on in the repository's settings (Settings › Code security). When a library in use has a published vulnerability, Dependabot raises an alert and opens a PR for the fixed version as soon as one exists.
+- **Version updates** follow `.github/dependabot.yml`: once a month, one grouped PR each for Go modules (`go.mod`), the pnpm workspace (`console`, `packages/*`), GitHub Actions and the `Dockerfile` base image, all into `develop`. Titles are `chore(deps): …`, which the PR Metadata check accepts. Dependabot PRs skip the `## Docs update` block (`L0-005` §2).
+- An update PR runs every required check, as any PR does, and is merged only when they pass. One that breaks a test is fixed in its own PR or closed. Dependabot doesn't retry a version that was closed.
+- Not covered: the images EnclaveStack runs for users (PostgreSQL, Redis, MinIO and the rest) are pinned in Go code, and pinned by digest where ADR-013 says so. They are upgraded by hand, with their own tests.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -112,3 +119,4 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 | v7 | 2026-10-22 | Soupler | Load Test runs at 10 + 2 virtual users (`L5-003` v3); Console E2E compiles the server before Playwright starts it |
 | v8 | 2026-10-23 | Soupler | `make engine-docker` runs with a 30 m timeout; the rolling-deploy failure message lists Docker's container states |
 | v9 | 2026-10-25 | Soupler | §3 rewritten as built (ADR-054): `release.yml` on a `v*` tag, `make release`, keyless signing, GHCR image, Homebrew tap; one-time set-up, checking a download, a bad release (issue #3) |
+| v10 | 2026-10-27 | Soupler | §6 dependency updates: security updates on, monthly grouped version updates into `develop` (`.github/dependabot.yml`) |
