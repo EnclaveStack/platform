@@ -221,7 +221,8 @@ func TestMeshBetweenTwoEngines(t *testing.T) {
 	call := func(what string, cmd ...string) string {
 		t.Helper()
 		var out string
-		deadline := time.Now().Add(20 * time.Second)
+		// A minute: on a busy runner the stand-in's name can take longer than 20 s to reach A's resolver.
+		deadline := time.Now().Add(time.Minute)
 		for time.Now().Before(deadline) {
 			res, err := a.exec(ctx, engine.RevisionName(cli, 1), cmd, nil)
 			if err == nil && res.ExitCode == 0 && strings.Contains(res.Output, "from-b") {

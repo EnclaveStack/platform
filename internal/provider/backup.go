@@ -35,6 +35,7 @@ type s3Model struct {
 type sourceModel struct {
 	Database types.String `tfsdk:"database"`
 	Cache    types.String `tfsdk:"cache"`
+	Volume   types.String `tfsdk:"volume"`
 }
 
 type backupModel struct {
@@ -70,23 +71,24 @@ func (r *backupResource) Configure(_ context.Context, req resource.ConfigureRequ
 
 func (r *backupResource) ConfigValidators(context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		resourcevalidator.ExactlyOneOf(path.MatchRoot("source").AtName("database"), path.MatchRoot("source").AtName("cache")),
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("source").AtName("database"), path.MatchRoot("source").AtName("cache"), path.MatchRoot("source").AtName("volume")),
 		resourcevalidator.ExactlyOneOf(path.MatchRoot("bucket"), path.MatchRoot("s3")),
 	}
 }
 
 func (r *backupResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Scheduled backups of a database or cache to a bucket or external S3. Run history and restores are not part of state; use the CLI or console.",
+		Description: "Scheduled backups of a database, cache or filesystem volume to a bucket or external S3. Run history and restores are not part of state; use the CLI or console.",
 		Attributes: map[string]schema.Attribute{
 			"id":      idAttr(),
 			"name":    nameAttr("backup"),
 			"project": projectAttr(),
 			"source": schema.SingleNestedAttribute{Required: true, PlanModifiers: []planmodifier.Object{objectplanmodifier.RequiresReplace()},
-				Description: "What to back up: { database = … } or { cache = … }. Changing it replaces the backup.",
+				Description: "What to back up: { database = … }, { cache = … } or { volume = … }. Changing it replaces the backup.",
 				Attributes: map[string]schema.Attribute{
-					"database": schema.StringAttribute{Optional: true, Description: "A database. Exactly one of database or cache."},
-					"cache":    schema.StringAttribute{Optional: true, Description: "A cache. Exactly one of database or cache."},
+					"database": schema.StringAttribute{Optional: true, Description: "A database. Exactly one of database, cache or volume."},
+					"cache":    schema.StringAttribute{Optional: true, Description: "A cache. Exactly one of database, cache or volume."},
+					"volume":   schema.StringAttribute{Optional: true, Description: "A filesystem volume (disks use snapshots). Exactly one of database, cache or volume."},
 				}},
 			"bucket": schema.StringAttribute{Optional: true, Description: "Store backups in this EnclaveStack bucket. Exactly one of bucket or s3."},
 			"s3": schema.SingleNestedAttribute{Optional: true, Description: "Store backups in external S3. Exactly one of bucket or s3.",
@@ -120,7 +122,7 @@ func (m *backupModel) spec() api.BackupSpec {
 	s := api.BackupSpec{Destination: m.destination(), Prefix: m.Prefix.ValueString(), Schedule: m.Schedule.ValueString(), TimeZone: m.TimeZone.ValueString(),
 		Keep: int(m.Keep.ValueInt64()), KeepDays: int(m.KeepDays.ValueInt64()), TimeoutSeconds: int(m.Timeout.ValueInt64())}
 	if m.Source != nil {
-		s.Source = api.BackupSource{Database: m.Source.Database.ValueString(), Cache: m.Source.Cache.ValueString()}
+		s.Source = api.BackupSource{Database: m.Source.Database.ValueString(), Cache: m.Source.Cache.ValueString(), Volume: m.Source.Volume.ValueString()}
 	}
 	return s
 }
@@ -138,7 +140,7 @@ func (m *backupModel) fill(r api.Resource) {
 	var s api.BackupSpec
 	_ = json.Unmarshal(r.Spec, &s)
 	m.ID, m.Name = types.StringValue(r.ID), types.StringValue(r.Name)
-	m.Source = &sourceModel{Database: strOrNull(s.Source.Database), Cache: strOrNull(s.Source.Cache)}
+	m.Source = &sourceModel{Database: strOrNull(s.Source.Database), Cache: strOrNull(s.Source.Cache), Volume: strOrNull(s.Source.Volume)}
 	m.Bucket, m.S3 = strOrNull(s.Destination.Bucket), nil
 	if d := s.Destination.S3; d != nil {
 		m.S3 = &s3Model{Endpoint: types.StringValue(d.Endpoint), Region: strOrNull(d.Region), Bucket: types.StringValue(d.Bucket),

@@ -39,21 +39,28 @@ type databaseModel struct {
 	Name    types.String `tfsdk:"name"`
 	Project types.String `tfsdk:"project"`
 	placementModel
-	Engine         types.String   `tfsdk:"engine"`
-	Version        types.String   `tfsdk:"version"`
-	NativePort     types.Int64    `tfsdk:"engine_port_native"`
-	Host           types.String   `tfsdk:"host"`
-	Port           types.Int64    `tfsdk:"port"`
-	InternalHost   types.String   `tfsdk:"internal_host"`
-	InternalPort   types.Int64    `tfsdk:"internal_port"`
-	DatabaseName   types.String   `tfsdk:"database_name"`
-	Username       types.String   `tfsdk:"username"`
-	PasswordSecret types.String   `tfsdk:"password_secret"`
-	Network        types.String   `tfsdk:"network"`
-	Subnet         types.String   `tfsdk:"subnet"`
-	PrivateIP      types.String   `tfsdk:"private_ip"`
-	PrivateDNS     types.String   `tfsdk:"private_dns"`
-	Timeouts       timeouts.Value `tfsdk:"timeouts"`
+	Engine         types.String `tfsdk:"engine"`
+	Version        types.String `tfsdk:"version"`
+	NativePort     types.Int64  `tfsdk:"engine_port_native"`
+	Host           types.String `tfsdk:"host"`
+	Port           types.Int64  `tfsdk:"port"`
+	InternalHost   types.String `tfsdk:"internal_host"`
+	InternalPort   types.Int64  `tfsdk:"internal_port"`
+	DatabaseName   types.String `tfsdk:"database_name"`
+	Username       types.String `tfsdk:"username"`
+	PasswordSecret types.String `tfsdk:"password_secret"`
+	Network        types.String `tfsdk:"network"`
+	Subnet         types.String `tfsdk:"subnet"`
+	PrivateIP      types.String `tfsdk:"private_ip"`
+	PrivateDNS     types.String `tfsdk:"private_dns"`
+	// v0.10 (L2-016 TF-56, ADR-058)
+	TLS                  types.Bool     `tfsdk:"tls"`
+	Exposed              types.Bool     `tfsdk:"exposed"`
+	InitScript           types.String   `tfsdk:"init_script"`
+	CACertificate        types.String   `tfsdk:"ca_certificate"`
+	CertificateExpiresAt types.String   `tfsdk:"certificate_expires_at"`
+	ExposedAddresses     types.List     `tfsdk:"exposed_addresses"`
+	Timeouts             timeouts.Value `tfsdk:"timeouts"`
 }
 
 type databaseResource struct{ base }
@@ -96,7 +103,16 @@ func (r *databaseResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"subnet":             placementSubnetAttr(),
 			"private_ip":         schema.StringAttribute{Computed: true, Description: "Address in its network."},
 			"private_dns":        stableString("Name it answers to inside its network: <name>.database.internal."),
-			"timeouts":           timeoutsAttr(ctx),
+			"tls": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
+				Description: "Encrypted connections only, with a certificate from EnclaveStack's database CA (PostgreSQL and MySQL). Changing it restarts the database."},
+			"exposed": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
+				Description: "Reachable from other computers on the machine's addresses; needs tls."},
+			"init_script": schema.StringAttribute{Optional: true, Description: "SQL (MongoDB: JavaScript) run once when the database is first made. Changing it replaces the database (and its data).",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"ca_certificate":         schema.StringAttribute{Computed: true, Description: "The database CA's certificate (PEM), to verify the server with (with tls)."},
+			"certificate_expires_at": schema.StringAttribute{Computed: true, Description: "When the server certificate ends (RFC 3339); it is renewed 30 days before."},
+			"exposed_addresses":      schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: "host:port addresses other computers connect to (with exposed)."},
+			"timeouts":               timeoutsAttr(ctx),
 		},
 	}
 }
@@ -112,6 +128,17 @@ func (m *databaseModel) fill(r api.Resource) {
 	m.DatabaseName, m.Username, m.PasswordSecret = outString(r, "database"), outString(r, "username"), outString(r, "passwordSecret")
 	m.Network, m.Subnet = strOrNull(spec.Network), strOrNull(spec.Subnet)
 	m.PrivateIP, m.PrivateDNS = outString(r, "privateIp"), outString(r, "privateDns")
+	m.TLS, m.Exposed, m.InitScript = types.BoolValue(spec.TLS), types.BoolValue(spec.Exposed), strOrNull(spec.InitScript)
+	m.CACertificate, m.CertificateExpiresAt = outString(r, "caCertificate"), outString(r, "certificateExpiresAt")
+	var addrs []string
+	if raw, ok := r.Outputs["exposedAddresses"].([]any); ok {
+		for _, a := range raw {
+			if s, ok := a.(string); ok {
+				addrs = append(addrs, s)
+			}
+		}
+	}
+	m.ExposedAddresses, _ = types.ListValueFrom(context.Background(), types.StringType, addrs)
 }
 
 func (r *databaseResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -123,7 +150,8 @@ func (r *databaseResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 	res, err := r.createAndWait(ctx, plan.Project, plan.Name.ValueString(), api.DatabaseSpec{Engine: plan.Engine.ValueString(), Version: plan.Version.ValueString(),
-		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString(), Placed: plan.placed()}, timeout)
+		Network: plan.Network.ValueString(), Subnet: plan.Subnet.ValueString(), Placed: plan.placed(),
+		TLS: plan.TLS.ValueBool(), Exposed: plan.Exposed.ValueBool(), InitScript: plan.InitScript.ValueString()}, timeout)
 	if res.ID != "" {
 		plan.fill(res)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...) // keep a failed resource in state so it can be fixed or destroyed
@@ -165,6 +193,12 @@ func (r *databaseResource) Update(ctx context.Context, req resource.UpdateReques
 	}
 	patch := placementPatch(plan.Network, state.Network, plan.Subnet, state.Subnet)
 	maps.Copy(patch, plan.machinePatch(&state.placementModel))
+	if !plan.TLS.Equal(state.TLS) {
+		patch["tls"] = plan.TLS.ValueBool()
+	}
+	if !plan.Exposed.Equal(state.Exposed) {
+		patch["exposed"] = plan.Exposed.ValueBool()
+	}
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {
 		resp.Diagnostics.Append(apiDiag("Update database", err))

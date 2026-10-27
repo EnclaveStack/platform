@@ -179,6 +179,8 @@ type createOpts struct {
 	outputs map[string]any
 	note    string
 	stack   string
+	// owner makes the resource managed by another: a preview by its app, its domain by the preview (ADR-056).
+	owner string
 }
 
 // createIn validates and inserts a resource, with the managed resources it needs, in a transaction the
@@ -206,6 +208,9 @@ func (s *Resources) createIn(ctx context.Context, q *store.Queries, p Principal,
 	now := s.Now()
 	r := &domain.Resource{ID: domain.NewResourceID(req.Kind), Project: project, Kind: req.Kind, Name: req.Name, Generation: 1, Phase: api.PhasePending,
 		Steps: domain.NewSteps(domain.StepNames[req.Kind]...), LastTransitionAt: now, CreatedAt: now, UpdatedAt: now, Outputs: o.outputs, Stack: o.stack}
+	if o.owner != "" {
+		r.OwnerID = &o.owner
+	}
 	if err := s.setSpec(r, spec); err != nil {
 		return nil, nil, err
 	}
@@ -415,6 +420,11 @@ func (s *Resources) resolveRefs(ctx context.Context, q *store.Queries, r *domain
 			return nil, err
 		}
 		refs = append(refs, buckets...)
+		previews, err := previewRefs(ctx, q, project, sp)
+		if err != nil {
+			return nil, err
+		}
+		refs = append(refs, previews...)
 		if sp.Source == nil || sp.Source.CredentialsSecret == "" {
 			return refs, nil
 		}
@@ -459,6 +469,8 @@ func (s *Resources) resolveRefs(ctx context.Context, q *store.Queries, r *domain
 		}
 		buckets, err := s.bucketRefs(ctx, q, project, sp.BucketAccess)
 		return append(append(append(refs, placed...), mounted...), buckets...), err
+	case api.FunctionSpec:
+		return s.functionRefs(ctx, q, project, sp)
 	case api.NetworkSpec:
 		return nil, s.networkOverlaps(ctx, q, r, sp)
 	case api.FirewallSpec:
@@ -537,10 +549,15 @@ func (s *Resources) backupRefs(ctx context.Context, q *store.Queries, project st
 		}
 		refs = append(refs, store.Ref{ToID: res.ID, Field: field})
 	}
-	if b.Source.Database != "" {
-		need(api.KindDatabase, b.Source.Database, "spec.source")
-	} else {
-		need(api.KindCache, b.Source.Cache, "spec.source")
+	need(b.Source.Kind(), b.Source.Name(), "spec.source")
+	if b.Source.Volume != "" { // a disk is copied by snapshots (ADR-059)
+		if v, err := q.GetResourceByName(ctx, project, api.KindVolume, b.Source.Volume); err == nil {
+			var vs api.VolumeSpec
+			if json.Unmarshal(v.Spec, &vs) == nil && vs.Type == api.VolumeDisk {
+				missing = append(missing, api.FieldError{Field: "spec.source.volume", Code: api.FieldNotAllowed,
+					Message: fmt.Sprintf("The volume %s is a disk. Back up disks with a snapshot.", b.Source.Volume)})
+			}
+		}
 	}
 	if b.Destination.Bucket != "" {
 		need(api.KindBucket, b.Destination.Bucket, "spec.destination.bucket")
@@ -668,9 +685,13 @@ func (s *Resources) updateIn(ctx context.Context, q *store.Queries, p Principal,
 	if r.Stack != "" && !fromStack {
 		return nil, false, partOfStack(ctx, q, r)
 	}
+	if r.OwnerID != nil && isPreview(r) {
+		return nil, false, &api.Error{Code: api.CodeImmutableField, Message: "This preview follows its app. Change the app, then redeploy the preview or push to its pull request.",
+			Details: []api.FieldError{{Field: "spec", Code: api.FieldImmutable, Message: "Previews can't be edited."}}}
+	}
 	if r.OwnerID != nil {
-		return nil, false, &api.Error{Code: api.CodeImmutableField, Message: "EnclaveStack manages this secret; it changes with its owner.",
-			Details: []api.FieldError{{Field: "spec", Code: api.FieldImmutable, Message: "Managed secrets can't be edited."}}}
+		return nil, false, &api.Error{Code: api.CodeImmutableField, Message: fmt.Sprintf("EnclaveStack manages this %s; it changes with its owner.", r.Kind),
+			Details: []api.FieldError{{Field: "spec", Code: api.FieldImmutable, Message: "Managed resources can't be edited."}}}
 	}
 	if len(bytes.TrimSpace(req.Spec)) == 0 || bytes.Equal(bytes.TrimSpace(req.Spec), []byte("null")) {
 		return nil, false, api.Validation([]api.FieldError{{Field: "spec", Code: api.FieldRequired, Message: "Send the fields to change."}})
@@ -791,19 +812,27 @@ func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch 
 			queued, out = ids, r
 			return err
 		}
-		if r.OwnerID != nil {
+		if r.OwnerID != nil && !isPreview(r) {
 			owner := "EnclaveStack"
 			if *r.OwnerID != domain.SystemOwner {
 				if o, err := q.GetResource(ctx, *r.OwnerID); err == nil {
 					owner = fmt.Sprintf("the %s %s", o.Kind, o.Name)
 				}
 			}
-			return &api.Error{Code: api.CodeResourceInUse, Message: fmt.Sprintf("This secret is managed by %s and is deleted with it.", owner)}
+			return &api.Error{Code: api.CodeResourceInUse, Message: fmt.Sprintf("This %s is managed by %s and is deleted with it.", r.Kind, owner)}
+		}
+		// An app's previews, and a preview's domain, go with it (PRV-09).
+		cascade, err := ownedRuntimes(ctx, q, r.ID)
+		if err != nil {
+			return err
 		}
 		deps, err := q.Dependants(ctx, r.ID)
 		if err != nil {
 			return err
 		}
+		deps = slices.DeleteFunc(deps, func(d *domain.Resource) bool {
+			return slices.ContainsFunc(cascade, func(c *domain.Resource) bool { return c.ID == d.ID })
+		})
 		if len(deps) > 0 {
 			e := &api.Error{Code: api.CodeResourceInUse, Message: fmt.Sprintf("%s is still used. Remove it from these first.", r.Name)}
 			for _, d := range deps {
@@ -812,15 +841,17 @@ func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch 
 			return e
 		}
 		now := s.Now()
-		if err := r.SetPhase(api.PhaseDeleting, "", now); err != nil {
-			return err
-		}
-		r.Attempts, r.NextAttemptAt, r.RequestedAction, r.UpdatedAt = 0, nil, "", now
-		if err := q.SaveResource(ctx, r); err != nil {
-			return err
+		for _, c := range cascade {
+			if c.Phase == api.PhaseDeleting {
+				continue
+			}
+			if err := markDeleting(ctx, q, c, now, fmt.Sprintf("Deleted with the %s %s, by %s.", r.Kind, r.Name, p.Actor())); err != nil {
+				return err
+			}
+			queued = append(queued, c.ID)
 		}
 		out = r
-		return q.AddEvent(ctx, r.ID, "deleting", "Deletion requested by "+p.Actor()+".", now)
+		return markDeleting(ctx, q, r, now, "Deletion requested by "+p.Actor()+".")
 	})
 	if err != nil {
 		return api.Resource{}, err
@@ -830,6 +861,18 @@ func (s *Resources) Delete(ctx context.Context, p Principal, id string, ifMatch 
 	}
 	s.Log.Info("resource deletion requested", "resource_id", out.ID, "by", p.Key())
 	return out.ToAPI(), nil
+}
+
+// markDeleting moves a resource to deleting, with an event.
+func markDeleting(ctx context.Context, q *store.Queries, r *domain.Resource, now time.Time, why string) error {
+	if err := r.SetPhase(api.PhaseDeleting, "", now); err != nil {
+		return err
+	}
+	r.Attempts, r.NextAttemptAt, r.RequestedAction, r.UpdatedAt = 0, nil, "", now
+	if err := q.SaveResource(ctx, r); err != nil {
+		return err
+	}
+	return q.AddEvent(ctx, r.ID, "deleting", why, now)
 }
 
 // Action records restart, redeploy or reconcile for the reconciler (CP-08, CP-11).
@@ -949,6 +992,9 @@ func (s *Resources) Logs(ctx context.Context, id string, tail int, buildLog bool
 	if r.Kind == api.KindTranscoder {
 		return api.LogList{}, api.NewError(api.CodeActionNotSupported, "A transcoder's output is kept with each run: see its runs.")
 	}
+	if r.Kind == api.KindFunction {
+		return api.LogList{}, api.NewError(api.CodeActionNotSupported, "A function's output is kept with each run: see its runs.")
+	}
 	if slices.Contains([]api.Kind{api.KindBucket, api.KindSecret, api.KindDomain, api.KindVolume, api.KindSnapshot, api.KindQueue, api.KindTopic,
 		api.KindDashboard, api.KindAlert, api.KindChannel, api.KindLogExport, api.KindSecretStore}, r.Kind) {
 		return api.LogList{}, api.NewError(api.CodeActionNotSupported, fmt.Sprintf("A %s has no logs.", r.Kind))
@@ -1017,7 +1063,7 @@ func (s *Resources) RunNow(ctx context.Context, p Principal, id string) (api.Run
 		if r.Kind == api.KindTranscoder {
 			return api.Validation([]api.FieldError{{Field: "key", Code: api.FieldRequired, Message: "Give the object's key to transcode, like videos/intro.mov."}})
 		}
-		if r.Kind != api.KindJob && r.Kind != api.KindBackup {
+		if r.Kind != api.KindJob && r.Kind != api.KindBackup && r.Kind != api.KindFunction {
 			return api.NewError(api.CodeActionNotSupported, fmt.Sprintf("A %s can't be run.", r.Kind))
 		}
 		if r.Phase != api.PhaseReady {
@@ -1027,7 +1073,11 @@ func (s *Resources) RunNow(ctx context.Context, p Principal, id string) (api.Run
 		if err != nil {
 			return err
 		}
-		if js, ok := raw.(api.JobSpec); !ok || js.Overlap == api.OverlapForbid { // backups never overlap
+		if r.Kind == api.KindFunction { // a manual run is one more event, within its concurrency (FN-07)
+			if err := functionHasRoom(ctx, q, r); err != nil {
+				return err
+			}
+		} else if js, ok := raw.(api.JobSpec); !ok || js.Overlap == api.OverlapForbid { // backups never overlap
 			busy, err := q.HasRunningRun(ctx, id)
 			if err != nil {
 				return err
@@ -1038,6 +1088,9 @@ func (s *Resources) RunNow(ctx context.Context, p Principal, id string) (api.Run
 		}
 		now := s.Now()
 		run = &domain.Run{ID: domain.NewID("run"), ResourceID: id, Trigger: api.TriggerManual, Status: api.RunRunning, StartedAt: now}
+		if r.Kind == api.KindFunction {
+			run.Event = json.RawMessage(`{"source":"manual"}`)
+		}
 		if err := q.InsertRun(ctx, run); err != nil {
 			return err
 		}
@@ -1095,7 +1148,7 @@ func (s *Resources) schedulable(ctx context.Context, id string) (*domain.Resourc
 	if err != nil {
 		return nil, err
 	}
-	if r.Kind != api.KindJob && r.Kind != api.KindBackup && r.Kind != api.KindTranscoder {
+	if !slices.Contains(api.RunKinds, r.Kind) {
 		return nil, api.NewError(api.CodeActionNotSupported, fmt.Sprintf("A %s has no runs.", r.Kind))
 	}
 	return r, nil
@@ -1133,10 +1186,7 @@ func (s *Resources) Restore(ctx context.Context, p Principal, id string, req api
 		return api.Resource{}, err
 	}
 	spec := raw.(api.BackupSpec)
-	kind, srcName := api.KindDatabase, spec.Source.Database
-	if spec.Source.Cache != "" {
-		kind, srcName = api.KindCache, spec.Source.Cache
-	}
+	kind, srcName := spec.Source.Kind(), spec.Source.Name()
 	src, err := s.Store.GetResourceByName(ctx, b.Project, kind, srcName)
 	if err != nil {
 		return api.Resource{}, api.NewError(api.CodeRunNotRestorable, fmt.Sprintf("The %s %s no longer exists. Restore into a new one instead.", kind, srcName))
@@ -1145,7 +1195,18 @@ func (s *Resources) Restore(ctx context.Context, p Principal, id string, req api
 	from := fmt.Sprintf(" Restoring from backup %s run %s.", b.Name, run.ID)
 	if req.Mode == api.RestoreNew {
 		// Same engine and settings as the source; the restore runs once it is up.
-		return s.create(ctx, p, api.CreateResourceRequest{Kind: kind, Name: req.Name, Project: b.ProjectName(), Spec: src.Spec}, map[string]any{"pendingRestore": marker}, from)
+		spec := src.Spec
+		if kind == api.KindVolume { // filled from the backup, not from the source's snapshot
+			var vs api.VolumeSpec
+			if err := json.Unmarshal(src.Spec, &vs); err != nil {
+				return api.Resource{}, err
+			}
+			vs.Snapshot = ""
+			if spec, err = json.Marshal(vs); err != nil {
+				return api.Resource{}, err
+			}
+		}
+		return s.create(ctx, p, api.CreateResourceRequest{Kind: kind, Name: req.Name, Project: b.ProjectName(), Spec: spec}, map[string]any{"pendingRestore": marker}, from)
 	}
 	if req.ConfirmName != src.Name {
 		return api.Resource{}, api.Validation([]api.FieldError{{Field: "confirmName", Code: api.FieldNotAllowed,

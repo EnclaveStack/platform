@@ -31,13 +31,13 @@ func TestAWordPressStackFromTheCatalogue(t *testing.T) {
 	admin := env.Setup(t)
 	ctx := context.Background()
 
-	// Six apps, six ways in from the internet (L2-014 TUN-15) and one connection (L2-015 CNX-02).
+	// Six apps, six ways in from the internet (L2-014 TUN-15) and six connections (L2-015 CNX-02, L2-016 CNX-08 – CNX-12).
 	entries, err := admin.Catalogue(ctx)
 	byCategory := map[string]int{}
 	for _, e := range entries {
 		byCategory[e.Category]++
 	}
-	if err != nil || byCategory[api.CategoryApps] != 6 || byCategory[api.CategoryPublicAccess] != 6 || byCategory[api.CategoryConnections] != 1 {
+	if err != nil || byCategory[api.CategoryApps] != 6 || byCategory[api.CategoryPublicAccess] != 6 || byCategory[api.CategoryConnections] != 6 {
 		t.Fatalf("catalogue: %v %v", byCategory, err)
 	}
 	wp, err := admin.CatalogueEntry(ctx, "wordpress", "")

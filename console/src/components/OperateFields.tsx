@@ -33,6 +33,24 @@ const CONDITION_WORDS: Record<ConditionType, [string, string]> = {
   failed: ['Fails', 'Any resource whose state becomes Failed.'],
   run_failed: ['A run fails', 'A run of a job, backup or transcoder ends in failure.'],
   machine_offline: ['A machine goes offline', 'Its agent stops answering for some minutes (v0.8).'],
+  event: ['Something happens', 'Each deploy, build, restore, move or preview, sent once as it happens.'],
+};
+/** The events an event alert can send (L2-016 EVN-02), in plain words. */
+const EVENT_WORDS: Record<(typeof RULES.notifiableEvents)[number], string> = {
+  ready: 'Became ready',
+  redeployed: 'Redeployed',
+  failed: 'Failed',
+  built: 'Built from Git',
+  build_failed: 'A build failed',
+  run_failed: 'A run failed',
+  run_timed_out: 'A run timed out',
+  restored: 'Restored from a backup',
+  rescheduled: 'Moved after its machine went offline',
+  moved: 'Moved to another machine',
+  drift_detected: 'Changed outside EnclaveStack',
+  certificate_renewed: 'Certificate renewed',
+  preview_created: 'A preview was made',
+  preview_deleted: 'A preview was deleted',
 };
 const CHANNEL_WORDS: Record<ChannelType, [string, string]> = {
   email: ['Email', 'Through an email service of this project.'],
@@ -84,6 +102,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
   const [forMinutes, setForMinutes] = useState(String(c?.forMinutes ?? RULES.alertForDefault));
   const [restarts, setRestarts] = useState(String(c?.restarts ?? RULES.alertRestartsDefault));
   const [windowMinutes, setWindowMinutes] = useState(String(c?.windowMinutes ?? RULES.alertWindowDefault));
+  const [condEvents, setCondEvents] = useState<string[]>(c?.events ?? ['redeployed', 'failed']);
   const [alertChannels, setAlertChannels] = useState<string[]>(a.channels ?? []);
   const [repeat, setRepeat] = useState(String(a.repeatMinutes ?? 0));
   const [enabled, setEnabled] = useState(a.enabled !== false);
@@ -143,7 +162,8 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
         if (condType === 'metric') Object.assign(cond, { metric: condMetric, operator, threshold: threshold.trim() === '' ? undefined : Number(threshold), forMinutes: num(forMinutes) });
         if (condType === 'crash_loop') Object.assign(cond, { restarts: num(restarts), windowMinutes: num(windowMinutes) });
         if (condType === 'machine_offline') Object.assign(cond, { forMinutes: num(forMinutes) });
-        const out: AlertSpec = { condition: cond, channels: alertChannels, repeatMinutes: num(repeat) ?? 0 };
+        if (condType === 'event') cond.events = condEvents;
+        const out: AlertSpec = { condition: cond, channels: alertChannels, repeatMinutes: condType === 'event' ? 0 : (num(repeat) ?? 0) };
         if (!enabled) out.enabled = false;
         return out as unknown as Record<string, unknown>;
       }
@@ -344,6 +364,20 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
               </>
             )}
             {condType === 'run_failed' && refPicker('Of', condResources, setCondResources, 'spec.condition.resources', RULES.runKinds as readonly Kind[], false, 'This project has no jobs, backups or transcoders yet.')}
+            {condType === 'event' && (
+              <>
+                <Fieldset legend="Events">
+                  <Stack gap={1}>
+                    {RULES.notifiableEvents.map((ev) => (
+                      <Checkbox key={ev} label={EVENT_WORDS[ev]} checked={condEvents.includes(ev)}
+                        onChange={(e) => setCondEvents(e.target.checked ? [...condEvents, ev] : condEvents.filter((x) => x !== ev))} />
+                    ))}
+                    {err('spec.condition.events') && <Text size="sm" tone="bad" role="alert">{err('spec.condition.events')}</Text>}
+                  </Stack>
+                </Fieldset>
+                {refPicker('Of', condResources, setCondResources, 'spec.condition.resources', null, false, 'This project has no resources yet.')}
+              </>
+            )}
             <Fieldset legend="Notify">
               <Stack gap={1}>
                 {names('channel').length === 0 && <Text size="sm" tone="muted">This project has no channels yet. Create one in Channels first.</Text>}
@@ -353,7 +387,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
                 {err('spec.channels') && <Text size="sm" tone="bad" role="alert">{err('spec.channels')}</Text>}
               </Stack>
             </Fieldset>
-            <FormRow>
+            {condType !== 'event' && <FormRow>
               <Field id="f-repeat" hint="Send the alert again this often while it lasts. Leave it at never to send it once." label="Remind every" error={err('spec.repeatMinutes')}>
                 <Select id="f-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value)}>
                   {[...new Set(['0', '15', '30', '60', '240', '1440', repeat])].map((m) => (
@@ -361,7 +395,7 @@ export function useOperateForm(kind: Kind, existing?: Resource) {
                   ))}
                 </Select>
               </Field>
-            </FormRow>
+            </FormRow>}
             <Checkbox label="On: evaluate and notify" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           </>
         );

@@ -405,11 +405,16 @@ func (d *Driver) copyFilesInto(ctx context.Context, name, dir string, files map[
 
 // copyTar copies files, named under prefix ("" or "dir/", which is made too), to dest in the container.
 func (d *Driver) copyTar(ctx context.Context, name, dest, prefix string, files map[string][]byte, mode int64) error {
+	return d.copyTarOwned(ctx, name, dest, prefix, files, mode, 0)
+}
+
+// copyTarOwned is copyTar with the files (and the directory) owned by uid, as group uid.
+func (d *Driver) copyTarOwned(ctx context.Context, name, dest, prefix string, files map[string][]byte, mode int64, uid int) error {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	epoch := time.Unix(0, 0)
 	if prefix != "" {
-		if err := tw.WriteHeader(&tar.Header{Name: prefix, Mode: 0o755, Typeflag: tar.TypeDir, ModTime: epoch}); err != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: prefix, Mode: 0o755, Typeflag: tar.TypeDir, ModTime: epoch, Uid: uid, Gid: uid}); err != nil {
 			return err
 		}
 	}
@@ -419,7 +424,7 @@ func (d *Driver) copyTar(ctx context.Context, name, dest, prefix string, files m
 	}
 	slices.Sort(names)
 	for _, n := range names {
-		if err := tw.WriteHeader(&tar.Header{Name: prefix + n, Mode: mode, Size: int64(len(files[n])), ModTime: epoch}); err != nil {
+		if err := tw.WriteHeader(&tar.Header{Name: prefix + n, Mode: mode, Size: int64(len(files[n])), ModTime: epoch, Uid: uid, Gid: uid}); err != nil {
 			return err
 		}
 		if _, err := tw.Write(files[n]); err != nil {

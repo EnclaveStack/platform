@@ -40,6 +40,7 @@ Registry of every artifact in layer **L2 — Product Requirements** (personas, P
 | L2-013-bucket-objects-and-readable-details-prd-v1 | Bucket Objects and Readable Details PRD | Draft | v1 | Soupler | 2026-10-24 |
 | L2-014-public-access-prd-v1 | Public Access PRD | Draft | v1 | Soupler | 2026-10-24 |
 | L2-015-connections-prd-v1 | Connections PRD | Draft | v1 | Soupler | 2026-10-25 |
+| L2-016-v0-10-close-the-roadmap-prd-v1 | v0.10 "Close the Roadmap" PRD | Draft | v1 | Soupler | 2026-10-26 |
 
 ## Version history
 

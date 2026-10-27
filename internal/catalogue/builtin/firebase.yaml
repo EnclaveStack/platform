@@ -1,0 +1,22 @@
+name: firebase
+title: Firebase
+category: connections
+signup: https://console.firebase.google.com/
+description: "Your Firebase project's ID and keys, kept as secrets for your apps to use. It runs nothing here: your apps reach Firebase over the internet."
+version: 1.0.0
+parameters:
+  - { name: projectId, title: Project ID, description: "The project ID under Project settings › General, like my-app-1a2b3.", type: string, required: true }
+  - { name: apiKey, title: Web API key, description: "The Web API key under Project settings › General, for apps that use Firebase from browsers.", type: secret }
+  - { name: serviceAccount, title: Service account key, description: "For servers (the Admin SDK): the whole JSON file from Project settings › Service accounts › Generate new private key.", type: secret }
+resources:
+  - kind: secret
+    name: projectid
+    value: "${param:projectId}"
+  - kind: secret
+    name: authdomain
+    value: "${param:projectId}.firebaseapp.com"
+outputs:
+  FIREBASE_PROJECT_ID: "${name:projectid}"
+  FIREBASE_AUTH_DOMAIN: "${name:authdomain}"
+  FIREBASE_API_KEY: "${param:apiKey}"
+  FIREBASE_SERVICE_ACCOUNT: "${param:serviceAccount}"

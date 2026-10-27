@@ -134,7 +134,25 @@ type EnsureInput struct {
 	CDN *CDNConfig
 	// Relay is an email service's relay with its credentials resolved (ADR-032); nil in capture mode.
 	Relay *Relay
+	// TLS is a TLS database's certificate, key and CA (ADR-058); nil without TLS.
+	TLS *TLSFiles
 }
+
+// TLSFiles are a database's server certificate and key, issued by the database CA, and the CA itself.
+type TLSFiles struct {
+	CertPEM  []byte
+	KeyPEM   []byte
+	CAPEM    []byte
+	Serial   string // a new serial recreates the container
+	NotAfter time.Time
+}
+
+// Where a database container finds its TLS files and setup script (ADR-058).
+const (
+	TLSDir     = "/etc/enclave-tls"
+	InitDir    = "/docker-entrypoint-initdb.d"
+	InitScript = "enclave-init"
+)
 
 // CDNConfig is what a CDN's cache container needs (ADR-033). Upstream is host:port on the origin's
 // network; a bucket origin adds the bucket as PathPrefix and the object store's host as HostHeader.
@@ -309,6 +327,8 @@ type JobRun struct {
 	MemoryMiB  int
 	Placement  Placement
 	Mounts     []Mount
+	// Files are written into the container before it starts, by absolute path: a function's event (ADR-055).
+	Files map[string][]byte
 }
 
 // JobResult is how a run ended. Output is the last OutputLimit bytes, stdout and stderr interleaved.

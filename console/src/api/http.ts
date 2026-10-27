@@ -25,6 +25,7 @@ import {
   type LogLine,
   type Machine,
   type MachineSettings,
+  type Preview,
   type SetupStatus,
   type MessageList,
   type ObjectInfo,
@@ -193,6 +194,10 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
     restore: (id, req) => call<Resource>({ method: 'POST', path: `/resources/${enc(id)}/actions/restore`, body: req }),
     listRuns: async (id) => (await call<{ items: Run[] }>({ method: 'GET', path: `/resources/${enc(id)}/runs?limit=50` })).items,
     getRun: (id, runId) => call<RunDetail>({ method: 'GET', path: `/resources/${enc(id)}/runs/${enc(runId)}` }),
+    invoke: (id, event, wait = false) =>
+      call<Run | RunDetail>({ method: 'POST', path: `/resources/${enc(id)}/invoke${wait ? '?wait=true' : ''}`, ...(event === undefined ? {} : { body: event }) }),
+    listPreviews: async (id) => (await call<{ items: Preview[] }>({ method: 'GET', path: `/resources/${enc(id)}/previews` })).items,
+    createPreview: (id, ref, name) => call<Resource>({ method: 'POST', path: `/resources/${enc(id)}/previews`, body: { ref, ...(name ? { name } : {}) } }),
     sendMessage: (id, message) => call<SentMessage>({ method: 'POST', path: `/resources/${enc(id)}/messages`, body: message }),
     listMessages: (id, limit = 20) => call<MessageList>({ method: 'GET', path: `/resources/${enc(id)}/messages?limit=${limit}` }),
     receiveMessages: async (id, max = 1, waitSeconds = 0) =>
@@ -218,7 +223,12 @@ export function createHttpApi(base: string, opts: HttpOptions = {}): EnclaveApi 
     listNotifications: async (id) => (await call<{ items: NotificationRecord[] }>({ method: 'GET', path: `/resources/${enc(id)}/notifications?limit=50` })).items,
     listMachines: async () => (await call<{ items: MachineSummary[] }>({ method: 'GET', path: '/machines' })).items,
     getMachineByName: (name) => call<MachineSummary>({ method: 'GET', path: `/machines/${enc(name)}` }),
-    addMachine: (name, labels, edge) => call<AddedMachine>({ method: 'POST', path: '/machines', body: { name, ...(labels ? { labels } : {}), ...(edge ? { role: 'edge', ...edge } : {}) } }),
+    addMachine: (name, labels, role) =>
+      call<AddedMachine>({
+        method: 'POST',
+        path: '/machines',
+        body: { name, ...(labels ? { labels } : {}), ...(role === undefined ? {} : 'standby' in role ? { role: 'standby' } : { role: 'edge', ...role }) },
+      }),
     updateMachineByName: (name, input) => call<MachineSummary>({ method: 'PATCH', path: `/machines/${enc(name)}`, body: input }),
     removeMachine: async (name, force = false) => {
       await call<unknown>({ method: 'DELETE', path: `/machines/${enc(name)}${force ? '?force=true' : ''}` });

@@ -26,6 +26,8 @@ func DatabasePort(eng string) int {
 // DumpExt is the file extension of a logical backup of spec (ADR-018, ADR-030).
 func DumpExt(spec any) string {
 	switch s := spec.(type) {
+	case api.VolumeSpec: // a filesystem volume's files (ADR-059)
+		return "tar.gz"
 	case api.CacheSpec:
 		return "rdb"
 	case api.DatabaseSpec:

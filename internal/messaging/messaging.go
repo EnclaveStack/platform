@@ -87,6 +87,9 @@ type Delivery struct {
 	Ack        func(context.Context) error
 	Nak        func(ctx context.Context, delay time.Duration) error
 	Term       func(context.Context) error
+	// Progress tells the broker the delivery is still being handled, so it isn't handed out again (a
+	// function's run can outlast the ack wait, ADR-055).
+	Progress func(context.Context) error
 }
 
 // DeadLetter is a queue message that reached its maximum receives. Done acknowledges it once handled.

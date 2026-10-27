@@ -155,6 +155,9 @@ func (g Git) Checkout(ctx context.Context, r Repo, dir string) (string, error) {
 		}
 		return r.Ref, nil
 	}
+	if strings.HasPrefix(r.Ref, "refs/") { // a full ref, like a pull request's head (refs/pull/7/head, ADR-056)
+		return fetchRef(ctx, r, auth, dir)
+	}
 	var lastErr error
 	for _, name := range []plumbing.ReferenceName{plumbing.NewBranchReferenceName(r.Ref), plumbing.NewTagReferenceName(r.Ref)} {
 		_ = os.RemoveAll(dir)
@@ -173,6 +176,39 @@ func (g Git) Checkout(ctx context.Context, r Repo, dir string) (string, error) {
 		return head.Hash().String(), nil
 	}
 	return "", classify(lastErr, r)
+}
+
+// fetchRef checks out a full ref that isn't a branch or tag: fetched alone, one commit deep.
+func fetchRef(ctx context.Context, r Repo, auth transport.AuthMethod, dir string) (string, error) {
+	_ = os.RemoveAll(dir)
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		return "", err
+	}
+	remote, err := repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{r.URL}})
+	if err != nil {
+		return "", err
+	}
+	local := plumbing.ReferenceName("refs/remotes/origin/enclave-checkout")
+	spec := config.RefSpec("+" + r.Ref + ":" + local.String())
+	if err := remote.FetchContext(ctx, &git.FetchOptions{RefSpecs: []config.RefSpec{spec}, Auth: auth, Depth: 1, Tags: git.NoTags}); err != nil {
+		if errors.Is(err, plumbing.ErrReferenceNotFound) || strings.Contains(err.Error(), "couldn't find remote ref") {
+			return "", Permanent(fmt.Errorf("the repository has no ref %q", r.Ref))
+		}
+		return "", classify(err, r)
+	}
+	ref, err := repo.Reference(local, true)
+	if err != nil {
+		return "", err
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return "", err
+	}
+	if err := wt.Checkout(&git.CheckoutOptions{Hash: ref.Hash(), Force: true}); err != nil {
+		return "", err
+	}
+	return ref.Hash().String(), nil
 }
 
 // CleanDir removes a checkout.

@@ -98,7 +98,10 @@ type Reconciler struct {
 	// Broker reaches the message broker as the system user (ADR-029); HTTP delivers webhooks. DeliveryTick
 	// is how often subscriptions are matched with deliverers, TranscodeWatch how often transcoders list
 	// their input folders (DefaultDeliveryTick, DefaultTranscodeWatch).
-	Broker         *messaging.Pool
+	Broker *messaging.Pool
+	// ServerURL is where people reach this control plane, for an app's webhook URL (ADR-056); nil or ""
+	// leaves the path alone.
+	ServerURL      func(ctx context.Context) string
 	HTTP           *http.Client
 	DeliveryTick   time.Duration
 	TranscodeWatch time.Duration
@@ -137,7 +140,9 @@ type Reconciler struct {
 	hashMu    sync.Mutex
 	hashes    map[string]string
 	watchedAt map[string]time.Time
-	startedAt time.Time
+	// lastExpiry is when previews were last checked for expiry (scheduler goroutine only).
+	lastExpiry time.Time
+	startedAt  time.Time
 	// v0.8: the mesh sync's state, one pass at a time, and the addresses moves keep, by resource ID.
 	mesh   meshState
 	meshMu sync.Mutex
@@ -426,9 +431,10 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 		if err != nil {
 			return err
 		}
-	} else if res.Kind == api.KindQueue || res.Kind == api.KindTopic || res.Kind == api.KindCDN || res.Kind == api.KindTranscoder {
+	} else if res.Kind == api.KindQueue || res.Kind == api.KindTopic || res.Kind == api.KindCDN || res.Kind == api.KindTranscoder || res.Kind == api.KindFunction {
 		ensure := map[api.Kind]func(context.Context, *domain.Resource, engine.Reporter) (engine.Outputs, error){
-			api.KindQueue: r.ensureQueue, api.KindTopic: r.ensureTopic, api.KindCDN: r.ensureCDN, api.KindTranscoder: r.ensureTranscoder}[res.Kind]
+			api.KindQueue: r.ensureQueue, api.KindTopic: r.ensureTopic, api.KindCDN: r.ensureCDN, api.KindTranscoder: r.ensureTranscoder,
+			api.KindFunction: r.ensureFunction}[res.Kind]
 		var err error
 		outputs, err = ensure(ctx, res, &progress{r: r, ctx: ctx, res: res, gen: gen})
 		if err != nil {
@@ -490,6 +496,9 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 			in.Spec = s
 		}
 		outputs, err = r.Driver.Ensure(ctx, in, rep)
+		if d, ok := in.Spec.(api.DatabaseSpec); ok && err == nil {
+			outputs = withDatabaseOptions(outputs, d, in.TLS)
+		}
 		if err != nil {
 			if res.Kind == api.KindApp && engine.IsPermanent(err) {
 				// The attempted revision's number is spent even though it was discarded.
@@ -530,13 +539,15 @@ func (r *Reconciler) ensure(ctx context.Context, res *domain.Resource, log *slog
 	}
 	done := r.Now()
 	prevLatest, _ := asInt64(res.Outputs[engine.OutputLatestRevision])
+	prev := res.Outputs
 	res.Outputs = r.withMachine(ctx, res, outputs)
-	if res.Kind == api.KindApp || res.Kind == api.KindJob {
+	if res.Kind == api.KindApp || res.Kind == api.KindJob || res.Kind == api.KindFunction {
 		if spec, _, err := api.NormalizeSpec(res.Kind, res.Spec); err == nil {
 			res.Outputs = withBucketAccess(res, spec)
 		}
 	}
 	if res.Kind == api.KindApp {
+		res.Outputs = r.withPreviewOutputs(ctx, res, prev)
 		res.Outputs = withOutput(res.Outputs, engine.OutputLastDeploy, engine.DeploySucceeded)
 		if n, ok := asInt64(outputs[engine.OutputServingRevision]); ok {
 			res.ServingRevision = n
@@ -632,6 +643,11 @@ func (r *Reconciler) inputs(ctx context.Context, res *domain.Resource) (engine.E
 			return in, err
 		}
 		in.Password = v
+		if d, ok := s.(api.DatabaseSpec); ok && d.TLS {
+			if in.TLS, err = r.databaseTLS(ctx, res, d); err != nil {
+				return in, err
+			}
+		}
 	case api.EmailSpec:
 		v, err := r.secretValue(ctx, res.Project, domain.PasswordSecretFor(res.Kind, res.Name))
 		if err != nil {
@@ -706,6 +722,10 @@ func (r *Reconciler) restart(ctx context.Context, res *domain.Resource, log *slo
 }
 
 func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog.Logger) error {
+	// An app's previews and a preview's domain go first; their rows are only removed once they are gone (PRV-09).
+	if err := r.ownedGone(ctx, res); err != nil {
+		return err
+	}
 	if res.Kind == api.KindDomain {
 		// A public domain takes its record, routing rule and Access application with it (PUB-04).
 		if err := r.leavePublic(ctx, res); err != nil {
@@ -773,7 +793,7 @@ func (r *Reconciler) delete(ctx context.Context, res *domain.Resource, log *slog
 		if err := r.Driver.Delete(ctx, res, os); err != nil {
 			return err
 		}
-		if res.Kind == api.KindApp || res.Kind == api.KindJob {
+		if res.Kind == api.KindApp || res.Kind == api.KindJob || res.Kind == api.KindFunction {
 			if err := r.revokeBucketAccess(ctx, res); err != nil {
 				return err
 			}
@@ -980,7 +1000,7 @@ func (r *Reconciler) CheckDrift(ctx context.Context) {
 	}
 	r.checkRecords(ctx, ready)
 	for _, res := range ready {
-		if res.Kind == api.KindSecret || res.Kind == api.KindJob || res.Kind == api.KindBackup || res.Kind == api.KindStack || isOperateKind(res.Kind) || res.RequestedAction != "" {
+		if res.Kind == api.KindSecret || res.Kind == api.KindJob || res.Kind == api.KindFunction || res.Kind == api.KindBackup || res.Kind == api.KindStack || isOperateKind(res.Kind) || res.RequestedAction != "" {
 			continue // no long-running runtime to drift
 		}
 		if res.Kind == api.KindTunnel {
@@ -1006,6 +1026,9 @@ func (r *Reconciler) CheckDrift(ctx context.Context) {
 		}
 		if res.Kind == api.KindTranscoder {
 			continue // runs, not a runtime
+		}
+		if res.Kind == api.KindDatabase && r.renewDatabaseCert(ctx, res) {
+			continue
 		}
 		var os engine.ObjectStore
 		if res.Kind == api.KindBucket {

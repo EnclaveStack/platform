@@ -20,7 +20,7 @@ type Placed struct {
 }
 
 // PlacedKinds run on one machine each (PLC-01).
-var PlacedKinds = []Kind{KindApp, KindDatabase, KindCache, KindJob, KindLoadBalancer, KindVM, KindVolume, KindSearch, KindEmail}
+var PlacedKinds = []Kind{KindApp, KindDatabase, KindCache, KindJob, KindLoadBalancer, KindVM, KindVolume, KindSearch, KindEmail, KindFunction}
 
 // DataKinds keep data on their machine's disk: they wait for it when it is offline and copy their data
 // when they move (FAIL-03, MOVE-02 – MOVE-04).
@@ -36,14 +36,28 @@ const (
 // MachineStates lists every state.
 var MachineStates = []string{MachineWaiting, MachineOnline, MachineOffline}
 
-// Machine roles (L2-014 EDG-01): an edge machine only relays visitors and never takes placements.
+// Machine roles (L2-014 EDG-01): an edge machine only relays visitors and never takes placements. A standby
+// keeps copies of the control plane and takes over when promoted (L2-016 SBY-01); it never takes
+// placements either.
 const (
-	MachineWorker = "worker"
-	MachineEdge   = "edge"
+	MachineWorker  = "worker"
+	MachineEdge    = "edge"
+	MachineStandby = "standby"
 )
 
 // MachineRoles lists every role.
-var MachineRoles = []string{MachineWorker, MachineEdge}
+var MachineRoles = []string{MachineWorker, MachineEdge, MachineStandby}
+
+// StandbyStaleAfter is how old a standby's last copy may be before its page warns (SBY-03).
+const StandbyStaleAfter = 2 * time.Minute
+
+// StandbyInfo is what a standby holds of the control plane (L3-002 §18.3).
+type StandbyInfo struct {
+	LastCopyAt    *time.Time `json:"lastCopyAt,omitempty"`
+	LastCopyBytes int64      `json:"lastCopyBytes,omitempty"`
+	LastCopyError string     `json:"lastCopyError,omitempty"`
+	Stale         bool       `json:"stale"`
+}
 
 // Machine limits and ports (L3-002 §11.9).
 const (
@@ -84,6 +98,8 @@ func PlacementOf(spec any) (Placed, bool) {
 	case SearchSpec:
 		return s.Placed, true
 	case EmailSpec:
+		return s.Placed, true
+	case FunctionSpec:
 		return s.Placed, true
 	}
 	return Placed{}, false
@@ -165,8 +181,10 @@ type MachineSummary struct {
 	VersionMismatch     bool              `json:"versionMismatch"`
 	Links               []MachineLink     `json:"links"`
 	Message             string            `json:"message"`
-	// Role is worker, or edge for a machine that only relays (L2-014 EDG-01).
+	// Role is worker, edge for a machine that only relays (L2-014 EDG-01), or standby (L2-016 SBY-01).
 	Role string `json:"role"`
+	// Standby is set for a standby: its last copy of the control plane.
+	Standby *StandbyInfo `json:"standby,omitempty"`
 }
 
 // MachineList wraps machines.
@@ -221,6 +239,8 @@ type JoinResponse struct {
 	Certificate string `json:"certificate"`
 	CA          string `json:"ca"`
 	Server      string `json:"server"`
+	// Role tells a standby's agent to keep the control plane's copies (ADR-057).
+	Role string `json:"role,omitempty"`
 }
 
 // DrainResult lists what a drain moves and what stays because it is pinned (MCH-08).
@@ -233,7 +253,7 @@ type DrainResult struct {
 func ValidateAddMachine(m AddMachine) []FieldError {
 	errs := append(ValidateName(m.Name), ValidateLabels(m.Labels, "labels")...)
 	switch m.Role {
-	case "", MachineWorker:
+	case "", MachineWorker, MachineStandby:
 		if m.Address != "" {
 			errs = append(errs, FieldError{Field: "address", Code: FieldNotAllowed, Message: "Only an edge machine is added with its address; other machines advertise theirs when they join."})
 		}
@@ -248,7 +268,7 @@ func ValidateAddMachine(m AddMachine) []FieldError {
 			errs = append(errs, FieldError{Field: "agentPort", Code: FieldOutOfRange, Message: fmt.Sprintf("Use a port from %d to %d.", PortMin, PortMax)})
 		}
 	default:
-		errs = append(errs, FieldError{Field: "role", Code: FieldNotAllowed, Message: "Choose worker or edge."})
+		errs = append(errs, FieldError{Field: "role", Code: FieldNotAllowed, Message: "Choose worker, edge or standby."})
 	}
 	return errs
 }

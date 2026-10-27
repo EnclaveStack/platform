@@ -2,11 +2,12 @@ import { Alert, Button, Checkbox, Choice, ConfirmDialog, describedBy, Field, Fie
 import { useState, type FormEvent } from 'react';
 import { useApi } from '../api/context';
 import { RULES } from '../api/generated';
-import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type TunnelProvider, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
+import { ApiError, type Algorithm, type AppSpec, type BackupSpec, type DatabaseEngine, type DatabaseSpec, type DnsProvider, type DomainSpec, type FirewallSpec, type FunctionSpec, type JobSpec, type LoadBalancerSpec, type NetworkSpec, type Overlap, type HealthCheck, type HealthCheckType, type Kind, type RecordSpec, type RecordType, type Resource, type SnapshotSpec, type Strategy, type TlsMode, type TunnelProvider, type VMSpec, type VolumeSpec, type VolumeType, type ZoneSpec } from '../api/types';
 import { isPlaced, MachineFields, usePlacement } from '../components/MachineFields';
 import { BucketAccessEditor, grantRows, grantsOf, type GrantRow } from '../components/AccessFields';
 import { DiskPicker, freeDisks, IMAGE_TITLES, MountEditor, mountRows, mountsOf, VM_SIZES, type MountRow } from '../components/ComputeFields';
 import { DATA_IMMUTABLE, DATA_KINDS, useDataForm } from '../components/DataFields';
+import { TriggerEditor, triggerRows, triggersOf, type TriggerRow } from '../components/FunctionFields';
 import { OPERATE_IMMUTABLE, OPERATE_KINDS, useOperateForm } from '../components/OperateFields';
 import { useDomainPublic, useTunnelForm } from '../components/PublicAccessFields';
 import { useProject } from '../lib/project';
@@ -26,7 +27,7 @@ interface Props {
   /** Pre-fills a new domain's app ("Add domain" on an app). */
   initialApp?: string;
   /** Pre-fills a new backup's source ("Set up backups" on a database or cache). */
-  initialSource?: { kind: 'database' | 'cache'; name: string };
+  initialSource?: { kind: 'database' | 'cache' | 'volume'; name: string };
   /** Pre-fills a new record's zone ("Add record" on a zone). */
   initialZone?: string;
   /** Pre-fills a new volume's or VM's snapshot ("Create volume", "Launch VM" on a snapshot). */
@@ -77,7 +78,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const { createIn } = useProject();
   const project = existing?.project ?? createIn;
   // Fresh each time the form opens, so secrets made elsewhere (CLI, OpenTofu) are offered.
-  const secrets = useLoad(`form-secrets:${kind}:${project}`, () => (kind === 'app' || kind === 'job' || kind === 'backup' || kind === 'zone' ? api.listResources('secret', project) : Promise.resolve([])));
+  const secrets = useLoad(`form-secrets:${kind}:${project}`, () => (kind === 'app' || kind === 'job' || kind === 'function' || kind === 'backup' || kind === 'zone' ? api.listResources('secret', project) : Promise.resolve([])));
   const secretNames = (secrets.data ?? []).filter((s) => s.status.phase !== 'deleting').map((s) => s.name);
   const apps = useLoad(`form-apps:${kind}:${project}`, () => (kind === 'domain' || kind === 'job' ? api.listResources('app', project) : Promise.resolve([])));
   const appNames = (apps.data ?? []).filter((a) => a.status.phase !== 'deleting').map((a) => a.name);
@@ -115,6 +116,9 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const vspec = (kind === 'vm' ? (existing?.spec ?? {}) : {}) as Partial<VMSpec>;
   const volSpec = (kind === 'volume' ? (existing?.spec ?? {}) : {}) as Partial<VolumeSpec>;
   const snapSpec = (kind === 'snapshot' ? (existing?.spec ?? {}) : {}) as Partial<SnapshotSpec>;
+  // v0.10 (L2-016 CON-82, CON-84, CON-86).
+  const fnSpec = (kind === 'function' ? (existing?.spec ?? {}) : {}) as Partial<FunctionSpec>;
+  const dbSpec = (kind === 'database' ? (existing?.spec ?? {}) : {}) as Partial<DatabaseSpec>;
 
   const [name, setName] = useState(existing?.name ?? '');
   const [image, setImage] = useState(spec.image ?? '');
@@ -125,9 +129,22 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const [gitContext, setGitContext] = useState(spec.source?.context ?? RULES.gitContextDefault);
   const [gitCreds, setGitCreds] = useState(spec.source?.credentialsSecret ?? '');
   const [buildArgs, setBuildArgs] = useState<Row[]>(toRows(spec.source?.buildArgs));
+  const [webhookSecret, setWebhookSecret] = useState(spec.source?.webhookSecret ?? '');
+  const [deployOnPush, setDeployOnPush] = useState(spec.source?.deployOnPush ?? false);
+  const [previewsOn, setPreviewsOn] = useState(spec.previews?.enabled ?? false);
+  const [previewTtl, setPreviewTtl] = useState(String(spec.previews?.ttlHours ?? RULES.previewTtlDefault));
+  const [previewMax, setPreviewMax] = useState(String(spec.previews?.maxActive ?? RULES.previewMaxActiveDefault));
+  const [previewSuffix, setPreviewSuffix] = useState(spec.previews?.domain?.suffix ?? '');
+  const [fnImage, setFnImage] = useState(fnSpec.image ?? '');
+  const [fnTimeout, setFnTimeout] = useState(String(fnSpec.timeoutSeconds ?? RULES.functionTimeoutDefault));
+  const [fnConcurrency, setFnConcurrency] = useState(String(fnSpec.concurrency ?? RULES.functionConcurrencyDefault));
+  const [triggers, setTriggers] = useState<TriggerRow[]>(triggerRows(fnSpec.triggers));
+  const [dbTls, setDbTls] = useState(dbSpec.tls ?? false);
+  const [dbExposed, setDbExposed] = useState(dbSpec.exposed ?? false);
+  const [dbInit, setDbInit] = useState(dbSpec.initScript ?? '');
   const [port, setPort] = useState(spec.port ? String(spec.port) : '');
   const [publish, setPublish] = useState(spec.publish ?? false);
-  const [memory, setMemory] = useState(String(spec.memoryMiB ?? RULES.appMemoryDefault));
+  const [memory, setMemory] = useState(String(spec.memoryMiB ?? (kind === 'function' ? RULES.functionMemoryDefault : RULES.appMemoryDefault)));
   const [command, setCommand] = useState((spec.command ?? []).join('\n'));
   const [env, setEnv] = useState<Row[]>(toRows(spec.env));
   const [secretEnv, setSecretEnv] = useState<Row[]>(toRows(spec.secretEnv));
@@ -161,8 +178,8 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
   const [jobImage, setJobImage] = useState(jspec.image ?? '');
   const [jobTimeout, setJobTimeout] = useState(String(jspec.timeoutSeconds ?? RULES.jobTimeoutDefault));
   const [overlap, setOverlap] = useState<Overlap>(jspec.overlap ?? 'forbid');
-  const [sourceKind, setSourceKind] = useState<'database' | 'cache'>(bspec.source?.cache ? 'cache' : (initialSource?.kind ?? 'database'));
-  const [sourceName, setSourceName] = useState(bspec.source?.database ?? bspec.source?.cache ?? initialSource?.name ?? '');
+  const [sourceKind, setSourceKind] = useState<'database' | 'cache' | 'volume'>(bspec.source?.cache ? 'cache' : bspec.source?.volume ? 'volume' : (initialSource?.kind ?? 'database'));
+  const [sourceName, setSourceName] = useState(bspec.source?.database ?? bspec.source?.cache ?? bspec.source?.volume ?? initialSource?.name ?? '');
   const [destKind, setDestKind] = useState<'bucket' | 's3'>(bspec.destination?.s3 ? 's3' : 'bucket');
   const [destBucket, setDestBucket] = useState(bspec.destination?.bucket ?? '');
   const [s3Endpoint, setS3Endpoint] = useState(bspec.destination?.s3?.endpoint ?? '');
@@ -301,6 +318,12 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
           if (gitCreds) s.source.credentialsSecret = gitCreds;
           const args = fromRows(buildArgs);
           if (args) s.source.buildArgs = args;
+          if (webhookSecret) s.source.webhookSecret = webhookSecret;
+          if (webhookSecret && deployOnPush) s.source.deployOnPush = true;
+          if (previewsOn) {
+            s.previews = { enabled: true, ttlHours: Number(previewTtl) || 0, maxActive: Number(previewMax) || 0 };
+            if (previewSuffix.trim()) s.previews.domain = { ...spec.previews?.domain, suffix: previewSuffix.trim().toLowerCase() };
+          } else if (spec.previews) s.previews = { ...spec.previews, enabled: false };
         }
         if (port.trim()) s.port = Number(port);
         const cmd = command.split('\n').map((c) => c.trim()).filter(Boolean);
@@ -330,7 +353,21 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         return s as unknown as Record<string, unknown>;
       }
       case 'database':
-        return placed({ engine: dbEngine, version });
+        return placed({ engine: dbEngine, version, ...(dbTls ? { tls: true } : {}), ...(dbTls && dbExposed ? { exposed: true } : {}), ...(dbInit.trim() ? { initScript: dbInit } : {}) });
+      case 'function': {
+        const f: FunctionSpec = { image: fnImage.trim(), memoryMiB: Number(memory) || 0, timeoutSeconds: Number(fnTimeout) || 0, concurrency: Number(fnConcurrency) || 0 };
+        const cmd = command.split('\n').map((c) => c.trim()).filter(Boolean);
+        if (cmd.length) f.command = cmd;
+        const e = fromRows(env);
+        if (e) f.env = e;
+        const se = fromRows(secretEnv);
+        if (se) f.secretEnv = se;
+        if (triggers.length) f.triggers = triggersOf(triggers);
+        if (network) f.network = network;
+        if (network && subnet) f.subnet = subnet;
+        if (grants.length) f.bucketAccess = grantsOf(grants);
+        return f as unknown as Record<string, unknown>;
+      }
       case 'cache':
         return placed({ engine: RULES.cacheEngine, version: RULES.cacheVersion, maxMemoryMiB: Number(maxMemory) || 0 });
       case 'bucket':
@@ -364,7 +401,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
       }
       case 'backup': {
         const b: BackupSpec = {
-          source: sourceKind === 'database' ? { database: sourceName } : { cache: sourceName },
+          source: { [sourceKind]: sourceName },
           destination: destKind === 'bucket' ? { bucket: destBucket }
             : { s3: { endpoint: s3Endpoint.trim(), ...(s3Region.trim() ? { region: s3Region.trim() } : {}), bucket: s3Bucket.trim(), credentialsSecret: s3Creds } },
           prefix: prefix.trim(), schedule: schedule.trim(), keep: Number(keep) || 0, keepDays: Number(keepDays) || 0, timeoutSeconds: Number(backupTimeout) || 0,
@@ -430,7 +467,7 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
     const keys = new Set([...Object.keys(next), ...Object.keys(prev ?? {})]);
     for (const k of keys) {
       // Fields that can't change in place (CP-04) are shown read-only and never sent.
-      if (k === 'engine' || (kind === 'database' && k === 'version') || (kind === 'backup' && k === 'source') || kind === 'network'
+      if (k === 'engine' || (kind === 'database' && (k === 'version' || k === 'initScript')) || (kind === 'backup' && k === 'source') || kind === 'network'
         || (kind === 'zone' && (k === 'provider' || k === 'zone')) || (kind === 'record' && (k === 'zone' || k === 'name' || k === 'type'))
         || (kind === 'vm' && ['image', 'imageSha256', 'sshKeys', 'sshKeySecret', 'userData'].includes(k)) || (kind === 'volume' && (k === 'type' || k === 'snapshot'))
         || kind === 'snapshot' || (kind === 'tunnel' && (k === 'provider' || k === 'machine')) || (DATA_IMMUTABLE[kind] ?? []).includes(k) || (OPERATE_IMMUTABLE[kind] ?? []).includes(k)) continue;
@@ -570,6 +607,36 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               </Field>
               <KeyValueEditor idPrefix="f-bargs" label="Build arguments" rows={buildArgs} onChange={setBuildArgs} errors={errors}
                 errorField={(k) => `spec.source.buildArgs.${k}`} addLabel="Add build argument" emptyHint="Not for secrets: build arguments end up in the image's metadata." />
+              <Fieldset legend="Pushes and pull requests">
+                <Field id="f-webhook-secret" label="Webhook secret" error={err('spec.source.webhookSecret')}
+                  hint="Your Git host sends pushes and pull requests to this app, signed with this secret. The app's page shows the address to give it.">
+                  <Select id="f-webhook-secret" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)}>
+                    <option value="">None: no webhook</option>
+                    {secretNames.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Checkbox label="Redeploy when the branch gets a push" checked={deployOnPush} disabled={!webhookSecret} onChange={(e) => setDeployOnPush(e.target.checked)} />
+                <Checkbox label="Make a preview of each pull request" checked={previewsOn} onChange={(e) => setPreviewsOn(e.target.checked)} />
+                {err('spec.previews') && <Text size="sm" tone="bad" role="alert">{err('spec.previews')}</Text>}
+                {previewsOn && (
+                  <>
+                    <FormRow>
+                      <Field id="f-preview-ttl" label="Keep for (hours)" hint="A preview without a push for this long is deleted. 1–720." error={err('spec.previews.ttlHours')}>
+                        <Input id="f-preview-ttl" inputMode="numeric" value={previewTtl} onChange={(e) => setPreviewTtl(e.target.value)} onBlur={onBlur} />
+                      </Field>
+                      <Field id="f-preview-max" label="At most" hint="Previews at the same time. 1–20." error={err('spec.previews.maxActive')}>
+                        <Input id="f-preview-max" inputMode="numeric" value={previewMax} onChange={(e) => setPreviewMax(e.target.value)} onBlur={onBlur} />
+                      </Field>
+                    </FormRow>
+                    <Field id="f-preview-domain" label="Preview domain" error={err('spec.previews.domain.suffix')}
+                      hint={previewSuffix.trim() ? `A preview named web-login answers at https://web-login.${previewSuffix.trim()}, for people signed in to this console.` : 'Optional, like preview.localhost. Without one, open previews from their app page.'}>
+                      <Input id="f-preview-domain" mono value={previewSuffix} onChange={(e) => setPreviewSuffix(e.target.value)} onBlur={onBlur} placeholder="preview.localhost" spellCheck={false} />
+                    </Field>
+                  </>
+                )}
+              </Fieldset>
             </>
           )}
           <FormRow>
@@ -669,6 +736,54 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
               ))}
             </Select>
           </Field>
+          <Fieldset legend="Connections">
+            {(RULES.tlsEngines as readonly string[]).includes(dbEngine) ? (
+              <>
+                <Checkbox label="Encrypted connections only (TLS)" checked={dbTls} onChange={(e) => { setDbTls(e.target.checked); if (!e.target.checked) setDbExposed(false); }} />
+                <Checkbox label="Reachable from other computers on this network" checked={dbExposed} disabled={!dbTls} onChange={(e) => setDbExposed(e.target.checked)} />
+                <FieldHint>{dbExposed ? "It listens on this machine's addresses, not only on this computer. Clients check its certificate with the CA shown on its page." : 'Apps here reach it by name; other computers only when you turn this on, and only with TLS.'}</FieldHint>
+                {err('spec.tls') && <Text size="sm" tone="bad" role="alert">{err('spec.tls')}</Text>}
+                {err('spec.exposed') && <Text size="sm" tone="bad" role="alert">{err('spec.exposed')}</Text>}
+              </>
+            ) : (
+              <FieldHint>TLS and access from other computers are available for PostgreSQL and MySQL.</FieldHint>
+            )}
+          </Fieldset>
+          <Field id="f-db-init" label={dbEngine === 'mongodb' ? 'Setup script (JavaScript)' : 'Setup script (SQL)'} error={err('spec.initScript')}
+            hint={editing ? 'It ran once, when the database was made, and can’t change.' : 'Optional. Runs once when the database is first made: create tables, users or seed rows.'}>
+            <Textarea id="f-db-init" mono rows={4} value={dbInit} readOnly={editing} onChange={(e) => setDbInit(e.target.value)} onBlur={onBlur} spellCheck={false}
+              placeholder={dbEngine === 'mongodb' ? 'db.createCollection("orders");' : 'CREATE TABLE orders (id serial PRIMARY KEY);'} />
+          </Field>
+        </>
+      )}
+      {kind === 'function' && (
+        <>
+          <Field id="f-fn-image" label="Image" error={err('spec.image')}
+            hint={`Started once per event. The event is in ${RULES.eventPath}; ENCLAVE_EVENT_FILE names it.`}>
+            <Input id="f-fn-image" mono value={fnImage} onChange={(e) => setFnImage(e.target.value)} onBlur={onBlur} placeholder="ghcr.io/acme/thumbs:1.0" spellCheck={false} />
+          </Field>
+          <Field id="f-command" label="Command" hint="Optional. One argument per line; replaces the image's command.">
+            <Textarea id="f-command" mono rows={3} value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
+          </Field>
+          <TriggerEditor rows={triggers} onChange={setTriggers} queues={live('queue').map((q) => q.name)} buckets={bucketNames} errors={errors} onBlur={onBlur} />
+          <FormRow>
+            <Field id="f-fn-timeout" label="Timeout (s)" error={err('spec.timeoutSeconds')} hint={`A run is stopped after this. ${RULES.functionTimeoutMin}–${RULES.functionTimeoutMax}.`}>
+              <Input id="f-fn-timeout" inputMode="numeric" value={fnTimeout} onChange={(e) => setFnTimeout(e.target.value)} onBlur={onBlur} />
+            </Field>
+            <Field id="f-fn-concurrency" label="Runs at once" error={err('spec.concurrency')} hint={`${RULES.functionConcurrencyMin}–${RULES.functionConcurrencyMax}. More events wait.`}>
+              <Input id="f-fn-concurrency" inputMode="numeric" value={fnConcurrency} onChange={(e) => setFnConcurrency(e.target.value)} onBlur={onBlur} />
+            </Field>
+            <Field id="f-memory" label="Memory (MiB)" hint={`${RULES.appMemoryMin}–${RULES.functionMemoryMax}`} error={err('spec.memoryMiB')}>
+              <Input id="f-memory" inputMode="numeric" value={memory} onChange={(e) => setMemory(e.target.value)} onBlur={onBlur} />
+            </Field>
+          </FormRow>
+          <KeyValueEditor idPrefix="f-env" label="Environment variables" rows={env} onChange={setEnv} errors={errors} errorField={(k) => `spec.env.${k}`}
+            addLabel="Add variable" emptyHint="Plain values each run receives. Names starting with ENCLAVE_ are set by EnclaveStack." />
+          <KeyValueEditor idPrefix="f-senv" label="Secret environment variables" rows={secretEnv} onChange={setSecretEnv} options={secretNames} errors={errors}
+            errorField={(k) => `spec.secretEnv.${k}`} addLabel="Add secret variable"
+            emptyHint={secretNames.length ? 'Values taken from secrets; the console never sees them.' : 'Create a secret first to use it here.'} />
+          <PlacementFields networks={networks} network={network} subnet={subnet} errors={errors} onChange={(n, sub) => { setNetwork(n); setSubnet(sub); }} />
+          <BucketAccessEditor rows={grants} onChange={setGrants} buckets={bucketNames} errors={errors} />
         </>
       )}
       {DATA_KINDS.includes(kind) && data.render({ live, editing, errors, onBlur })}
@@ -757,15 +872,17 @@ export function ResourceForm({ kind, existing, onDone, onReload, initialApp, ini
         <>
           <FormRow>
             <Field id="f-source-kind" label="Back up" hint={editing ? "The source can't change. Create a new backup instead." : undefined}>
-              <Select id="f-source-kind" value={sourceKind} onChange={(e) => { setSourceKind(e.target.value as 'database' | 'cache'); setSourceName(''); }} disabled={editing}>
+              <Select id="f-source-kind" value={sourceKind} onChange={(e) => { setSourceKind(e.target.value as 'database' | 'cache' | 'volume'); setSourceName(''); }} disabled={editing}>
                 <option value="database">A database</option>
                 <option value="cache">A cache</option>
+                <option value="volume">A volume's files</option>
               </Select>
             </Field>
-            <Field id="f-source" hint="What to back up." label={sourceKind === 'database' ? 'Database' : 'Cache'} error={err('spec.source')}>
+            <Field id="f-source" label={sourceKind === 'database' ? 'Database' : sourceKind === 'cache' ? 'Cache' : 'Volume'} error={err('spec.source') ?? err('spec.source.volume')}
+              hint={sourceKind === 'volume' ? 'A filesystem volume: its files are stored as a .tar.gz. Back up disks with snapshots.' : 'What to back up.'}>
               <Select id="f-source" value={sourceName} onChange={(e) => setSourceName(e.target.value)} disabled={editing} aria-invalid={Boolean(err('spec.source'))}>
                 <option value="">Choose a {sourceKind}…</option>
-                {(editing && sourceName ? [sourceName] : namesOf(sourceKind)).map((n) => (
+                {(editing && sourceName ? [sourceName] : sourceKind === 'volume' ? fsVolumes : namesOf(sourceKind)).map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </Select>

@@ -1,0 +1,13 @@
+name: clerk
+title: Clerk
+category: connections
+signup: https://dashboard.clerk.com/sign-up
+description: "Your Clerk application's keys, kept as secrets for your apps to use for sign-in. It runs nothing here: your apps reach Clerk over the internet."
+version: 1.0.0
+parameters:
+  - { name: secretKey, title: Secret key, description: "The secret key (sk_live_… or sk_test_…) under Configure › API keys. For servers only.", type: secret, required: true }
+  - { name: publishableKey, title: Publishable key, description: "The publishable key (pk_live_… or pk_test_…) on the same page. Safe to use in browsers.", type: secret }
+resources: []
+outputs:
+  CLERK_SECRET_KEY: "${param:secretKey}"
+  CLERK_PUBLISHABLE_KEY: "${param:publishableKey}"

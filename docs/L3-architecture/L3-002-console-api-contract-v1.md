@@ -6,9 +6,9 @@
 | Document ID | L3-002-console-api-contract-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v27 |
+| Version | v28 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-25 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -1361,6 +1361,143 @@ interface CatalogueEntry { /* earlier fields */ category: 'apps' | 'public-acces
 
   Outputs, each the name of the secret to put in an app's `secretEnv`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`.
 
+## 18 · v0.10: close the roadmap (2026-10-26, `L2-016`)
+
+### 18.1 Functions (ADR-055)
+
+`function` (ID prefix `fn_`), a placed kind with the steps `check` and `ready`.
+
+```ts
+type Kind = /* earlier kinds */ | 'function';
+interface FunctionTrigger {             // exactly one of schedule, queue, bucket
+  schedule?: string; timeZone?: string; // as a job's; at most one schedule trigger per function
+  queue?: string;                       // a queue of the project
+  bucket?: string; prefix?: string;     // a bucket of the project and a folder in it ("" or "a/b/")
+}
+interface FunctionSpec {
+  image: string; command?: string[];
+  env?: Record<string,string>; secretEnv?: Record<string,string>;
+  memoryMiB?: number;                   // 64 – 8192, default 256
+  timeoutSeconds?: number;              // 1 – 900, default 60
+  concurrency?: number;                 // 1 – 20, default 5
+  triggers?: FunctionTrigger[];         // 0 – 10
+  network?: string; subnet?: string;
+  bucketAccess?: BucketGrant[];
+  machine?: string; machineLabels?: Record<string,string>;
+}
+interface Subscription { queue?: string; url?: string; secret?: string; function?: string }   // exactly one of queue, url, function
+type RunTrigger = /* earlier */ | 'queue' | 'topic' | 'bucket' | 'invoke';
+interface Run { /* earlier fields */ event?: unknown }   // functions: the event as the container received it
+```
+
+- **The event** (`/enclave/event.json`), by `source`:
+  - `{"source":"schedule","scheduledFor":"<RFC 3339>"}`
+  - `{"source":"queue","queue":"<name>","message":{"id","body","attributes","sentAt","receiveCount"}}`
+  - `{"source":"topic","topic":"<name>","message":{"sequence","body","attributes","publishedAt","attempt"}}`
+  - `{"source":"bucket","bucket":"<name>","key":"<key>","size":<bytes>,"modifiedAt":"<RFC 3339>"}`
+  - `{"source":"invoke","body":<the JSON sent>}`
+  - `{"source":"manual"}`
+
+  The environment adds `ENCLAVE_EVENT_FILE=/enclave/event.json`, `ENCLAVE_EVENT_SOURCE`, `ENCLAVE_RUN_ID` and `ENCLAVE_FUNCTION`. `env` and `secretEnv` may not use names starting with `ENCLAVE_` (`NOT_ALLOWED`).
+- **Outputs**: `triggers` (how many), `watching` (`["bucket/prefix", …]`, with bucket triggers), `nextRunAt` (with a schedule trigger), `lastRunStatus`, `lastRunAt`, and `bucketAccess` as for jobs.
+- **Endpoints**: the resource endpoints, `GET /resources/{id}/runs[/{runId}]`, the `run` action (a manual run; `409 FUNCTION_BUSY` at the limit), and:
+
+| Route | Role | Body → answer |
+|---|---|---|
+| `POST /api/v1/resources/{id}/invoke[?wait=true]` | editor | any JSON value (≤ 256 KiB, else `413 PAYLOAD_TOO_LARGE`; not JSON → `400 MALFORMED_REQUEST`) → `202` `Run`; with `wait=true`, `200` `RunDetail` once it ends, or `202` `Run` after 60 s. A function not ready → `409 RESOURCE_BUSY`; at its concurrency → `429 FUNCTION_BUSY` with `Retry-After: 5`; another kind → `409 ACTION_NOT_SUPPORTED` |
+
+- **References**: `secretEnv` values, `triggers[].queue`, `triggers[].bucket`, `bucketAccess[].bucket`, `network`, and a topic's `subscriptions[].function`. A function in use by a topic can't be deleted (`RESOURCE_IN_USE`).
+
+### 18.2 Previews (ADR-056)
+
+```ts
+interface GitSource { /* earlier fields */ webhookSecret?: string; deployOnPush?: boolean }
+interface PreviewDomain { suffix: string; tls?: 'auto' | 'internal' | 'off'; zone?: string; tunnel?: string }
+interface Previews {
+  enabled: boolean;
+  ttlHours?: number;                    // 1 – 720, default 72
+  maxActive?: number;                   // 1 – 20, default 5
+  domain?: PreviewDomain;               // suffix: a hostname; each preview gets "<preview>.<suffix>"
+}
+interface AppSpec { /* earlier fields */ previews?: Previews }   // previews and webhookSecret need source
+interface CreatePreview { ref: string; name?: string }          // name: defaults to "<app>-<ref slug>"
+interface Preview { id: string; name: string; ref: string; pullRequest?: number; phase: Phase; url?: string; expiresAt: string; createdAt: string }
+```
+
+- A preview is an `app` with `ownerId` set to its parent. Its outputs add `previewOf` (the parent's name), `previewRef`, `pullRequest` and `expiresAt`. `PATCH` on a preview → `422 IMMUTABLE_FIELD` "This preview follows its app…". The actions `redeploy` and `restart`, and `DELETE`, work.
+- The parent's outputs add `previews` (how many) and `webhookUrl` (`/api/v1/hooks/git/{id}`, with the console URL in front when one is set).
+
+| Route | Role | Body → answer |
+|---|---|---|
+| `GET /api/v1/resources/{id}/previews` | viewer | → `200 {items: Preview[]}` |
+| `POST /api/v1/resources/{id}/previews` | editor | `CreatePreview` → `202` `Resource` (the preview app, new or redeployed). The app isn't from Git or has previews off → `409 ACTION_NOT_SUPPORTED`; past `maxActive` → `409 PREVIEW_LIMIT` |
+| `POST /api/v1/hooks/git/{id}` | public (signature) | a GitHub or GitLab webhook (≤ 1 MiB) → `200 {"result": "created" \| "redeployed" \| "deleted" \| "deployed" \| "ignored" \| "pong", "preview"?: name}`. No app or no webhook secret → `404 NOT_FOUND`; bad or missing signature → `401 UNAUTHENTICATED`; at the limit → `409 PREVIEW_LIMIT` |
+
+The hook is also served on every public address at `POST /.enclave/hooks/git/{id}` (the gate listener, ADR-056).
+
+### 18.3 Standby control plane (ADR-057)
+
+```ts
+interface AddMachine { /* earlier fields */ role?: 'worker' | 'edge' | 'standby' }
+interface Machine { /* earlier fields */ standby?: { lastCopyAt?: string; lastCopyBytes?: number; lastCopyError?: string; stale: boolean } }
+```
+
+- `POST /machines` with `role: "standby"` when one exists → `409 STANDBY_EXISTS`. A standby's `schedulable` is always `false`. Its `joinCommand` is `enclave agent join --standby --code <code>`.
+- An old main that is fenced answers every `/api/` route with `503 CONTROL_PLANE_REPLACED`: "A standby was promoted and runs EnclaveStack now. Use its address; stop this server."
+- Agent protocol (§11.11) additions: every call carries `X-Enclave-Epoch`, and a lower epoch than the agent's gets `409` with class `fenced`. A standby agent serves `PUT /agent/v1/standby/copy` (body: the gzip tar; answers the manifest) and `GET /agent/v1/standby/state` (`{copies: [{n, takenAt, bytes, sha256}], lastContactAt}`).
+
+### 18.4 Database options (ADR-058)
+
+```ts
+interface DatabaseSpec { /* earlier fields */ tls?: boolean; exposed?: boolean; initScript?: string }
+```
+
+| Field | Rule |
+|---|---|
+| `tls` | PostgreSQL and MySQL only (`NOT_ALLOWED` "TLS is available for PostgreSQL and MySQL.") |
+| `exposed` | needs `tls: true` (`NOT_ALLOWED` "Turn TLS on first: …") |
+| `initScript` | at most 65,536 bytes (`TOO_LONG`); immutable after create (`IMMUTABLE_FIELD`) |
+
+Outputs add `tls`, `caCertificate` (PEM), `certificateExpiresAt`, `exposedAddresses` (`["ip:port", …]`) and `initScript: "ran"` once a script has run. The connection string carries `sslmode=require` (PostgreSQL) or `ssl-mode=REQUIRED` (MySQL).
+
+### 18.5 Volume backups (ADR-059)
+
+```ts
+interface BackupSource { database?: string; cache?: string; volume?: string }   // exactly one
+```
+
+`volume` names a filesystem volume of the project; a disk volume → `NOT_ALLOWED` "Back up a disk volume with a snapshot." An artifact's key ends in `.tar.gz`. `restore` takes the same body as for databases: `replace` (the volume's apps are restarted afterwards) or `new` with `name` (a new filesystem volume).
+
+### 18.6 Event alerts (ADR-060)
+
+```ts
+type ConditionType = /* earlier */ | 'event';
+interface AlertCondition { /* earlier fields */ events?: NotifiableEvent[] }
+type NotifiableEvent = 'ready' | 'redeployed' | 'failed' | 'built' | 'build_failed' | 'run_failed' | 'run_timed_out'
+  | 'restored' | 'rescheduled' | 'moved' | 'drift_detected' | 'certificate_renewed' | 'preview_created' | 'preview_deleted';
+```
+
+`event` needs 1–20 `resources` (any kind) and 1–20 distinct `events`; `repeatMinutes` must be 0. A notification's body has `event: "event"`, `alert`, `project`, `resource`, `type` (the event name), `message` and `startedAt` (when the event happened).
+
+### 18.7 Connections (CNX-08 – CNX-12)
+
+| Entry | Parameters (required first) | Outputs |
+|---|---|---|
+| `neon` | `pooledUrl` secret; `directUrl` secret | `DATABASE_URL`, `DATABASE_URL_UNPOOLED` |
+| `firebase` | `projectId` string; `apiKey` secret, `serviceAccount` secret | `FIREBASE_PROJECT_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT` |
+| `auth0` | `domain` hostname, `clientId` string; `clientSecret` secret | `AUTH0_DOMAIN`, `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` |
+| `clerk` | `secretKey` secret; `publishableKey` secret | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` |
+| `sentry` | `dsn` secret; `authToken` secret | `SENTRY_DSN`, `SENTRY_AUTH_TOKEN` |
+
+### 18.8 New error codes
+
+| Code | HTTP | When |
+|---|---|---|
+| `FUNCTION_BUSY` | 429 | a function already runs `concurrency` runs |
+| `PREVIEW_LIMIT` | 409 | an app already has `maxActive` previews |
+| `STANDBY_EXISTS` | 409 | adding a second standby |
+| `CONTROL_PLANE_REPLACED` | 503 | this control plane was fenced by a promoted standby |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1392,3 +1529,4 @@ interface CatalogueEntry { /* earlier fields */ category: 'apps' | 'public-acces
 | v25 | 2026-10-24 | Soupler | §14 bucket object routes, rules and events; §15 detail explanations (L2-013) |
 | v26 | 2026-10-24 | Soupler | §16 public access, as built: the tunnel kind, public domains and the gate, edge machines, outputs, gate routes, validation, references, events, engine and agent calls, the edge join (L2-014) |
 | v27 | 2026-10-25 | Soupler | §17 connections: the `connections` category, outputs that skip empty secret parameters, the Supabase entry (L2-015) |
+| v28 | 2026-10-26 | Soupler | §18 v0.10: functions, invoke and topic targets; previews and Git webhooks; the standby and fencing; database TLS, exposed and setup scripts; volume backups; event alerts; five connections; four error codes (L2-016) |

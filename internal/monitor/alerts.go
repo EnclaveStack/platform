@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -59,7 +60,15 @@ func (m *Monitor) evaluate(ctx context.Context, a *domain.Resource) error {
 	spec := raw.(api.AlertSpec)
 	now := m.Now()
 	if !spec.IsEnabled() {
+		if spec.Condition.Type == api.ConditionEvent { // turned back on, it starts from the newest event (EVN-03)
+			if err := m.Store.DropAlertCursor(ctx, a.ID); err != nil {
+				return err
+			}
+		}
 		return m.setAlertOutputs(ctx, a, api.AlertDisabled, 0, now)
+	}
+	if spec.Condition.Type == api.ConditionEvent {
+		return m.sendEvents(ctx, a, spec, now)
 	}
 	prev, err := m.Store.AlertStates(ctx, a.ID)
 	if err != nil {
@@ -353,4 +362,56 @@ func (m *Monitor) judgeMachine(ctx context.Context, c api.AlertCondition, ref st
 		v.message = fmt.Sprintf("The machine %s has been offline since %s.", name, mc.StateSince.Local().Format("15:04 on 2 Jan"))
 	}
 	return v, nil
+}
+
+// eventBatch bounds the events an event alert sends in one cycle; the rest go in the next.
+const eventBatch = 100
+
+// sendEvents queues one notification per new matching event to each channel and moves the alert's
+// cursor in the same transaction (ADR-060). A resource that doesn't exist sends nothing.
+func (m *Monitor) sendEvents(ctx context.Context, a *domain.Resource, spec api.AlertSpec, now time.Time) error {
+	ids := map[string]string{} // resource ID → "kind/name"
+	for _, ref := range spec.Condition.Resources {
+		kind, name, _ := api.ParseRef(ref)
+		if sub, err := m.Store.GetResourceByName(ctx, a.ProjectName(), kind, name); err == nil {
+			ids[sub.ID] = ref
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	err := m.Store.WithTx(ctx, func(q *store.Queries) error {
+		cursor, ok, err := q.AlertCursor(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			last, err := q.LastEventID(ctx)
+			if err != nil {
+				return err
+			}
+			return q.SetAlertCursor(ctx, a.ID, last)
+		}
+		events, err := q.EventsAfter(ctx, cursor, slices.Collect(maps.Keys(ids)), spec.Condition.Events, eventBatch)
+		if err != nil || len(events) == 0 {
+			return err
+		}
+		for _, e := range events {
+			p := Payload{Event: api.EventEvent, Alert: a.Name, Project: a.ProjectName(), Resource: ids[e.ResourceID], State: api.AlertOK, Type: e.Type,
+				Message: e.Message, StartedAt: e.CreatedAt}
+			if m.ConsoleURL != nil {
+				if base := m.ConsoleURL(ctx); base != "" {
+					p.URL = base + "/alerts/" + a.ID
+				}
+			}
+			if err := m.queueAll(ctx, q, a, spec, "", p, now); err != nil {
+				return err
+			}
+		}
+		m.Metrics.AlertTransitions.WithLabelValues(api.EventEvent).Add(float64(len(events)))
+		return q.SetAlertCursor(ctx, a.ID, events[len(events)-1].ID)
+	})
+	if err != nil {
+		return err
+	}
+	return m.setAlertOutputs(ctx, a, api.AlertOK, 0, now)
 }

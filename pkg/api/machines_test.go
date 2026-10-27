@@ -9,7 +9,7 @@ func TestPlacedKindsTakeAMachineAndLabels(t *testing.T) {
 	specs := map[Kind]string{
 		KindApp: `{"image":"nginx:1.27"}`, KindDatabase: `{}`, KindCache: `{}`, KindJob: `{"schedule":"@daily","image":"busybox:1.36"}`,
 		KindLoadBalancer: `{"protocol":"tcp","port":80,"targets":[{"app":"web","port":80}]}`, KindVM: `{"image":"debian-12"}`,
-		KindVolume: `{"type":"filesystem"}`, KindSearch: `{}`, KindEmail: `{}`,
+		KindVolume: `{"type":"filesystem"}`, KindSearch: `{}`, KindEmail: `{}`, KindFunction: `{"image":"alpine:3.22"}`,
 	}
 	for _, k := range PlacedKinds {
 		raw := specs[k]

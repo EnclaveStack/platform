@@ -290,12 +290,12 @@ func (a *app) root() *cobra.Command {
 	}
 	root.AddCommand(a.serverCmd(), a.loginCmd(), a.logoutCmd(), a.whoamiCmd(), a.versionCmd(), a.machineCmd(),
 		a.lsCmd(), a.getCmd(), a.deleteCmd(), a.logsCmd(), a.eventsCmd(), a.retryCmd(),
-		a.dbCmd(), a.cacheCmd(), a.bucketCmd(), a.appCmd(), a.secretCmd(), a.domainCmd(), a.tunnelCmd(), a.jobCmd(), a.backupCmd(), a.tokenCmd(),
+		a.dbCmd(), a.cacheCmd(), a.bucketCmd(), a.appCmd(), a.secretCmd(), a.domainCmd(), a.tunnelCmd(), a.jobCmd(), a.functionCmd(), a.backupCmd(), a.tokenCmd(),
 		a.networkCmd(), a.firewallCmd(), a.lbCmd(), a.zoneCmd(), a.recordCmd(), a.vmCmd(), a.volumeCmd(), a.snapshotCmd(),
 		a.queueCmd(), a.topicCmd(), a.searchCmd(), a.transcoderCmd(), a.cdnCmd(), a.emailCmd(),
 		a.projectCmd(), a.userCmd(), a.passwordCmd(), a.auditCmd(),
 		a.metricsCmd(), a.dashboardCmd(), a.alertCmd(), a.channelCmd(), a.logexportCmd(), a.secretstoreCmd(),
-		a.agentCmd(), a.moveCmd(), a.catalogueCmd(), a.stackCmd())
+		a.agentCmd(), a.standbyCmd(), a.moveCmd(), a.catalogueCmd(), a.stackCmd())
 	return root
 }
 

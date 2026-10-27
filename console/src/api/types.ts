@@ -43,6 +43,38 @@ export interface GitSource {
   credentialsSecret?: string;
   /** Not for secrets: build arguments end up in image metadata. */
   buildArgs?: Record<string, string>;
+  /** The secret Git webhooks are checked with (L2-016 PRV-03). */
+  webhookSecret?: string;
+  /** Redeploy when a webhook says ref moved (PRV-05). */
+  deployOnPush?: boolean;
+}
+
+/** Each preview answers at <preview name>.<suffix>, behind the sign-in gate (PRV-04). */
+export interface PreviewDomain {
+  suffix: string;
+  tls?: TlsMode;
+  zone?: string;
+  tunnel?: string;
+}
+
+/** An app per pull request (L2-016 PRV-01, ADR-056); source apps only. */
+export interface Previews {
+  enabled: boolean;
+  ttlHours?: number;
+  maxActive?: number;
+  domain?: PreviewDomain;
+}
+
+/** One of an app's previews (GET …/previews). */
+export interface Preview {
+  id: string;
+  name: string;
+  ref: string;
+  pullRequest?: number;
+  phase: Phase;
+  url?: string;
+  expiresAt: string;
+  createdAt: string;
 }
 
 /** Where a placed kind runs (ADR-044, L3-002 §11.3): a machine, or labels the machine must have; neither lets EnclaveStack choose. */
@@ -71,6 +103,7 @@ export interface AppSpec extends Placed {
   volumes?: VolumeMount[];
   /** Buckets it reaches with keys of its own (L2-011); the list replaces the old one. */
   bucketAccess?: BucketGrant[];
+  previews?: Previews;
 }
 export type TlsMode = 'auto' | 'internal' | 'off';
 
@@ -158,10 +191,35 @@ export interface JobSpec extends Placed {
   bucketAccess?: BucketGrant[];
 }
 
-/** Scheduled dumps of a database or cache (ADR-018, L3-002 §6.2). Exactly one source, one destination. */
+/** Exactly one of schedule, queue and bucket; at most one schedule (L2-016 FN-02). */
+export interface FunctionTrigger {
+  schedule?: string;
+  timeZone?: string;
+  queue?: string;
+  bucket?: string;
+  prefix?: string;
+}
+
+/** An image started once per event (L2-016 FN-01, ADR-055). */
+export interface FunctionSpec extends Placed {
+  image: string;
+  command?: string[];
+  env?: Record<string, string>;
+  secretEnv?: Record<string, string>;
+  memoryMiB?: number;
+  timeoutSeconds?: number;
+  concurrency?: number;
+  triggers?: FunctionTrigger[];
+  network?: string;
+  subnet?: string;
+  bucketAccess?: BucketGrant[];
+}
+
+/** Scheduled dumps of a database, cache or filesystem volume (ADR-018, ADR-059). Exactly one source, one destination. */
 export interface BackupSource {
   database?: string;
   cache?: string;
+  volume?: string;
 }
 export interface S3Destination {
   endpoint: string;
@@ -203,7 +261,7 @@ export interface Artifact {
 }
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'timed_out' | 'skipped';
-export type RunTrigger = 'schedule' | 'manual' | 'catch_up' | 'pre_restore' | 'watch';
+export type RunTrigger = (typeof RULES.runTriggers)[number];
 
 export interface Run {
   id: string;
@@ -220,6 +278,8 @@ export interface Run {
   /** Transcoders only: the input object and the keys the run wrote. */
   key?: string;
   outputs?: string[];
+  /** Functions only: the run's event (FN-05). */
+  event?: unknown;
 }
 
 export interface RunDetail extends Run {
@@ -232,6 +292,12 @@ export interface DatabaseSpec extends Placed {
   version: string;
   network?: string;
   subnet?: string;
+  /** postgres and mysql: encrypted connections only (L2-016 DBX-01, ADR-058). */
+  tls?: boolean;
+  /** Reachable from other computers on the machine's addresses; needs tls (DBX-03). */
+  exposed?: boolean;
+  /** Run once when the database is first made; immutable (DBX-04). */
+  initScript?: string;
 }
 export interface CacheSpec extends Placed {
   engine: 'redis';
@@ -366,10 +432,12 @@ export interface QueueSpec {
   maxReceives?: number;
   deadLetterQueue?: string;
 }
-/** Exactly one of queue and url; secret signs webhook bodies. */
+/** Exactly one of queue, url and function; secret signs webhook bodies. */
 export interface Subscription {
   queue?: string;
   url?: string;
+  /** Each message starts a run of the function (L2-016 FN-08). */
+  function?: string;
   secret?: string;
 }
 export interface TopicSpec {
@@ -555,6 +623,7 @@ export interface SpecByKind {
   secret: SecretSpec;
   domain: DomainSpec;
   job: JobSpec;
+  function: FunctionSpec;
   backup: BackupSpec;
   network: NetworkSpec;
   firewall: FirewallSpec;
@@ -633,12 +702,25 @@ export interface CatalogueEntry {
 }
 
 export type MachineState = 'waiting' | 'online' | 'offline';
-export type MachineRole = 'worker' | 'edge';
+export type MachineRole = (typeof RULES.machineRoles)[number];
+
+/** A standby's last copy of the control plane (L2-016 SBY-03). */
+export interface StandbyInfo {
+  lastCopyAt?: string;
+  lastCopyBytes?: number;
+  lastCopyError?: string;
+  stale: boolean;
+}
 
 /** An edge machine is added with its public address, and its agent's port (default 7071) (EDG-02). */
 export interface EdgeMachineInput {
   address: string;
   agentPort?: number;
+}
+
+/** A standby keeps copies of the control plane and can be promoted; at most one (L2-016 SBY-01). */
+export interface StandbyMachineInput {
+  standby: true;
 }
 
 export interface MachineLink {
@@ -673,6 +755,8 @@ export interface MachineSummary {
   versionMismatch: boolean;
   links: MachineLink[];
   message: string;
+  /** Standby machines only. */
+  standby?: StandbyInfo;
 }
 
 /** The join code is shown once. */
@@ -945,7 +1029,7 @@ export interface DashboardSpec {
   widgets: Widget[];
 }
 
-export type ConditionType = 'metric' | 'crash_loop' | 'failed' | 'run_failed' | 'machine_offline';
+export type ConditionType = (typeof RULES.conditionTypes)[number];
 
 export interface AlertCondition {
   type: ConditionType;
@@ -956,6 +1040,8 @@ export interface AlertCondition {
   forMinutes?: number;
   restarts?: number;
   windowMinutes?: number;
+  /** event: the event types sent as they happen (L2-016 EVN-01). */
+  events?: string[];
 }
 
 export interface AlertSpec {
@@ -1033,7 +1119,7 @@ export interface Incident {
 
 export interface NotificationRecord {
   id: string;
-  event: 'firing' | 'resolved' | 'repeat' | 'test';
+  event: 'firing' | 'resolved' | 'repeat' | 'test' | 'event';
   alert: string;
   subject: string;
   status: 'pending' | 'sent' | 'failed';

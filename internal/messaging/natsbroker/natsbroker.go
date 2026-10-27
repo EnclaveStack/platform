@@ -401,9 +401,10 @@ func (b *Broker) Fetch(ctx context.Context, topic, subscription string, max int,
 		msg := m
 		out = append(out, messaging.Delivery{Sequence: md.Sequence.Stream, Body: string(m.Data()), Attributes: attributes(m.Headers()),
 			Published: sentAt(m.Headers(), md.Timestamp), Attempt: int(md.NumDelivered),
-			Ack:  func(ctx context.Context) error { return b.check(msg.DoubleAck(ctx)) },
-			Nak:  func(_ context.Context, d time.Duration) error { return b.check(msg.NakWithDelay(d)) },
-			Term: func(_ context.Context) error { return b.check(msg.Term()) }})
+			Ack:      func(ctx context.Context) error { return b.check(msg.DoubleAck(ctx)) },
+			Nak:      func(_ context.Context, d time.Duration) error { return b.check(msg.NakWithDelay(d)) },
+			Term:     func(_ context.Context) error { return b.check(msg.Term()) },
+			Progress: func(_ context.Context) error { return b.check(msg.InProgress()) }})
 	}
 	if err := batch.Error(); err != nil && !errors.Is(err, nats.ErrTimeout) && !errors.Is(err, context.DeadlineExceeded) {
 		return out, b.check(err)

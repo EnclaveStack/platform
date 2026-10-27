@@ -73,6 +73,7 @@ var specDecoders = map[api.Kind]func(json.RawMessage) (any, error){
 	api.KindBucket: decodeAs[api.BucketSpec], api.KindJob: decodeAs[api.JobSpec], api.KindLoadBalancer: decodeAs[api.LoadBalancerSpec],
 	api.KindVM: decodeAs[api.VMSpec], api.KindVolume: decodeAs[api.VolumeSpec], api.KindSearch: decodeAs[api.SearchSpec],
 	api.KindEmail: decodeAs[api.EmailSpec], api.KindCDN: decodeAs[api.CDNSpec], api.KindNetwork: decodeAs[api.NetworkSpec],
+	api.KindFunction: decodeAs[api.FunctionSpec],
 }
 
 // typedSpec decodes a spec into its kind's type.

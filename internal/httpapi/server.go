@@ -32,6 +32,8 @@ type Config struct {
 	Assets fs.FS
 	// Machines serves /machines (v0.8).
 	Machines *service.Machines
+	// Replaced reports a control plane fenced by a promoted standby: the API then answers 503 (ADR-057).
+	Replaced func() bool
 }
 
 // Server wires handlers to services.
@@ -120,6 +122,12 @@ func New(a *service.Auth, res *service.Resources, idem *service.Idempotency, rea
 	s.route(mux, "GET /api/v1/resources/{id}/runs", viewer, s.listRuns)
 	// A run's output may hold anything a command printed, so reading it needs an editor (L3-002 §10.3).
 	s.route(mux, "GET /api/v1/resources/{id}/runs/{runId}", editor, s.getRun)
+	// v0.10 (L3-002 §18).
+	s.route(mux, "POST /api/v1/resources/{id}/invoke", editor, s.invoke)
+	s.route(mux, "GET /api/v1/resources/{id}/previews", viewer, s.listPreviews)
+	s.route(mux, "POST /api/v1/resources/{id}/previews", editor, s.createPreview)
+	// Public: the webhook's signature is its credential (ADR-056).
+	s.route(mux, "POST /api/v1/hooks/git/{id}", public, s.gitHook)
 	// Data endpoints of queues, topics and email services (L3-002 §9.3). Bodies need an editor, as secrets do.
 	s.route(mux, "POST /api/v1/resources/{id}/messages", editor, s.sendMessage)
 	s.route(mux, "GET /api/v1/resources/{id}/messages", editor, s.listMessages)
@@ -149,8 +157,20 @@ func New(a *service.Auth, res *service.Resources, idem *service.Idempotency, rea
 		console.ServeHTTP(w, r)
 	})
 
-	s.handler = s.observe(s.rateLimit(methodNotAllowedAsJSON(mux, s)))
+	s.handler = s.observe(s.replaced(s.rateLimit(methodNotAllowedAsJSON(mux, s))))
 	return s
+}
+
+// replaced answers every API call with 503 CONTROL_PLANE_REPLACED once a standby took over (ADR-057).
+func (s *Server) replaced(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.Replaced != nil && s.cfg.Replaced() && strings.HasPrefix(r.URL.Path, "/api/") {
+			s.writeError(w, r, api.NewError(api.CodeControlPlaneReplaced,
+				"A standby was promoted and runs EnclaveStack now. Use its address; stop this server."))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ServeHTTP implements http.Handler.

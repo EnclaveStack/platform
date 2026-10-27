@@ -175,6 +175,7 @@ func normalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 				g.Context = GitContextDefault
 			}
 		}
+		normalizePreviews(s.Previews)
 		if h := s.HealthCheck; h != nil {
 			if h.IntervalSeconds == 0 {
 				h.IntervalSeconds = HealthIntervalDefault
@@ -430,6 +431,13 @@ func normalizeSpec(kind Kind, raw json.RawMessage) (any, []FieldError, error) {
 		}
 		s = normalizeTunnel(s)
 		return s, validateTunnel(s), nil
+	case KindFunction:
+		var s FunctionSpec
+		if err := DecodeStrict(raw, &s); err != nil {
+			return nil, nil, err
+		}
+		s = normalizeFunction(s)
+		return s, validateFunction(s), nil
 	case KindSecret:
 		var s SecretSpec
 		if err := DecodeStrict(raw, &s); err != nil {
@@ -477,6 +485,7 @@ func validateApp(s AppSpec) []FieldError {
 		errs = append(errs, FieldError{Field: "spec.strategy", Code: FieldNotAllowed, Message: "Choose rolling or recreate."})
 	}
 	errs = append(errs, validateHealthCheck(s)...)
+	errs = append(errs, validatePreviews(s)...)
 	errs = append(errs, validateEnv(s.Env, s.SecretEnv)...)
 	errs = append(errs, validateBucketAccess(s.BucketAccess, s.Env, s.SecretEnv)...)
 	errs = append(errs, validatePlacement(s.Network, s.Subnet)...)
@@ -636,11 +645,17 @@ func validateJob(s JobSpec) []FieldError {
 
 func validateBackup(s BackupSpec) []FieldError {
 	var errs []FieldError
+	sources := 0
+	for _, n := range []string{s.Source.Database, s.Source.Cache, s.Source.Volume} {
+		if n != "" {
+			sources++
+		}
+	}
 	switch src := s.Source; {
-	case (src.Database == "") == (src.Cache == ""):
-		errs = append(errs, FieldError{Field: "spec.source", Code: FieldExactlyOne, Message: "Back up one database or one cache."})
-	case ValidateName(src.Database+src.Cache) != nil:
-		errs = append(errs, FieldError{Field: "spec.source", Code: FieldInvalidFormat, Message: "Name an existing database or cache."})
+	case sources != 1:
+		errs = append(errs, FieldError{Field: "spec.source", Code: FieldExactlyOne, Message: "Back up one database, one cache or one volume."})
+	case ValidateName(src.Name()) != nil:
+		errs = append(errs, FieldError{Field: "spec.source", Code: FieldInvalidFormat, Message: "Name an existing database, cache or volume."})
 	}
 	switch d := s.Destination; {
 	case (d.Bucket == "") == (d.S3 == nil):
@@ -907,6 +922,9 @@ func ImmutableViolations(kind Kind, before, after any) []FieldError {
 		}
 		if b.Version != a.Version {
 			errs = append(errs, FieldError{Field: "spec.version", Code: FieldImmutable, Message: "Changing the version needs a new database."})
+		}
+		if b.InitScript != a.InitScript {
+			errs = append(errs, FieldError{Field: "spec.initScript", Code: FieldImmutable, Message: "The setup script ran when the database was created. To run more SQL, connect to the database."})
 		}
 		return errs
 	case KindCache:

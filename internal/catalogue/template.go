@@ -145,7 +145,10 @@ func Parse(body []byte) (*Template, error) {
 		ps = append(ps, Problem{Line: fields["version"].Line, Path: "version", Message: "The version is MAJOR.MINOR.PATCH, like 1.0.0."})
 	}
 	t.Parameters = parseParams(fields["parameters"], &ps)
-	t.Members = parseMembers(fields["resources"], &ps)
+	// A connection whose settings are all secrets needs no resources: its required secret parameters are
+	// the stack's secrets (L2-016 CNX-08).
+	keepsSecrets := slices.ContainsFunc(t.Parameters, func(p api.TemplateParameter) bool { return p.Type == api.ParamSecret && p.Required })
+	t.Members = parseMembers(fields["resources"], keepsSecrets, &ps)
 	if n := fields["outputs"]; n != nil {
 		if n.Kind != yaml.MappingNode {
 			ps = append(ps, Problem{Line: n.Line, Path: "outputs", Message: "outputs maps names to text."})
@@ -239,13 +242,16 @@ func parseParams(n *yaml.Node, ps *Problems) []api.TemplateParameter {
 	return out
 }
 
-func parseMembers(n *yaml.Node, ps *Problems) []Member {
+func parseMembers(n *yaml.Node, emptyOK bool, ps *Problems) []Member {
+	if emptyOK && n != nil && n.Kind == yaml.SequenceNode && len(n.Content) == 0 {
+		return nil
+	}
 	if n == nil || n.Kind != yaml.SequenceNode || len(n.Content) == 0 {
 		line := 0
 		if n != nil {
 			line = n.Line
 		}
-		*ps = append(*ps, Problem{Line: line, Path: "resources", Message: "resources is a list of at least one resource."})
+		*ps = append(*ps, Problem{Line: line, Path: "resources", Message: "resources is a list of at least one resource, unless a required secret parameter makes the stack's secret."})
 		return nil
 	}
 	if len(n.Content) > api.TemplateMembersMax {

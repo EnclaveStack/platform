@@ -138,8 +138,20 @@ func (s *Machines) summarizer(ctx context.Context, p Principal) (func(store.Mach
 			sum.Message = "Waiting for its agent to join."
 		case m.IsEdge():
 			sum.Message = "Edge machine: it only relays visitors to this machine."
+		case m.IsStandby():
+			sum.Message = "Standby: it keeps a copy of the control plane and takes over with `enclave standby promote`."
 		case !m.Schedulable && sum.Message == "":
 			sum.Message = "Not schedulable: nothing new is placed here."
+		}
+		if m.IsStandby() && m.State != api.MachineWaiting {
+			if c, err := s.Store.GetStandbyCopy(ctx, m.ID); err == nil {
+				sum.Standby = c.Info(s.Now())
+			} else {
+				sum.Standby = &api.StandbyInfo{Stale: true}
+			}
+			if sum.Standby.Stale && m.State == api.MachineOnline {
+				sum.Message = "Standby: its last copy of the control plane is more than 2 minutes old."
+			}
 		}
 		if s.Links != nil && m.State == api.MachineOnline {
 			sum.Links = s.Links(ctx, m.ID)
@@ -173,7 +185,21 @@ func (s *Machines) Add(ctx context.Context, p Principal, req api.AddMachine) (ap
 		}
 		m.Role, m.Address, m.AgentPort, m.Schedulable, m.JoinKey = api.MachineEdge, strings.TrimSpace(req.Address), req.AgentPort, false, sealed
 	}
+	if req.Role == api.MachineStandby { // keeps copies of the control plane; nothing is placed on it (ADR-057)
+		m.Role, m.Schedulable = api.MachineStandby, false
+	}
 	err := s.Store.WithTx(ctx, func(q *store.Queries) error {
+		if m.IsStandby() {
+			all, err := q.ListMachines(ctx)
+			if err != nil {
+				return err
+			}
+			for _, o := range all {
+				if o.IsStandby() {
+					return api.NewError(api.CodeStandbyExists, o.Name+" is already the standby. Remove it to make another computer the standby.")
+				}
+			}
+		}
 		if err := q.InsertMachine(ctx, m); err != nil {
 			if errors.Is(err, store.ErrConflict) {
 				return &api.Error{Code: api.CodeNameTaken, Message: "A machine named " + req.Name + " already exists.",
@@ -230,7 +256,11 @@ func (s *Machines) added(ctx context.Context, p Principal, m store.Machine, code
 	if s.ServerURL != nil {
 		server = s.ServerURL(ctx)
 	}
-	cmd := "enclave agent join " + server + " --code " + code
+	join := " --code " + code
+	if m.IsStandby() {
+		join = " --standby" + join
+	}
+	cmd := "enclave agent join " + server + join
 	if m.IsEdge() {
 		// The main machine comes to it, so the command names no server (ADR-052).
 		cmd = "enclave agent join --edge --code " + code
@@ -240,7 +270,7 @@ func (s *Machines) added(ctx context.Context, p Principal, m store.Machine, code
 		return api.AddedMachine{Machine: sum(m), JoinCode: code, JoinCommand: cmd, ExpiresAt: *m.JoinExpiresAt}, nil
 	}
 	if server == "" {
-		cmd = "enclave agent join <this machine's address> --code " + code +
+		cmd = "enclave agent join <this machine's address>" + join +
 			"  # start the server with --listen 0.0.0.0:7070 (or --console-url) so the other computer can reach it"
 	}
 	return api.AddedMachine{Machine: sum(m), JoinCode: code, JoinCommand: cmd, ExpiresAt: *m.JoinExpiresAt}, nil
@@ -271,6 +301,10 @@ func (s *Machines) Update(ctx context.Context, p Principal, name string, req api
 	if req.Labels != nil {
 		m.Labels = req.Labels
 		changes = append(changes, "labels "+domain.FormatLabels(req.Labels))
+	}
+	if req.Schedulable != nil && *req.Schedulable && m.IsStandby() {
+		return api.MachineSummary{}, api.Validation([]api.FieldError{{Field: "schedulable", Code: api.FieldNotAllowed,
+			Message: m.Name + " is the standby: it keeps the control plane's copy, and nothing is placed on it."}})
 	}
 	if req.Schedulable != nil && *req.Schedulable && m.IsEdge() {
 		return api.MachineSummary{}, api.Validation([]api.FieldError{{Field: "schedulable", Code: api.FieldNotAllowed,
@@ -511,7 +545,7 @@ func (s *Machines) Join(ctx context.Context, req api.JoinRequest, clientIP strin
 	if s.ServerURL != nil {
 		server = s.ServerURL(ctx)
 	}
-	return api.JoinResponse{MachineID: m.ID, Name: m.Name, Certificate: string(cert), CA: string(ca.PEM), Server: server}, nil
+	return api.JoinResponse{MachineID: m.ID, Name: m.Name, Certificate: string(cert), CA: string(ca.PEM), Server: server, Role: m.RoleOrWorker()}, nil
 }
 
 // qualifiedRef is "kind/name", with the project in front outside default.

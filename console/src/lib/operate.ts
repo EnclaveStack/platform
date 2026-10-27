@@ -112,9 +112,24 @@ export function validateAlert(s: AlertSpec): FieldErrors {
       });
       if (!inRange(c.forMinutes ?? 1, RULES.alertForMin, RULES.alertForMax)) e['spec.condition.forMinutes'] = 'Use 1–60 minutes.';
       break;
+    case 'event': {
+      // v0.10 (L2-016 EVN-01, EVN-02): each matching event is sent once, as it happens.
+      Object.assign(e, validateRefs(refs, 'spec.condition.resources', 1, RULES.alertResourcesMax, null));
+      const events = c.events ?? [];
+      if (events.length < 1 || events.length > RULES.alertEventsMax) e['spec.condition.events'] = `Choose 1–${RULES.alertEventsMax} events.`;
+      const seen = new Set<string>();
+      events.forEach((ev, i) => {
+        if (!(RULES.notifiableEvents as readonly string[]).includes(ev)) e[`spec.condition.events[${i}]`] = `Choose one of ${RULES.notifiableEvents.join(', ')}.`;
+        else if (seen.has(ev)) e[`spec.condition.events[${i}]`] = `${ev} is listed twice.`;
+        seen.add(ev);
+      });
+      if ((s.repeatMinutes ?? 0) !== 0) e['spec.repeatMinutes'] = 'An event alert sends each event once; it never repeats.';
+      break;
+    }
     default:
-      e['spec.condition.type'] = 'Choose metric, crash_loop, failed, run_failed or machine_offline.';
+      e['spec.condition.type'] = 'Choose metric, crash_loop, failed, run_failed, machine_offline or event.';
   }
+  if (c.type !== 'event' && c.events?.length) e['spec.condition.events'] = 'Events are for event conditions only.';
   Object.assign(e, validateNames(s.channels ?? [], 'spec.channels', 1, RULES.alertChannelsMax, 'channels'));
   if (!inRange(s.repeatMinutes ?? 0, 0, RULES.alertRepeatMax)) e['spec.repeatMinutes'] = 'Use 0 (never) to 1440 minutes.';
   return e;

@@ -231,6 +231,8 @@ var StepNames = map[api.Kind][]string{
 	api.KindStack: {"members"},
 	// Public access (L2-014).
 	api.KindTunnel: {"check", "connector", "address"},
+	// v0.10 (L2-016).
+	api.KindFunction: {"check", "ready"},
 }
 
 // SecretRefs returns the secret names an app spec references, in key order.
@@ -386,13 +388,16 @@ type Run struct {
 	// Key and Outputs are a transcoder run's input object and the keys it wrote (ADR-034).
 	Key     string
 	Outputs []string
+	// Event is a function run's event; Receipt the queue message's receipt it deletes on success (ADR-055).
+	Event   []byte
+	Receipt string
 }
 
 // ToAPI converts to the wire form, without the output tail.
 func (r *Run) ToAPI() api.Run {
 	return api.Run{ID: r.ID, Trigger: r.Trigger, Status: r.Status, ScheduledFor: r.ScheduledFor, StartedAt: r.StartedAt,
 		FinishedAt: r.FinishedAt, ExitCode: r.ExitCode, Message: r.Message, SkippedCount: r.SkippedCount, Artifact: r.Artifact,
-		Key: r.Key, Outputs: r.Outputs}
+		Key: r.Key, Outputs: r.Outputs, Event: r.Event}
 }
 
 // SystemOwner marks resources owned by the control plane itself rather than another resource.
@@ -416,6 +421,8 @@ func BucketGrantsOf(spec any) []api.BucketGrant {
 	case api.AppSpec:
 		return s.BucketAccess
 	case api.JobSpec:
+		return s.BucketAccess
+	case api.FunctionSpec:
 		return s.BucketAccess
 	}
 	return nil

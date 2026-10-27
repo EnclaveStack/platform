@@ -58,7 +58,10 @@ func readKeys(values []string) ([]string, error) {
 }
 
 // readUserData reads --user-data FILE, or standard input for "-".
-func (a *app) readUserData(path string) (string, error) {
+func (a *app) readUserData(path string) (string, error) { return a.readFileFlag("user-data", path) }
+
+// readFileFlag reads the file a flag names, or standard input for "-"; "" for no file.
+func (a *app) readFileFlag(flag, path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
@@ -68,7 +71,7 @@ func (a *app) readUserData(path string) (string, error) {
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", usagef("--user-data: %v", err)
+		return "", usagef("--%s: %v", flag, err)
 	}
 	return string(b), nil
 }

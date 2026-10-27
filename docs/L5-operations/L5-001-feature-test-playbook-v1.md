@@ -6,9 +6,9 @@
 | Document ID | L5-001-feature-test-playbook-v1 |
 | Layer | L5 — Operations & GTM |
 | Status | Draft |
-| Version | v32 |
+| Version | v33 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-25 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -540,6 +540,86 @@ Run the live checks with a phone on **mobile data** (not the home Wi-Fi), so the
 - **Automated**: `internal/release` (names, checksums, the provider manifest, the formula, archive contents, and the install script against a fake release: install, checksum mismatch, unsupported OS and CPU, a missing version), `internal/agent` (`TestStableExecutable`). `make release VERSION=v0.0.0-test` builds all four platforms locally.
 - **Known local limitations**: signing and publishing run only in `release.yml` on a real tag. Locally, `make release` and a local web server stand in for GitHub's downloads.
 
+## 2k · v0.10 walk-throughs (`L2-016`)
+
+### Feature: Functions — L2-016 FN-01 – FN-12, CON-82, CON-83, CLI-59, CLI-64, TF-54, TF-57
+- **Golden path**: a function `echo` from `alpine:3.22`, command `sh -c 'cat "$ENCLAVE_EVENT_FILE"; echo; echo "source=$ENCLAVE_EVENT_SOURCE"'`, with no triggers → ready. Run these:
+  - `enclave function invoke echo --data '{"hello":"world"}' --wait` → `succeeded`, and the output holds `{"source":"invoke","body":{"hello":"world"}}` and `source=invoke`.
+  - A queue `jobs` (visibility timeout 120 s) as a trigger, then `enclave queue send jobs 'hi'` → within a few seconds a `queue` run whose output has `"body":"hi"`, and the queue is empty.
+  - A topic `news` with the subscription `function=echo`, then `enclave topic publish news 'x'` → a `topic` run.
+  - A bucket trigger on `uploads/in/`. Objects already there start nothing; putting `in/a.txt` → one `bucket` run with `"key":"in/a.txt"`.
+  - A schedule `* * * * *` → a `schedule` run each minute.
+- **Failure and retry**: command `sh -c 'exit 3'` with the queue trigger → the run fails with exit code 3, and the message comes back after the visibility timeout. With `maxReceives` 2 and a dead-letter queue, it ends up there.
+- **Concurrency**: concurrency 1 and a command that sleeps 20 s; invoke twice → the second gets `429 FUNCTION_BUSY`. Five queue messages are handled one after another.
+- **Error paths**:
+  - A queue whose visibility timeout is 30 s with a 60 s function → failed: "Raise the visibility timeout of jobs to at least 90 seconds".
+  - A trigger naming no bucket → `422`. Two schedule triggers → `422`.
+  - `env` with `ENCLAVE_RUN_ID` → `422`.
+  - A body that isn't JSON → `400`; a body over 256 KiB → `413`.
+  - Deleting a function a topic sends to → `409 RESOURCE_IN_USE`.
+- **Automated**: `pkg/api` (`TestValidateFunction`, `TestTopicFunctionSubscription`), `internal/reconciler` (`TestFunctionInvokeQueueTopicBucket`, `TestFunctionConcurrencyAndSchedule`), `internal/store` (`TestFunctionRunKeepsItsEvent`), `internal/cli` (`TestFunctionsFromTheCLI`), `internal/provider` (`TestAccV010Stack`), console (`mock-v010.test.ts`, `v010.test.ts`, `v010-flows.test.tsx`).
+
+### Feature: Preview environments — L2-016 PRV-01 – PRV-09, CON-84, CLI-60, TF-55
+- **Golden path (GitHub, through a tunnel)**: the app `web` from a GitHub repository with previews on, the suffix `preview.example.com` (a zone and a Cloudflare tunnel), and the webhook secret `web-hook`. In the repository's settings, add the webhook `https://<a public domain>/.enclave/hooks/git/<app id>` (content type `application/json`, the secret's value, events: pull requests and pushes).
+  - GitHub's ping → **Recent deliveries** shows `200 pong`.
+  - Open a pull request → `web-pr-N` appears under **Previews**, builds the pull request's head, and answers at `https://web-pr-N.preview.example.com` behind the sign-in gate.
+  - Push to the pull request → a new build of that commit.
+  - Merge it → the preview and its domain are deleted.
+  - With deploy on push, a push to `main` redeploys `web`.
+- **CLI**: `enclave app preview create web --ref feature/x` → `web-feature-x`. `enclave app preview ls web` lists it. `enclave app preview rm web web-feature-x` deletes it.
+- **Error paths**:
+  - A wrong secret → `401` in GitHub's deliveries and no preview.
+  - An app from an image → previews refused (`422`).
+  - A sixth preview with `maxActive` 5 → `409 PREVIEW_LIMIT`, and an event on `web` for a webhook.
+  - `PATCH` on a preview → `422 IMMUTABLE_FIELD`.
+  - A `ttlHours` of 1 with the clock moved on → the preview is deleted with a `preview_deleted` event.
+- **Automated**: `pkg/api` (`TestValidatePreviews`, `TestPreviewNames`), `internal/reconciler` (`TestPreviewsFromWebhooksAndByHand`: GitHub signatures, GitLab tokens, open, push, close, the limit), `internal/gate` (`TestGitHookOnPublicAddresses`: the hook on public addresses), `internal/cli` (`TestPreviewsFromTheCLI`), `internal/provider` (`TestAccV010Stack`), console (`mock-v010.test.ts`, `v010-flows.test.tsx`).
+
+### Feature: Standby control plane — L2-016 SBY-01 – SBY-07, CON-85, CLI-61
+- **Golden path (two computers)**: on the main machine, `enclave machines add studio --role standby` → run the printed join command on `studio`. Within 30 s, **Machines › studio** shows **Last copy** a few seconds ago.
+  - Create a project and a secret, then wait 15 s → the copy's time moves on.
+  - Stop the main machine (or `enclave server` on it). On `studio`, run `enclave standby promote` → the console opens on `studio`, with the new project and secret, and the old main shows as offline. Apps from it start on other machines.
+  - Start the old main's control plane again → it answers `503 CONTROL_PLANE_REPLACED`, and changes nothing on the other machines.
+- **Auto-promote**: the agent with `--auto-promote-after 1m`, then stop the main → `studio` promotes itself after a minute.
+- **Error paths**:
+  - A second standby → `409 STANDBY_EXISTS`.
+  - `enclave standby promote` with no copy → it says there is no copy yet and changes nothing.
+  - A corrupted copy → it is skipped for the one before it.
+- **Automated**: `pkg/api` (`TestAddStandby`), `internal/store` (`TestPromoteRaisesTheEpoch`), `internal/httpapi` (`TestStandbyCopiesPromotesAndFencesTheOldMain`: copies, promotion, the old main fenced), console (`mock-v010.test.ts`, `v010-flows.test.tsx`).
+- **Known local limitations**: one computer runs the standby as a second agent with its own state directory, as the machines e2e does. The full walk needs two computers.
+
+### Feature: Database options — L2-016 DBX-01 – DBX-05, CON-86, CLI-62, TF-56
+- **Golden path**: `enclave database create pg --tls --exposed --init-script-file setup.sql` (setup.sql makes a table) → ready. The outputs show `tls: true`, the CA certificate and `exposedAddresses`.
+  - `psql "<connection string>"` → TLS (`\conninfo` says SSL).
+  - From another computer, `psql "host=<exposed address> … sslmode=verify-ca sslrootcert=ca.pem"` connects.
+  - The setup table exists.
+  - Without TLS (`sslmode=disable`) → refused.
+  - MySQL the same with `--ssl-mode=REQUIRED`.
+- **Error paths**:
+  - `--exposed` without `--tls` → `422`. TLS on MongoDB → `422`.
+  - Changing the setup script → `422 IMMUTABLE_FIELD`.
+  - A script with an SQL error → failed, with the error in the message.
+- **Automated**: `pkg/api` (`TestValidateDatabaseOptions`), `internal/reconciler` (`TestDatabaseTLS`: the CA, TLS-only connections, exposed addresses, the setup script), `internal/store` (`TestDatabaseCAIsStoredOnce`), `internal/cli` (`TestDatabaseOptionsBackupsAndAlertsFromTheCLI`), console (`mock-v010.test.ts`, `v010-flows.test.tsx`).
+
+### Feature: Volume backups — L2-016 VBK-01 – VBK-03, CON-87, CLI-63, TF-57
+- **Golden path**: a filesystem volume `files` mounted by app `web`. `enclave backup create files-bak --volume files --bucket backups --schedule '@daily'`, then `enclave backup run files-bak` → an artifact `….tar.gz`.
+  - Delete a file in the volume, then restore with `replace` → the file is back and `web` restarted.
+  - Restore `new` as `files-copy` → a new volume with the files.
+- **Error paths**: a disk volume → `422` pointing to snapshots.
+- **Automated**: `internal/reconciler` (`TestVolumeBackupsAndRestores`), `pkg/api` (`TestValidateBackupVolume`), `internal/cli` (`TestDatabaseOptionsBackupsAndAlertsFromTheCLI`).
+
+### Feature: Notifications on events — L2-016 EVN-01 – EVN-03, CON-88, CLI-64, TF-57
+- **Golden path**: a webhook channel to a request bin, then `enclave alert create deploys --event ready --event failed --resource app/web --channel hook`. Redeploy `web` → one notification with `type: ready`. Break its image → one with `type: failed`.
+- **Error paths**: an unknown event name → `422`. `repeatMinutes` 5 on an event alert → `422`. Events from before the alert was made aren't sent.
+- **Automated**: `pkg/api` (`TestValidateEventAlert`), `internal/monitor` (`TestEventAlertSendsEachMatchingEventOnce`), `internal/store` (`TestEventCursor`).
+
+### Feature: More connections — L2-016 CNX-08 – CNX-12
+- **Golden path**: install `neon`, `firebase`, `auth0`, `clerk` and `sentry` from **Catalogue › Connections**. Each stack's outputs list its variables, and only the keys given.
+- **Automated**: `internal/catalogue` (`TestConnectionTemplates`).
+
+### Feature: Reliable CI networks
+- **Automated**: `internal/engine/docker` (`TestRandomCIDRAvoidsUsedRanges`). `TestMeshBetweenTwoEngines` waits for the name with the longer budget.
+
 ## 3 · Earlier versions
 
 The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev`: demo admin `admin@enclave.local` / `enclave-demo`; `/apps?first-run` walks setup with code `DEMO-SETU-PCOD`; names starting `fail-` fail on purpose so Retry can be tried.
@@ -580,3 +660,4 @@ The console runs against the in-memory mock with `VITE_ENCLAVE_API=mock pnpm dev
 | v30 | 2026-10-24 | Soupler | §2h public access walk-throughs: quick links and the gate, Cloudflare tunnels and public domains, edge machines and relays, each with live checks from a phone on mobile data (L2-014) |
 | v31 | 2026-10-25 | Soupler | §2i connections: the Supabase connection walk-through (L2-015) |
 | v32 | 2026-10-25 | Soupler | §2j install walk-throughs: install script, Homebrew, the server image, agent services after an upgrade, signatures (ADR-054) |
+| v33 | 2026-10-26 | Soupler | §2k v0.10 walk-throughs: functions, previews, the standby, database options, volume backups, event notifications, connections, CI networks (L2-016) |

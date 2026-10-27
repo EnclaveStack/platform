@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +64,57 @@ const mongoAuth = "db.getSiblingDB('admin').auth(process.env.MONGO_INITDB_ROOT_U
 // databasePlan is a database's container for its engine (ADR-030). Passwords reach health checks through
 // the container's environment, never the command line (clickhouse-client reads CLICKHOUSE_USER and
 // CLICKHOUSE_PASSWORD itself).
-func databasePlan(r *domain.Resource, s api.DatabaseSpec, password string) (plan, error) {
+func databasePlan(r *domain.Resource, s api.DatabaseSpec, password string, tls *engine.TLSFiles) (plan, error) {
+	p, err := engineDatabasePlan(r, s, password)
+	if err != nil {
+		return p, err
+	}
+	if s.InitScript != "" { // run once by the image, on an empty data directory (DBX-04)
+		ext := ".sql"
+		if s.Engine == api.EngineMongoDB {
+			ext = ".js"
+		}
+		if p.files == nil {
+			p.files = map[string]map[string][]byte{}
+		}
+		p.files[engine.InitDir] = map[string][]byte{engine.InitScript + ext: []byte(s.InitScript)}
+	}
+	if s.TLS {
+		if tls == nil {
+			return p, engine.Permanent(fmt.Errorf("the database's TLS certificate wasn't issued"))
+		}
+		files := map[string][]byte{"server.crt": tls.CertPEM, "ca.crt": tls.CAPEM}
+		switch s.Engine {
+		case api.EnginePostgres:
+			// Encrypted connections only over the network; health checks use the local socket (ADR-058).
+			files["pg_hba.conf"] = []byte("local all all trust\nhostssl all all all scram-sha-256\n")
+			p.cmd = []string{"postgres", "-c", "ssl=on", "-c", "ssl_cert_file=" + engine.TLSDir + "/server.crt", "-c", "ssl_key_file=" + engine.TLSDir + "/server.key",
+				"-c", "ssl_ca_file=" + engine.TLSDir + "/ca.crt", "-c", "hba_file=" + engine.TLSDir + "/pg_hba.conf"}
+			p.fileOwner = postgresUID
+		case api.EngineMySQL:
+			p.cmd = []string{"--ssl-ca=" + engine.TLSDir + "/ca.crt", "--ssl-cert=" + engine.TLSDir + "/server.crt", "--ssl-key=" + engine.TLSDir + "/server.key",
+				"--require-secure-transport=ON"}
+			p.fileOwner = mysqlUID
+		default:
+			return p, engine.Permanent(fmt.Errorf("TLS is available for PostgreSQL and MySQL"))
+		}
+		p.privateFiles = map[string]map[string][]byte{engine.TLSDir: {"server.key": tls.KeyPEM}}
+		if p.files == nil {
+			p.files = map[string]map[string][]byte{}
+		}
+		p.files[engine.TLSDir] = files
+		p.exposed = s.Exposed
+	}
+	return p, nil
+}
+
+// The users the PostgreSQL (Alpine) and MySQL images run their servers as: a TLS key must be theirs.
+const (
+	postgresUID = 70
+	mysqlUID    = 999
+)
+
+func engineDatabasePlan(r *domain.Resource, s api.DatabaseSpec, password string) (plan, error) {
 	ident := domain.DatabaseIdentifier(r.Name)
 	mem := domain.EngineMemoryMiB[s.Engine]
 	image := EngineImages[s.Engine][s.Version]
@@ -173,4 +224,19 @@ func relayAuth(tls string) string {
 		return "login"
 	}
 	return "plain"
+}
+
+// exposedAddresses are "ip:port" for each non-loopback IPv4 address of this machine (DBX-05).
+func exposedAddresses(port int) []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && !n.IP.IsLoopback() && n.IP.To4() != nil && !n.IP.IsLinkLocalUnicast() {
+			out = append(out, net.JoinHostPort(n.IP.To4().String(), strconv.Itoa(port)))
+		}
+	}
+	return out
 }

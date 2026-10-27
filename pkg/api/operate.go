@@ -277,7 +277,7 @@ var ContainerKinds = []Kind{KindApp, KindDatabase, KindCache, KindSearch, KindEm
 var RestartingKinds = append(slices.Clone(ContainerKinds), KindVM)
 
 // RunKinds have runs that can fail (ALR-02).
-var RunKinds = []Kind{KindJob, KindBackup, KindTranscoder}
+var RunKinds = []Kind{KindJob, KindBackup, KindTranscoder, KindFunction}
 
 // LogKinds have logs a log export can read (LOG-01).
 var LogKinds = append(slices.Clone(ContainerKinds), KindVM)
@@ -493,10 +493,19 @@ const (
 	ConditionRunFailed = "run_failed"
 	// ConditionMachineOffline watches machines, named "machine/<name>" (L2-010 MCH-06).
 	ConditionMachineOffline = "machine_offline"
+	// ConditionEvent sends each matching event as it happens (L2-016 EVN-01, ADR-060).
+	ConditionEvent = "event"
 )
 
 // ConditionTypes lists the condition types.
-var ConditionTypes = []string{ConditionMetric, ConditionCrashLoop, ConditionFailed, ConditionRunFailed, ConditionMachineOffline}
+var ConditionTypes = []string{ConditionMetric, ConditionCrashLoop, ConditionFailed, ConditionRunFailed, ConditionMachineOffline, ConditionEvent}
+
+// NotifiableEvents are the events an event alert can send (EVN-02).
+var NotifiableEvents = []string{"ready", "redeployed", "failed", "built", "build_failed", "run_failed", "run_timed_out",
+	"restored", "rescheduled", "moved", "drift_detected", "certificate_renewed", "preview_created", "preview_deleted"}
+
+// AlertEventsMax bounds an event alert's event names.
+const AlertEventsMax = 20
 
 // MachineRefPrefix starts a machine in a machine_offline condition's resources.
 const MachineRefPrefix = "machine/"
@@ -534,6 +543,8 @@ type AlertCondition struct {
 	ForMinutes    int      `json:"forMinutes,omitempty"`
 	Restarts      int      `json:"restarts,omitempty"`
 	WindowMinutes int      `json:"windowMinutes,omitempty"`
+	// Events are an event condition's event names (EVN-01).
+	Events []string `json:"events,omitempty"`
 }
 
 // AlertSpec is a rule that fires and resolves (ADR-038).
@@ -609,8 +620,30 @@ func validateAlert(s AlertSpec) []FieldError {
 		if c.ForMinutes < AlertForMinutesMin || c.ForMinutes > AlertForMinutesMax {
 			errs = append(errs, FieldError{Field: "spec.condition.forMinutes", Code: FieldOutOfRange, Message: "Use 1–60 minutes."})
 		}
+	case ConditionEvent:
+		errs = append(errs, validateRefs(c.Resources, "spec.condition.resources", 1, AlertResourceMax, nil)...)
+		if len(c.Events) < 1 || len(c.Events) > AlertEventsMax {
+			errs = append(errs, FieldError{Field: "spec.condition.events", Code: FieldOutOfRange, Message: fmt.Sprintf("Choose 1–%d events.", AlertEventsMax)})
+		}
+		seen := map[string]bool{}
+		for i, e := range c.Events {
+			f := fmt.Sprintf("spec.condition.events[%d]", i)
+			switch {
+			case !slices.Contains(NotifiableEvents, e):
+				errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: "Choose one of " + strings.Join(NotifiableEvents, ", ") + "."})
+			case seen[e]:
+				errs = append(errs, FieldError{Field: f, Code: FieldNotAllowed, Message: e + " is listed twice."})
+			}
+			seen[e] = true
+		}
+		if s.RepeatMinutes != 0 {
+			errs = append(errs, FieldError{Field: "spec.repeatMinutes", Code: FieldNotAllowed, Message: "An event alert sends each event once; it never repeats."})
+		}
 	default:
-		errs = append(errs, FieldError{Field: "spec.condition.type", Code: FieldNotAllowed, Message: "Choose metric, crash_loop, failed, run_failed or machine_offline."})
+		errs = append(errs, FieldError{Field: "spec.condition.type", Code: FieldNotAllowed, Message: "Choose metric, crash_loop, failed, run_failed, machine_offline or event."})
+	}
+	if c.Type != ConditionEvent && len(c.Events) > 0 {
+		errs = append(errs, FieldError{Field: "spec.condition.events", Code: FieldNotAllowed, Message: "Events are for event conditions only."})
 	}
 	if c.Type != ConditionMetric && (c.Metric != "" || c.Operator != "" || c.Threshold != nil || c.ForMinutes != 0 && c.Type != ConditionMachineOffline) {
 		errs = append(errs, FieldError{Field: "spec.condition.metric", Code: FieldNotAllowed, Message: "Metric, operator, threshold and duration are for metric conditions only."})
@@ -1126,6 +1159,8 @@ const (
 	EventResolved = "resolved"
 	EventRepeat   = "repeat"
 	EventTest     = "test"
+	// EventEvent is a resource event sent by an event alert (ADR-060).
+	EventEvent = "event"
 )
 
 // IncidentNotification is one channel's outcome for an incident.

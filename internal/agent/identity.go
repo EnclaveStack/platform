@@ -23,6 +23,8 @@ type Identity struct {
 	Advertise  string `json:"advertise"`
 	Listen     string `json:"listen"`
 	TunnelPort int    `json:"tunnelPort"`
+	// Standby keeps copies of the control plane and can be promoted (ADR-057).
+	Standby bool `json:"standby,omitempty"`
 
 	dir string
 }

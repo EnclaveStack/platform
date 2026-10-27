@@ -6,9 +6,9 @@
 | Document ID | L1-002-coolify-study-and-service-roadmap-v1 |
 | Layer | L1 — Vision & Strategy |
 | Status | Draft |
-| Version | v12 |
+| Version | v13 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -69,39 +69,44 @@ Each phase adds resource kinds that work in all three surfaces (console, CLI, Op
 | Phase | EnclaveStack kind | AWS | GCP | Builds on |
 |---|---|---|---|---|
 | **v0.2 (shipped)** | app, database (PostgreSQL), cache (Redis), bucket, secret | ECS service, RDS, ElastiCache, S3, Secrets Manager | Cloud Run, Cloud SQL, Memorystore, Cloud Storage, Secret Manager | — |
-| **v0.3: run a real product** | domain (+ automatic HTTPS), edge proxy | Route 53 alias + ACM + ALB | Cloud DNS + managed certs + Load Balancing | 3.4 |
+| **v0.3: run a real product** (released in 0.9.0) | domain (+ automatic HTTPS), edge proxy | Route 53 alias + ACM + ALB | Cloud DNS + managed certs + Load Balancing | 3.4 |
 | | zero-downtime deploys, health-gated | ECS rolling deployment | Cloud Run revisions | 3.3 |
 | | backup-policy + restore (database, volume) | RDS snapshots, AWS Backup | Cloud SQL backups | 3.6, 3.7 |
 | | scheduled job | EventBridge Scheduler | Cloud Scheduler | 3.8 |
 | | build from Git or Dockerfile, image registry | CodeBuild, ECR | Cloud Build, Artifact Registry | 3.2 |
-| **v0.4: networking** (specified) | network (CIDR, subnets), private DNS between resources | VPC, subnets, Cloud Map | VPC, subnets, Cloud DNS private zones | — |
+| **v0.4: networking** (released in 0.9.0) | network (CIDR, subnets), private DNS between resources | VPC, subnets, Cloud Map | VPC, subnets, Cloud DNS private zones | — |
 | | firewall rules | Security groups | VPC firewall rules | — |
 | | load balancer and app replicas (TCP/HTTP) | ALB / NLB | Cloud Load Balancing | 3.4 |
 | | DNS records via provider plug-ins | Route 53 | Cloud DNS | 3.12 |
 | | certificates through DNS (DNS-01), wildcard domains | ACM DNS validation | Certificate Manager DNS authorization | 3.4, 3.12 |
-| **v0.5: compute** (built, unreleased) | vm (image, size, SSH key, cloud-init), volume (VM disks and app folders), snapshot | EC2, AMI, EBS, EFS, key pairs | Compute Engine, persistent disk, Filestore | 3.7, 3.13. Engine: QEMU on macOS and Linux (`L2-007`, ADR-025) |
-| | function (later) | Lambda | Cloud Functions | app kind |
-| **v0.6: data & messaging** (built, unreleased) | queue, topic (pub/sub) | SQS, SNS | Pub/Sub | NATS JetStream (`L2-008`, ADR-029) |
+| **v0.5: compute** (released in 0.9.0) | vm (image, size, SSH key, cloud-init), volume (VM disks and app folders), snapshot | EC2, AMI, EBS, EFS, key pairs | Compute Engine, persistent disk, Filestore | 3.7, 3.13. Engine: QEMU on macOS and Linux (`L2-007`, ADR-025) |
+| | function: moved to v0.10 | Lambda | Cloud Functions | app kind |
+| **v0.6: data & messaging** (released in 0.9.0) | queue, topic (pub/sub) | SQS, SNS | Pub/Sub | NATS JetStream (`L2-008`, ADR-029) |
 | | more database engines: MySQL, MongoDB, ClickHouse | RDS MySQL, DocumentDB | Cloud SQL MySQL, Firestore-like | 3.5 |
 | | search | OpenSearch | Vertex AI Search / Elastic | — |
 | | media transcode job | MediaConvert | Transcoder API | scheduled job + bucket (FFmpeg) |
 | | CDN cache in front of buckets and apps | CloudFront | Cloud CDN | edge proxy |
 | | email sending | SES | — (partners) | SMTP relay |
-| **v0.7: operate** (specified) | metrics, dashboards, alerts | CloudWatch | Cloud Monitoring | 3.9; built into the control plane (`L2-009`, ADR-037) |
+| **v0.7: operate** (released in 0.9.0) | metrics, dashboards, alerts | CloudWatch | Cloud Monitoring | 3.9; built into the control plane (`L2-009`, ADR-037) |
 | | log export | CloudWatch Logs subscriptions | Cloud Logging sinks | 3.10 |
 | | notification channels | SNS / Chatbot | Cloud Monitoring channels | 3.15 |
 | | projects (namespaces), users, roles, scoped tokens per project | IAM, accounts | IAM, projects | existing tokens (ADR-035, ADR-036) |
 | | external secret back-ends | Secrets Manager integrations | Secret Manager | 3.11 |
-| **v0.8: many machines** (built) | machine (agent over mutual TLS), placement, migration | Regions/AZs (conceptually) | Zones | 3.9 + ADR on the agent protocol |
+| **v0.8: many machines** (released in 0.9.0) | machine (agent over mutual TLS), placement, migration | Regions/AZs (conceptually) | Zones | 3.9 + ADR on the agent protocol |
 | | catalogue (one-click stacks) | AWS Marketplace / Quick Starts | Marketplace | 3.1 |
-| **v0.9: reach it from anywhere** (specified) | tunnel, the way in chosen from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, relay on the user's own server), public domains, a gate (sign-in or password), edge machines | CloudFront + ALB in front of a private VPC, Verified Access | Cloud Load Balancing + Identity-Aware Proxy | 3.14; domains (v0.3), zones (v0.4), machines and the mesh (v0.8) (`L2-014`) |
+| **v0.9: reach it from anywhere** (released in 0.9.0) | tunnel, the way in chosen from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, relay on the user's own server), public domains, a gate (sign-in or password), edge machines | CloudFront + ALB in front of a private VPC, Verified Access | Cloud Load Balancing + Identity-Aware Proxy | 3.14; domains (v0.3), zones (v0.4), machines and the mesh (v0.8) (`L2-014`) |
+| **v0.10: close the roadmap** (specified) | function (container image run per event: schedule, queue message, topic message, new object, HTTP call) | Lambda, EventBridge triggers | Cloud Functions / Cloud Run functions | jobs (v0.3), queues and topics (v0.6), transcoder watching (v0.6) (`L2-016`) |
+| | preview environments per pull request, deploy on push | Amplify previews, CodePipeline | Cloud Build triggers | builds from Git (3.2), domains, tunnels (v0.9) |
+| | standby control plane with failover | Multi-AZ control plane | Regional control plane | machines (v0.8) |
+| | database TLS, setup script, reachable from other computers; volume backups; notifications on events | RDS TLS and parameter groups, AWS Backup for EFS, EventBridge → SNS | Cloud SQL SSL, Backup for GKE volumes, Eventarc | databases (v0.2), backups (v0.3), channels (v0.7) |
+| | connections: Neon, Firebase, Auth0, Clerk, Sentry | — | — | connections (`L2-015`) |
 
 The catalogue (3.1) does not depend on later phases. It can start as soon as v0.3 lands, because entries only compose kinds that already exist.
 
 ## 5 · What this changes
 
 - **L1-001:** Coolify becomes the named comparison for "container platform". LocalStack is the comparison for "AWS emulation". Our place sits between them: real services you can run and keep, managed like a cloud.
-- **v0.3 is built** (2026-10-21, not yet released): every phase in `L2-005` §5, including builds from Git, works on all three surfaces. It is **specified** in:
+- **v0.3 is built** (2026-10-21; released in 0.9.0): every phase in `L2-005` §5, including builds from Git, works on all three surfaces. It is **specified** in:
   - product: `L2-005`, plus `L2-001` CON-19 – CON-25, `L2-002` CLI-13 – CLI-17 and `L2-003` TF-11 – TF-15;
   - architecture: `L3-003` ADR-015 – ADR-019 and `L3-004` DAR-008 – DAR-011, with `L3-002` §6, `L3-005` §5, `L3-006` §5 and `L3-007` §8;
   - tests: `L5-001` §2a and `L5-002` §6.
@@ -112,6 +117,8 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 - **v0.7 is specified** (2026-10-22): the whole row in `L2-009`, plus `L2-001` CON-45 – CON-53, `L2-002` CLI-37 – CLI-45 and `L2-003` TF-34 – TF-41; `L3-003` ADR-035 – ADR-041 and `L3-004` DAR-027 – DAR-033. Projects are full namespaces (the owner's call: "why wait for later"), with `default` keeping every v0.6 name. Metrics are kept by EnclaveStack itself; secret stores are Vault/OpenBao, 1Password, AWS Secrets Manager, Doppler and Infisical; logs go to buckets, HTTP, OTLP and Loki.
 - **v0.9 is specified** (2026-10-24): public access in `L2-014`, plus `L2-001` CON-76 – CON-79, `L2-002` CLI-56 – CLI-58 and `L2-003` TF-51 – TF-53; `L3-003` ADR-051 – ADR-053 and `L3-004` DAR-040 – DAR-042. It answers "how do I open dev and stage from my phone" for a machine at home behind NAT or CGNAT. Chosen with the owner: no hosted EnclaveStack edge and no DNS server of our own; the way in is the user's choice from the catalogue (quick link, Tailscale, Cloudflare, ngrok, the user's own relay, or any other provider as a custom connector); EnclaveStack's own gate on every public app, with Cloudflare Access as an option; a quick link for people without a domain. This is row 3.14 of §3 (Coolify's Cloudflare tunnels), taken further.
 - **v0.8 is built** (2026-10-22) on every surface and tested with two machines, the second a Docker-in-Docker agent (`L2-010` §5). It was specified the same day: the whole row in `L2-010`, plus `L2-001` CON-54 – CON-60, `L2-002` CLI-46 – CLI-52 and `L2-003` TF-42 – TF-47; `L3-003` ADR-042 – ADR-048 and `L3-004` DAR-034 – DAR-039. Networks span machines over WireGuard (spiked on Docker Desktop with a Docker-in-Docker second engine), apps without data restart elsewhere when a machine goes offline, and the catalogue has built-in and own templates installed as stacks, all chosen with the owner. The control plane stays on one machine.
+- **0.9.0 is released** (2026-10-25): the first published release carries everything from v0.3 to v0.9, public access and connections included (ADR-054). It installs with Homebrew, a script or a container image, with no Go or Node needed. Until 1.0 a release may still change the API, the CLI or the provider.
+- **v0.10 is specified** (2026-10-26): `L2-016` closes what the roadmap still left open: functions, preview environments, a standby control plane, database TLS, setup scripts and access from other computers, volume backups, notifications on events and five more connections. Chosen with the owner: a function is a container image (not code plus a runtime), the control plane gets a standby with failover (not a consensus cluster), previews start from Git webhooks and the CLI, and the connections are Neon, Firebase, Auth0, Clerk and Sentry.
 
 ## Version history
 
@@ -129,3 +136,4 @@ The catalogue (3.1) does not depend on later phases. It can start as soon as v0.
 | v10 | 2026-10-22 | Soupler | v0.8 specified: `L2-010` and its engineering chain |
 | v11 | 2026-10-22 | Soupler | v0.8 built |
 | v12 | 2026-10-24 | Soupler | v0.9 specified: public access (`L2-014`): tunnels, public domains, the gate, edge machines |
+| v13 | 2026-10-26 | Soupler | v0.3 – v0.9 marked released in 0.9.0; function moved to v0.10; v0.10 specified (`L2-016`) |

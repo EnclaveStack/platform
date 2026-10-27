@@ -16,7 +16,7 @@ import (
 
 // Run history for jobs and backups (L3-005 §5, ADR-017).
 
-const runCols = `id, resource_id, trigger, status, scheduled_for, started_at, finished_at, exit_code, message, skipped_count, artifact_json, subject_key, outputs_json`
+const runCols = `id, resource_id, trigger, status, scheduled_for, started_at, finished_at, exit_code, message, skipped_count, artifact_json, subject_key, outputs_json, event_json, receipt`
 
 // RunRetention keeps the newest RunKeepCount runs of each resource, plus every run younger than RunKeepAge.
 const (
@@ -30,9 +30,9 @@ func (q *Queries) InsertRun(ctx context.Context, r *domain.Run) error {
 	if err != nil {
 		return err
 	}
-	_, err = q.q.ExecContext(ctx, `INSERT INTO runs (`+runCols+`, output_tail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = q.q.ExecContext(ctx, `INSERT INTO runs (`+runCols+`, output_tail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.ResourceID, r.Trigger, r.Status, tsPtr(r.ScheduledFor), ts(r.StartedAt), tsPtr(r.FinishedAt), r.ExitCode, r.Message,
-		r.SkippedCount, art, nullString(r.Key), encodeKeys(r.Outputs), r.OutputTail)
+		r.SkippedCount, art, nullString(r.Key), encodeKeys(r.Outputs), nullString(string(r.Event)), nullString(r.Receipt), r.OutputTail)
 	return err
 }
 
@@ -257,10 +257,10 @@ func (q *Queries) runs(ctx context.Context, query string, args ...any) ([]*domai
 
 func scanRun(s scanner, withOutput bool) (*domain.Run, error) {
 	var r domain.Run
-	var scheduled, finished, art, key sql.NullString
+	var scheduled, finished, art, key, event, receipt sql.NullString
 	var exit sql.NullInt64
 	var started, outputs string
-	dest := []any{&r.ID, &r.ResourceID, &r.Trigger, &r.Status, &scheduled, &started, &finished, &exit, &r.Message, &r.SkippedCount, &art, &key, &outputs}
+	dest := []any{&r.ID, &r.ResourceID, &r.Trigger, &r.Status, &scheduled, &started, &finished, &exit, &r.Message, &r.SkippedCount, &art, &key, &outputs, &event, &receipt}
 	if withOutput {
 		dest = append(dest, &r.OutputTail)
 	}
@@ -272,7 +272,10 @@ func scanRun(s scanner, withOutput bool) (*domain.Run, error) {
 		n := int(exit.Int64)
 		r.ExitCode = &n
 	}
-	r.Key = key.String
+	r.Key, r.Receipt = key.String, receipt.String
+	if event.Valid {
+		r.Event = []byte(event.String)
+	}
 	if err := json.Unmarshal([]byte(outputs), &r.Outputs); err != nil {
 		return nil, fmt.Errorf("run %s outputs: %w", r.ID, err)
 	}

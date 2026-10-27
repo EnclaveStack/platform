@@ -73,7 +73,7 @@ export function MachineFields({ placement, machines, errors }: {
 /** What a move does, in the dialog's words (MOVE-*, CON-57). */
 export function moveEffect(r: Resource, users: Resource[]): string {
   if (r.kind === 'app') return 'The app deploys there as a rolling deploy: the old replicas serve until the new ones are healthy.';
-  if (r.kind === 'job') return 'Its next runs start there.';
+  if (r.kind === 'job' || r.kind === 'function') return 'Its next runs start there.';
   if (r.kind === 'loadbalancer') return 'It starts there, then stops here; its address stays.';
   const size = r.kind === 'volume' && (r.spec as VolumeSpec).type === 'disk' ? ` (${String(r.outputs.sizeGiB ?? '')} GiB)` : r.outputs.usedBytes !== undefined ? ` (${formatBytes(Number(r.outputs.usedBytes))})` : '';
   const along = users.length ? ` ${users.map((u) => `${u.kind} ${u.name}`).join(', ')} ${users.length === 1 ? 'moves' : 'move'} with it.` : '';

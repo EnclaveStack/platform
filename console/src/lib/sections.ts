@@ -1,6 +1,6 @@
 import type { Kind } from '../api/types';
 
-/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52, CON-60, CON-76). The slug is the URL segment. */
+/** Sidebar sections, one per kind (L2-001 CON-04, CON-26 – CON-30, CON-32 – CON-35, CON-38 – CON-43, CON-49 – CON-52, CON-60, CON-76, L2-016 CON-82). The slug is the URL segment. */
 export const SECTIONS = [
   // v0.8 (CON-60): products installed from the catalogue.
   { slug: 'stacks', kind: 'stack', label: 'Stacks', noun: 'stack', blurb: 'Products installed from the catalogue — an app with its database, storage and domain — changed and deleted as one.' },
@@ -10,6 +10,8 @@ export const SECTIONS = [
   { slug: 'buckets', kind: 'bucket', label: 'Buckets', noun: 'bucket', blurb: 'S3-compatible object storage for uploads, media and archives.' },
   { slug: 'secrets', kind: 'secret', label: 'Secrets', noun: 'secret', blurb: 'Encrypted values your apps receive as environment variables.' },
   { slug: 'jobs', kind: 'job', label: 'Jobs', noun: 'job', blurb: 'Commands that run on a schedule — cleanups, reports, syncs — with every run kept.' },
+  // v0.10 (CON-82): code started by an event.
+  { slug: 'functions', kind: 'function', label: 'Functions', noun: 'function', blurb: 'A container started for each event — a message on a queue or topic, a file in a bucket, a schedule or a call — that runs and stops.' },
   { slug: 'backups', kind: 'backup', label: 'Backups', noun: 'backup', blurb: 'Scheduled dumps of your databases and caches to a bucket or external S3, with one-click restore.' },
   { slug: 'domains', kind: 'domain', label: 'Domains', noun: 'domain', blurb: 'Hostnames served over HTTPS and routed to your apps, with certificates handled for you.' },
   { slug: 'networks', kind: 'network', label: 'Networks', noun: 'network', blurb: 'Private networks with their own address ranges and subnets. Resources in different networks can’t reach each other.' },
@@ -54,7 +56,7 @@ export type NavPage = keyof typeof NAV_PAGES;
  * (reached from their zone) is in exactly one group; Settings follows them with the pages a role allows.
  */
 export const NAV_GROUPS: readonly { id: string; heading: string; items: readonly (SectionSlug | NavPage)[] }[] = [
-  { id: 'compute', heading: 'Compute', items: ['apps', 'jobs', 'vms', 'load-balancers'] },
+  { id: 'compute', heading: 'Compute', items: ['apps', 'functions', 'jobs', 'vms', 'load-balancers'] },
   { id: 'data', heading: 'Data', items: ['databases', 'caches', 'buckets', 'volumes', 'snapshots', 'backups', 'search'] },
   { id: 'networking', heading: 'Networking', items: ['networks', 'firewalls', 'domains', 'zones', 'cdn', 'tunnels'] },
   { id: 'messaging', heading: 'Messaging and media', items: ['queues', 'topics', 'email', 'transcoders'] },
