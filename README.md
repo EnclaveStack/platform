@@ -10,7 +10,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2C4BFF)](LICENSE)
 [![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#status)
+[![Latest release](https://img.shields.io/github/v/release/EnclaveStack/platform?label=release&color=2C4BFF)](https://github.com/EnclaveStack/platform/releases/latest)
 [![Runs on macOS and Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-555)](#quick-start)
 
 **[Website](https://enclavestack.soupler.com)** · **[Docs](https://enclavestack.soupler.com/docs/)** · **[Services](https://enclavestack.soupler.com/services/)**
@@ -366,7 +366,7 @@ Yes. `enclave server --driver fake` simulates the engine. For the console alone,
 <details>
 <summary><strong>Is it production-ready?</strong></summary>
 
-Not yet: it is pre-release. Releases are published and every one is built and tested, but until 1.0 there is no upgrade promise: a 0.x release may change the API, the CLI or the provider.
+Not yet for anything critical: EnclaveStack is at 0.x, before 1.0. Releases are published and every one is built and tested, but until 1.0 there is no upgrade promise: a 0.x release may change the API, the CLI or the provider.
 </details>
 
 ## Documentation
