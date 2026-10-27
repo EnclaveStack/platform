@@ -93,7 +93,18 @@ func (s *Resources) metricData(ctx context.Context, seriesOf string, infos []api
 		var pts []store.SeriesPoint
 		var err error
 		if rollups {
-			pts, err = s.Store.QueryRollups(ctx, seriesOf, info.Name, from.Unix(), to.Unix(), int64(step/time.Second))
+			stepS := int64(step / time.Second)
+			pts, err = s.Store.QueryRollups(ctx, seriesOf, info.Name, from.Unix(), to.Unix(), stepS)
+			// Rollups cover finished buckets only, and none yet on a new install: the rest comes from points.
+			next := from.Unix()
+			if len(pts) > 0 {
+				next = pts[len(pts)-1].TS + stepS
+			}
+			if err == nil && next <= to.Unix() {
+				var recent []store.SeriesPoint
+				recent, err = s.Store.QueryPoints(ctx, seriesOf, info.Name, next, to.Unix(), stepS)
+				pts = append(pts, recent...)
+			}
 		} else {
 			pts, err = s.Store.QueryPoints(ctx, seriesOf, info.Name, from.Unix(), to.Unix(), int64(step/time.Second))
 		}

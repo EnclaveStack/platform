@@ -25,6 +25,9 @@ All notable changes to `platform` are recorded here. Every change — code, docs
   - **Still to do by hand:** a real GitHub or GitLab webhook making a preview (`L5-001` §2k). Volume backups against a working bucket. Promoting a standby on two physical machines. The five connections with real accounts. The website needs a `/services/functions/` page; that is updated separately in `marketing`.
   - **CI:** network tests now pick a `/24` that no network on the engine already uses. Before, a random range could clash on a shared runner (`TestRandomCIDRAvoidsUsedRanges`). `TestMeshBetweenTwoEngines` waits up to a minute for a name to resolve on a busy runner.
 
+### Fixed
+- **Graphs over 24 hours, 7 days or 30 days no longer say "No data yet" on a new install (2026-10-27, ADR-037).** Those ranges read the 15-minute rollups, which exist only for finished buckets: a new install has none for its first quarter hour, and the newest quarter hour was always missing. The console's Overview opens on 24h, a moment longer than points are kept, so it showed no graphs at first. The time after the newest rollup is now read from points. `TestLongRangesShowPointsNotYetRolledUp` covers it.
+
 ## [0.9.0] — 2026-10-25
 
 The first published release: install it with `brew install enclavestack/tap/enclave` or `curl -fsSL https://enclavestack.soupler.com/install.sh | sh` (ADR-054). It holds everything built so far, v0.2 – v0.9: apps, databases, caches, buckets and secrets; domains, deploys, backups, jobs and builds; networking; VMs and volumes; queues, topics, search, transcoders, CDN and email; projects, metrics, alerts, log export and secret stores; many machines and the catalogue; public access; connections. Each entry below gives its date.

@@ -27,7 +27,7 @@ Registry of every artifact in layer **L3 — Architecture** (system design, ADRs
 |---|---|---|---|---|---|
 | L3-001-system-architecture-v1 | System Architecture | Draft | v19 | Soupler | 2026-10-25 |
 | L3-002-console-api-contract-v1 | Control-Plane API Contract | Draft | v28 | Soupler | 2026-10-26 |
-| L3-003-architecture-decision-records-v1 | Architecture Decision Records | Draft | v20 | Soupler | 2026-10-26 |
+| L3-003-architecture-decision-records-v1 | Architecture Decision Records | Draft | v21 | Soupler | 2026-10-27 |
 | L3-004-decision-analysis-records-v1 | Decision Analysis and Resolution (DAR) Records | Draft | v10 | Soupler | 2026-10-26 |
 | L3-005-data-model-v1 | Data Model | Draft | v17 | Soupler | 2026-10-26 |
 | L3-006-security-architecture-v1 | Security Architecture and Threat Model | Draft | v15 | Soupler | 2026-10-24 |
