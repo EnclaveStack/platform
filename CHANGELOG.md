@@ -5,8 +5,10 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 ## [Unreleased]
 
 ### Changed
+- **Monthly dependency updates (2026-10-27, `L4-002` v10 §6).** `.github/dependabot.yml` has Dependabot open one grouped PR a month each for Go modules, the pnpm workspace, GitHub Actions and the `Dockerfile` base image, into `develop`. Security updates were already on. Every update PR runs the full suite before it can merge.
 - **The README lists v0.9 and v0.10 (2026-10-27).** *What you get* gains Functions, Previews and deploy on push, Public access, the database options, volume backups, event alerts and all six connections. *Many machines* covers the standby. *Status* adds v0.9 (released as 0.9.0) and v0.10 (built, not released), drops "none is published yet", and lists what is still untried by hand. *Documentation* links the user guide. Every console screenshot is retaken from `make demo` in light and dark (the redesigned sidebar with Functions, a standby on Machines), and a new one shows a function.
 - **`make demo` adds a function**, `thumbs`, that runs for each file put in `uploads/photos/`.
+
 ### Added
 - **v0.10: close the roadmap (2026-10-26, `L2-016`).** Everything left on the roadmap, in one release. Each part works from the console, the CLI and OpenTofu.
   - **Functions** (FN-*, ADR-055). A new `function` kind: a container image started once per event, which reads the event from `/enclave/event.json`. Runs start from **Invoke** (`POST /resources/{id}/invoke`, `enclave function invoke`), a schedule, a queue's messages, new files in a bucket folder, or a topic that subscribes the function (`subscriptions: [{function}]`). At most `concurrency` runs go at once; past it, calls get `429 FUNCTION_BUSY` with `Retry-After`. Each run keeps its event. Console: **Compute › Functions** with triggers, Invoke and runs (CON-82, CON-83). CLI: `enclave function …` and `enclave topic create --function` (CLI-59, CLI-64). OpenTofu: `enclave_function` and topic `function` (TF-54, TF-57).
