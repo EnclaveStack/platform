@@ -5,13 +5,13 @@ package docker
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 
 	"github.com/enclavestack/platform/internal/domain"
 	"github.com/enclavestack/platform/internal/engine"
@@ -54,9 +54,33 @@ func runIn(t *testing.T, d *Driver, p engine.Placement, cmd ...string) (int, str
 	return res.ExitCode, string(res.Output)
 }
 
+// randomCIDR is a /24 no network on the engine overlaps, with its two halves (cidr_test.go).
 func randomCIDR() (string, string, string) {
-	b := 100 + rand.IntN(150)
-	return fmt.Sprintf("10.%d.0.0/24", b), fmt.Sprintf("10.%d.0.0/25", b), fmt.Sprintf("10.%d.0.128/25", b)
+	return claimCIDR(engineSubnets())
+}
+
+// engineSubnets lists every subnet of every network the engine has.
+func engineSubnets() []netip.Prefix {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil
+	}
+	defer cli.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	nets, err := cli.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, n := range nets {
+		for _, c := range n.IPAM.Config {
+			if p, err := netip.ParsePrefix(c.Subnet); err == nil {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 func TestNetworksIsolatePlaceAndName(t *testing.T) {

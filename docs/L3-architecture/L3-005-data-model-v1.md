@@ -6,9 +6,9 @@
 | Document ID | L3-005-data-model-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v16 |
+| Version | v17 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -171,6 +171,28 @@ These ship as migration `0015_public_access`, with the step of `L2-014` §7 that
 | Docker objects | Main machine: the network `es-system-tunnel` (the edge proxy and the probe helper join it), connectors `es-tunnel-<12 hex>` labelled `enclave.kind=tunnel` and `enclave.resource-id=<id>`, the volume `es-tunnel-<12 hex>-files` for a connector's files (its root is read-only), and for Tailscale the volume `es-tunnel-<12 hex>-state` (its device identity), deleted with the tunnel after `tailscale logout`. Edge machines: relays `es-relay-<12 hex>` labelled the same, and a stand-in for `es-system-edge` |
 | Agent state | An edge agent waiting to join keeps its key and request in `~/.enclave-agent` (0700) until the main machine signs it |
 
+## 12 · v0.10 changes (`L2-016`)
+
+These ship as migration `0016_v0_10`. Existing rows stay valid.
+
+| Change | Detail |
+|---|---|
+| `resources.kind` | The CHECK gains `function` (table rebuild, as `0015`) |
+| `runs` | Rebuilt: `trigger` gains `queue`, `topic`, `bucket` and `invoke`; new columns `event_json TEXT` (a function run's event, at most 256 KiB) and `receipt TEXT` (a queue message's receipt, deleted when the run succeeds). A topic delivery waits in the process for its run, so it needs no column |
+| `transcoder_objects` | Also holds what a function's bucket triggers have seen: `key` is `<bucket>/<object key>`, and each trigger's baseline row is `\x00<bucket>/<prefix>`. An object two triggers both match starts one run |
+| `machines.role` | The CHECK gains `standby` (table rebuild); a unique partial index allows one standby |
+| `cluster` (new) | One row: `epoch INTEGER NOT NULL` (0 at first; raised by each promotion, ADR-057) |
+| `database_ca` (new) | One row: `cert_pem`, `key_ciphertext` (sealed with the master key), `created_at` (ADR-058) |
+| `database_certs` (new) | `resource_id` primary key (cascades with the database), `cert_pem`, `key_ciphertext` (sealed with the master key), `names` (the names and addresses it covers; a change reissues it), `serial`, `not_after`. One server certificate per TLS database, signed by `database_ca` (ADR-058) |
+| `alert_cursors` (new) | `alert_id` primary key (cascades with the alert), `event_id` (the last `resource_events.id` handled, ADR-060) |
+| `notifications.event` | The CHECK gains `event` (table rebuild) |
+| `resource_refs.field` values | `spec.triggers[N].queue`, `spec.triggers[N].bucket` (functions); `spec.subscriptions[N].function` (topics); `spec.source.volume` (backups); `spec.source.webhookSecret` (apps); `spec.previews.domain.zone`, `spec.previews.domain.tunnel` (apps) |
+| App outputs | Parent: `previews`, `webhookUrl`. Preview: `previewOf`, `previewRef`, `pullRequest`, `expiresAt` |
+| Database outputs | `tls`, `caCertificate`, `certificateExpiresAt`, `exposedAddresses`, `initScript` |
+| `standby_copies` (new) | `machine_id` primary key (cascades with the machine), `last_copy_at` (the last copy the standby took), `bytes`, `last_error` (the last attempt's error, `''` after a success), `attempted_at` (ADR-057) |
+| Agent state | A standby agent keeps `standby/copy-<n>.tar.gz` (0600, the last two) and every agent keeps `epoch` (0600) in its state directory |
+| Docker objects | Function runs are job containers (`es-run-<run id>`) labelled `enclave.kind=function`. The database certificate files are copied into the database container, not kept on the host |
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -191,3 +213,4 @@ These ship as migration `0015_public_access`, with the step of `L2-014` §7 that
 | v14 | 2026-10-22 | Soupler | §10 v0.8 changes (planned): machines, machine CA, machine and stack columns on resources, address pools, machine events, catalogue templates, stack secrets, engine labels, agent state |
 | v15 | 2026-10-23 | Soupler | Migration `0014`, `machines.is_main`; the main machine's row is made at first start, not by migration; no `'main'` default |
 | v16 | 2026-10-24 | Soupler | §11 public access changes: tunnel kind, machine role and join key, tunnel ports, gate sessions, edge key, references, Docker objects (L2-014) |
+| v17 | 2026-10-26 | Soupler | §12 v0.10 changes: the function kind, function runs (event, receipt), standby machines, the cluster epoch, the database CA and server certificates, alert cursors, notifications for events, references and outputs (L2-016) |

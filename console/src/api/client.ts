@@ -6,6 +6,8 @@ import type {
   CatalogueEntry,
   DrainResult,
   EdgeMachineInput,
+  Preview,
+  StandbyMachineInput,
   MachineSummary,
   UpdateMachineInput,
   CreatedToken,
@@ -110,6 +112,17 @@ export interface EnclaveApi {
   /** One run with its output tail. */
   getRun(id: string, runId: string): Promise<RunDetail>;
 
+  // v0.10 (L3-002 §18).
+  /**
+   * Starts a function's run with the event as its body (FN-06). With wait, waits up to 60 s and returns
+   * the run with its output once it ended; 429 FUNCTION_BUSY while its concurrency is used up.
+   */
+  invoke(id: string, event?: unknown, wait?: boolean): Promise<Run | RunDetail>;
+  /** An app's previews (PRV-07). */
+  listPreviews(id: string): Promise<Preview[]>;
+  /** Makes a preview of a ref, or redeploys the one already made for it (PRV-06); returns the preview app. */
+  createPreview(id: string, ref: string, name?: string): Promise<Resource>;
+
   // v0.6 data endpoints (L3-002 §9.3).
   /** Sends to a queue or publishes to a topic. */
   sendMessage(id: string, message: SendMessage): Promise<SentMessage>;
@@ -144,8 +157,11 @@ export interface EnclaveApi {
   // v0.8 machines (L3-002 §11.2). The main machine is named "main"; getMachine still describes it.
   listMachines(): Promise<MachineSummary[]>;
   getMachineByName(name: string): Promise<MachineSummary>;
-  /** Machine admins; the join code is shown once. With edge: an edge machine at its public address (L2-014 EDG-02). */
-  addMachine(name: string, labels?: Record<string, string>, edge?: EdgeMachineInput): Promise<AddedMachine>;
+  /**
+   * Machine admins; the join code is shown once. With an address: an edge machine at its public address
+   * (L2-014 EDG-02); with standby: the standby control plane (L2-016 SBY-01, 409 STANDBY_EXISTS for a second).
+   */
+  addMachine(name: string, labels?: Record<string, string>, role?: EdgeMachineInput | StandbyMachineInput): Promise<AddedMachine>;
   updateMachineByName(name: string, input: UpdateMachineInput): Promise<MachineSummary>;
   /** 409 MACHINE_NOT_EMPTY lists what runs there; force removes an offline machine and fails what ran on it. */
   removeMachine(name: string, force?: boolean): Promise<void>;

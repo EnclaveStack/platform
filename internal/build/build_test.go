@@ -37,7 +37,12 @@ func TestGitResolvesAndChecksOutBranchesTagsAndCommits(t *testing.T) {
 	if _, err := g.Resolve(ctx, Repo{URL: srv.URL + "/missing.git", Ref: "main"}); !IsPermanent(err) {
 		t.Errorf("missing repository should be permanent: %v", err)
 	}
-	for ref, want := range map[string]struct{ commit, body string }{"main": {second, "two"}, "v1": {first, "one"}, first: {first, "one"}} {
+	// A pull request's head is a ref outside branches and tags (ADR-056).
+	srv.Git(work, "push", "origin", first+":refs/pull/7/head")
+	if got, err := g.Resolve(ctx, Repo{URL: url, Ref: "refs/pull/7/head"}); err != nil || got != first {
+		t.Errorf("resolve a pull request: %s %v", got, err)
+	}
+	for ref, want := range map[string]struct{ commit, body string }{"main": {second, "two"}, "v1": {first, "one"}, first: {first, "one"}, "refs/pull/7/head": {first, "one"}} {
 		dir := filepath.Join(t.TempDir(), "co")
 		got, err := g.Checkout(ctx, Repo{URL: url, Ref: ref}, dir)
 		body, _ := os.ReadFile(filepath.Join(dir, "v.txt"))

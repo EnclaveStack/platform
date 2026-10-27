@@ -42,6 +42,8 @@ const (
 	classTransient   = "transient"
 )
 
+func init() { classStatus[classFenced] = http.StatusConflict }
+
 var classStatus = map[string]int{classPermanent: http.StatusUnprocessableEntity, classUnavailable: http.StatusServiceUnavailable,
 	classNoVMs: http.StatusServiceUnavailable, classJobMissing: http.StatusNotFound, classNoCA: http.StatusNotFound, classTransient: http.StatusInternalServerError}
 
@@ -62,6 +64,8 @@ func toWire(err error) wireError {
 		class = classJobMissing
 	case errors.Is(err, engine.ErrNoCA):
 		class = classNoCA
+	case errors.Is(err, ErrFenced):
+		class = classFenced
 	case engine.IsPermanent(err):
 		class = classPermanent
 	}
@@ -87,6 +91,8 @@ func (e *remoteError) Is(target error) bool {
 		return target == engine.ErrJobMissing
 	case classNoCA:
 		return target == engine.ErrNoCA
+	case classFenced:
+		return target == ErrFenced
 	}
 	return false
 }

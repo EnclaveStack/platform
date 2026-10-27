@@ -52,6 +52,13 @@ func (s *Resources) dataRefs(ctx context.Context, q *store.Queries, r *domain.Re
 				}
 				refs = append(refs, store.Ref{ToID: qu.ID, Field: f + ".queue"})
 			}
+			if sub.Function != "" { // a function in use by a topic can't be deleted (L3-002 §18.1)
+				fn, err := live(ctx, q, project, api.KindFunction, sub.Function, f+".function")
+				if err != nil {
+					return nil, err
+				}
+				refs = append(refs, store.Ref{ToID: fn.ID, Field: f + ".function"})
+			}
 			if sub.Secret != "" {
 				sec, err := live(ctx, q, project, api.KindSecret, sub.Secret, f+".secret")
 				if err != nil {

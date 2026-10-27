@@ -121,9 +121,10 @@ func newQueue() resource.Resource {
 // ─── enclave_topic (TF-29) ───────────────────────────────────────────────
 
 type subscriptionModel struct {
-	Queue  types.String `tfsdk:"queue"`
-	URL    types.String `tfsdk:"url"`
-	Secret types.String `tfsdk:"secret"`
+	Queue    types.String `tfsdk:"queue"`
+	URL      types.String `tfsdk:"url"`
+	Function types.String `tfsdk:"function"`
+	Secret   types.String `tfsdk:"secret"`
 }
 
 type topicModel struct {
@@ -146,7 +147,7 @@ func (m *topicModel) limits() timeouts.Value            { return m.Timeouts }
 func (m *topicModel) patch() map[string]any {
 	subs := []api.Subscription{}
 	for _, s := range m.Subscriptions {
-		subs = append(subs, api.Subscription{Queue: s.Queue.ValueString(), URL: s.URL.ValueString(), Secret: s.Secret.ValueString()})
+		subs = append(subs, api.Subscription{Queue: s.Queue.ValueString(), URL: s.URL.ValueString(), Function: s.Function.ValueString(), Secret: s.Secret.ValueString()})
 	}
 	return map[string]any{"retentionHours": intOrNil(m.RetentionHours), "subscriptions": subs}
 }
@@ -162,7 +163,7 @@ func (m *topicModel) fill(r api.Resource) {
 	if m.Subscriptions != nil || len(s.Subscriptions) > 0 {
 		m.Subscriptions = []subscriptionModel{}
 		for _, sub := range s.Subscriptions {
-			m.Subscriptions = append(m.Subscriptions, subscriptionModel{Queue: strOrNull(sub.Queue), URL: strOrNull(sub.URL), Secret: strOrNull(sub.Secret)})
+			m.Subscriptions = append(m.Subscriptions, subscriptionModel{Queue: strOrNull(sub.Queue), URL: strOrNull(sub.URL), Function: strOrNull(sub.Function), Secret: strOrNull(sub.Secret)})
 		}
 	}
 	m.BrokerURL, m.InternalURL, m.Subject = outString(r, "url"), outString(r, "internalUrl"), outString(r, "subject")
@@ -181,9 +182,10 @@ func newTopic() resource.Resource {
 					"retention_hours": optInt("How long published messages are kept for retries, 1–336 (default 24)."),
 					"subscriptions": schema.ListNestedAttribute{Optional: true, Description: "Up to 20 subscriptions: exactly one of queue or url each.",
 						NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-							"queue":  optString("A queue's name."),
-							"url":    optString("A webhook: https://, or http:// to localhost."),
-							"secret": optString("A secret whose value signs webhook bodies (X-Enclave-Signature)."),
+							"queue":    optString("A queue's name."),
+							"url":      optString("A webhook: https://, or http:// to localhost."),
+							"function": optString("A function: each message starts a run (L2-016 TF-57)."),
+							"secret":   optString("A secret whose value signs webhook bodies (X-Enclave-Signature)."),
 						}}},
 					"timeouts": timeoutsAttr(ctx),
 				}),

@@ -46,6 +46,11 @@ func (r *Reconciler) ensureOperate(ctx context.Context, res *domain.Resource, re
 	if res.Kind == api.KindSecretStore {
 		out["checkedAt"] = r.Now().UTC().Format(time.RFC3339)
 	}
+	if res.Kind == api.KindAlert { // a new or changed event alert starts from the newest event (EVN-03)
+		if err := r.Store.DropAlertCursor(ctx, res.ID); err != nil {
+			return nil, err
+		}
+	}
 	if res.Kind == api.KindLogExport { // a new export has sent nothing yet (LOG-07)
 		for k, v := range map[string]any{"linesSent": 0, "bytesSent": 0, "lagSeconds": 0, "lastError": ""} {
 			if _, ok := out[k]; !ok {

@@ -141,6 +141,12 @@ func gatedHandle(r engine.GatedRoute, gate engine.GateConfig, proxy func(string)
 	app := proxy(r.Upstream)
 	app["headers"] = obj{"request": obj{"set": obj{"X-Forwarded-Proto": []string{"https"}}}}
 	var inner []obj
+	if gate.Upstream != "" {
+		// Git webhooks go to the gate listener before anything else, whatever the gate's mode (ADR-056).
+		hooks := obj{"handler": "reverse_proxy", "upstreams": []obj{{"dial": gate.Upstream}}, "transport": gateTransport(),
+			"headers": obj{"request": obj{"set": obj{headerEdgeKey: []string{gate.EdgeKey}}}}}
+		inner = append(inner, obj{"match": []obj{{"path": []string{api.PublicHookPrefix + "*"}}}, "handle": []obj{hooks}, "terminal": true})
+	}
 	for _, p := range r.Gate.OpenPaths {
 		inner = append(inner, obj{"match": []obj{{"path": []string{p + "*"}}}, "handle": []obj{app}, "terminal": true})
 	}

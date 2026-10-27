@@ -28,6 +28,8 @@ type RunConfig struct {
 	Log             *slog.Logger
 	// Ready, when set, receives the bound address once the agent listens.
 	Ready chan<- string
+	// Started, when set, is given the server before it listens (auto-promotion watches its last contact).
+	Started func(*Server)
 }
 
 // Run serves the agent until ctx ends (ADR-042).
@@ -55,7 +57,10 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		return err
 	}
 	s := &Server{Driver: cfg.Driver, Hypervisor: cfg.Hypervisor, MachineID: id.MachineID, FilesDir: files,
-		TunnelPublicKey: cfg.TunnelPublicKey, Sweep: cfg.Sweep, Log: cfg.Log, certs: certs}
+		TunnelPublicKey: cfg.TunnelPublicKey, Sweep: cfg.Sweep, Log: cfg.Log, certs: certs, StateDir: cfg.StateDir, Standby: id.Standby}
+	if cfg.Started != nil {
+		cfg.Started(s)
+	}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", listen, err)

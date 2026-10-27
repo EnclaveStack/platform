@@ -10,6 +10,7 @@ const ICON: Record<Kind, typeof Icons.Box> = {
   secret: Icons.KeyRound,
   domain: Icons.Globe,
   job: Icons.Clock,
+  function: Icons.SquareFunction,
   backup: Icons.History,
   network: Icons.Network,
   firewall: Icons.Shield,

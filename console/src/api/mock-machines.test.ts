@@ -78,7 +78,7 @@ describe('mock api, v0.8', () => {
     const catalogue = await api.listCatalogue();
     expect(catalogue.filter((e) => e.category === 'apps').map((e) => e.name)).toEqual(['ghost', 'gitea', 'n8n', 'plausible', 'uptime-kuma', 'wordpress']);
     expect(catalogue.filter((e) => e.category === 'public-access').map((e) => e.name)).toEqual(['cloudflare-tunnel', 'custom-tunnel', 'ngrok', 'own-server', 'quick-link', 'tailscale']);
-    expect(catalogue.filter((e) => e.category === 'connections').map((e) => e.name)).toEqual(['supabase']);
+    expect(catalogue.filter((e) => e.category === 'connections').map((e) => e.name)).toEqual(['auth0', 'clerk', 'firebase', 'neon', 'sentry', 'supabase']);
     expect((await fails(api.createResource('stack', 'pub', { template: 'ghost' } as StackSpec)))?.details[0]?.field).toBe('spec.parameters.domain');
     await api.createResource('database', 'taken-db', { engine: 'postgres', version: '16' });
     expect((await fails(api.createResource('stack', 'taken', { template: 'wordpress' } as StackSpec)))?.code).toBe('NAME_TAKEN');
@@ -112,6 +112,24 @@ describe('mock api, v0.8', () => {
     expect(ready.outputs.outputs).toEqual({ SUPABASE_URL: 'supa-url', SUPABASE_ANON_KEY: 'supa-anonkey' });
     expect(JSON.stringify(ready)).not.toContain('anon-value');
     expect((await api.listResources('app')).length).toBe(0); // a connection runs nothing
+  });
+
+  it('installs the v0.10 connections with outputs naming only the secrets that exist (L2-016 CNX-08 – CNX-12)', async () => {
+    const api = await signedIn();
+    const install = async (name: string, template: string, parameters: Record<string, unknown>, secretParameters: Record<string, string>) => {
+      const st = await api.createResource('stack', name, { template, parameters, secretParameters } as StackSpec);
+      await vi.advanceTimersByTimeAsync(1000);
+      return api.getResource(st.id);
+    };
+    expect((await fails(api.createResource('stack', 'neon1', { template: 'neon' } as StackSpec)))?.details[0]?.field).toBe('spec.secretParameters.pooledUrl');
+    expect((await install('neon1', 'neon', {}, { pooledUrl: 'postgresql://u:p@x-pooler.neon.tech/db' })).outputs.outputs).toEqual({ DATABASE_URL: 'neon1-pooledurl' });
+    expect((await install('fire1', 'firebase', { projectId: 'my-app-1a2b3' }, {})).outputs.outputs).toEqual({ FIREBASE_PROJECT_ID: 'fire1-projectid', FIREBASE_AUTH_DOMAIN: 'fire1-authdomain' });
+    const a0 = await install('auth1', 'auth0', { domain: 'acme.us.auth0.com', clientId: 'abc123' }, { clientSecret: 'shh' });
+    expect(a0.outputs.outputs).toEqual({ AUTH0_DOMAIN: 'auth1-domain', AUTH0_ISSUER_BASE_URL: 'auth1-issuer', AUTH0_CLIENT_ID: 'auth1-clientid', AUTH0_CLIENT_SECRET: 'auth1-clientsecret' });
+    expect(JSON.stringify(a0)).not.toContain('shh');
+    expect((await install('clerk1', 'clerk', {}, { secretKey: 'sk_test_1' })).outputs.outputs).toEqual({ CLERK_SECRET_KEY: 'clerk1-secretkey' });
+    expect((await install('sentry1', 'sentry', {}, { dsn: 'https://k@o1.ingest.sentry.io/2', authToken: 't' })).outputs.outputs).toEqual({ SENTRY_DSN: 'sentry1-dsn', SENTRY_AUTH_TOKEN: 'sentry1-authtoken' });
+    expect((await api.listResources('app')).length).toBe(0);
   });
 
   it('keeps its own templates by version and refuses removing one in use (L3-002 §11.5)', async () => {

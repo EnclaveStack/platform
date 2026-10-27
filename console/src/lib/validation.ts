@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, CloudflareAccess, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, GitSource, HealthCheck, FunctionSpec, JobSpec, Kind, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, SearchSpec, SecretSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, CloudflareAccess, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 import { validateAlert, validateChannel, validateDashboard, validateLogExport, validateSecretSource, validateSecretStore } from './operate';
 import { parseCron } from './schedule';
 
@@ -52,7 +52,29 @@ export function validateApp(s: AppSpec): FieldErrors {
   const replicas = s.replicas ?? RULES.replicasDefault;
   if (!inRange(replicas, RULES.replicasMin, RULES.replicasMax)) e['spec.replicas'] = `Use ${RULES.replicasMin}–${RULES.replicasMax} replicas.`;
   else if (replicas > 1 && s.publish) e['spec.replicas'] = 'An app that publishes a host port runs one replica. Use a load balancer or a domain to serve several.';
-  return { ...e, ...validateMounts(s.volumes), ...validateBucketAccess(s.bucketAccess, s.env, s.secretEnv) };
+  return { ...e, ...validateMounts(s.volumes), ...validateBucketAccess(s.bucketAccess, s.env, s.secretEnv), ...validatePreviews(s) };
+}
+
+/** The same rules as pkg/api validatePreviews, with the server's defaults applied first (L2-016 PRV-01, PRV-03). */
+export function validatePreviews(s: AppSpec): FieldErrors {
+  const e: FieldErrors = {};
+  if (!s.source) {
+    if (s.previews) e['spec.previews'] = 'Previews build pull requests, so they need an app built from Git.';
+    return e;
+  }
+  if (s.source.webhookSecret && validateName(s.source.webhookSecret)) e['spec.source.webhookSecret'] = 'Name an existing secret.';
+  const p = s.previews;
+  if (!p) return e;
+  if (!inRange(p.ttlHours ?? RULES.previewTtlDefault, RULES.previewTtlMin, RULES.previewTtlMax)) e['spec.previews.ttlHours'] = 'Use 1–720 hours (30 days).';
+  if (!inRange(p.maxActive ?? RULES.previewMaxActiveDefault, RULES.previewMaxActiveMin, RULES.previewMaxActiveMax)) e['spec.previews.maxActive'] = 'Use 1–20 previews at once.';
+  if (p.domain) {
+    if (validateHostname(p.domain.suffix.trim().toLowerCase().replace(/\.$/, '')))
+      e['spec.previews.domain.suffix'] = 'Use a domain like preview.example.com; each preview is served at <preview>.preview.example.com.';
+    if (p.domain.tls !== undefined && !(RULES.tlsModes as readonly string[]).includes(p.domain.tls)) e['spec.previews.domain.tls'] = 'Choose auto, internal or off.';
+    if (p.domain.zone && validateName(p.domain.zone)) e['spec.previews.domain.zone'] = 'Name an existing one.';
+    if (p.domain.tunnel && validateName(p.domain.tunnel)) e['spec.previews.domain.tunnel'] = 'Name an existing one.';
+  }
+  return e;
 }
 
 /** The same rules as pkg/api validatePlacement; existence is checked by the server. */
@@ -146,6 +168,10 @@ export function validateDatabase(s: DatabaseSpec): FieldErrors {
   const versions = (RULES.databaseEngineVersions as Record<string, readonly string[]>)[s.engine];
   if (!versions) e['spec.engine'] = 'Choose postgres, mysql, mongodb or clickhouse.';
   else if (!versions.includes(s.version)) e['spec.version'] = `Choose a ${s.engine} version: ${versions.join(' or ')}.`;
+  // pkg/api validateDatabaseOptions (L2-016 DBX-01 – DBX-04).
+  if (s.tls && !(RULES.tlsEngines as readonly string[]).includes(s.engine)) e['spec.tls'] = 'TLS is available for PostgreSQL and MySQL.';
+  if (s.exposed && !s.tls) e['spec.exposed'] = 'Turn TLS on first: a database reachable from other computers only takes encrypted connections.';
+  if (s.initScript && utf8Length(s.initScript) > RULES.initScriptMax) e['spec.initScript'] = 'A setup script can be at most 64 KiB.';
   return e;
 }
 
@@ -318,6 +344,61 @@ export function validateJob(s: JobSpec): FieldErrors {
   return { ...e, ...validateMounts(s.volumes) };
 }
 
+/** The same rules as pkg/api validateFunction, with the server's defaults applied first (L2-016 FN-01, FN-02). */
+export function validateFunction(s: FunctionSpec): FieldErrors {
+  const e: FieldErrors = {};
+  const image = validateApp({ image: s.image, command: s.command, env: s.env, secretEnv: s.secretEnv });
+  for (const [k, v] of Object.entries(image)) if (k === 'spec.image' || k.startsWith('spec.env') || k.startsWith('spec.secretEnv')) e[k] = v;
+  for (const [k, field] of [...Object.keys(s.env ?? {}).map((k) => [k, `spec.env.${k}`]), ...Object.keys(s.secretEnv ?? {}).map((k) => [k, `spec.secretEnv.${k}`])]) {
+    if (k?.startsWith('ENCLAVE_') && field) e[field] = 'Names starting with ENCLAVE_ are set by EnclaveStack for each run.';
+  }
+  Object.assign(e, validateBucketAccess(s.bucketAccess, s.env, s.secretEnv));
+  if (!inRange(s.memoryMiB ?? RULES.functionMemoryDefault, RULES.appMemoryMin, RULES.functionMemoryMax)) e['spec.memoryMiB'] = `Use ${RULES.appMemoryMin}–${RULES.functionMemoryMax} MiB.`;
+  if (!inRange(s.timeoutSeconds ?? RULES.functionTimeoutDefault, RULES.functionTimeoutMin, RULES.functionTimeoutMax)) e['spec.timeoutSeconds'] = 'Use 1–900 seconds. Longer work belongs in a job.';
+  if (!inRange(s.concurrency ?? RULES.functionConcurrencyDefault, RULES.functionConcurrencyMin, RULES.functionConcurrencyMax))
+    e['spec.concurrency'] = `Use ${RULES.functionConcurrencyMin}–${RULES.functionConcurrencyMax} runs at once.`;
+  const triggers = s.triggers ?? [];
+  if (triggers.length > RULES.functionTriggersMax) e['spec.triggers'] = `Use at most ${RULES.functionTriggersMax} triggers.`;
+  let schedules = 0;
+  const seen = new Set<string>();
+  triggers.forEach((t, i) => {
+    const f = `spec.triggers[${i}]`;
+    if ([t.schedule, t.queue, t.bucket].filter(Boolean).length !== 1) {
+      e[f] = 'A trigger is a schedule, a queue or a bucket — choose one.';
+      return;
+    }
+    if (!t.schedule && t.timeZone) e[`${f}.timeZone`] = 'Only a schedule has a time zone.';
+    if (!t.bucket && t.prefix) e[`${f}.prefix`] = 'Only a bucket trigger has a folder.';
+    if (t.schedule) {
+      if (++schedules > 1) {
+        e[`${f}.schedule`] = 'A function has at most one schedule. Put the times in one cron expression, or make a second function.';
+        return;
+      }
+      if (t.timeZone && !validTimeZone(t.timeZone)) e[`${f}.timeZone`] = 'Use an IANA time zone like Asia/Kolkata or Europe/Berlin.';
+      else {
+        try {
+          parseCron(t.schedule);
+        } catch (err) {
+          e[`${f}.schedule`] = `Use 5 cron fields (minute hour day month weekday) or @hourly, @daily, @weekly, @monthly: ${(err as Error).message}.`;
+        }
+      }
+    } else if (t.queue) {
+      if (validateName(t.queue)) e[`${f}.queue`] = 'Name an existing queue.';
+      else if (seen.has(`queue/${t.queue}`)) e[`${f}.queue`] = `${t.queue} is a trigger twice.`;
+      seen.add(`queue/${t.queue}`);
+    } else {
+      const prefix = t.prefix ?? '';
+      if (validateName(t.bucket ?? '')) e[`${f}.bucket`] = 'Name an existing bucket.';
+      if (prefix.length > RULES.prefixMax || !prefixChars.test(prefix) || prefix.split('/').includes('..') || prefix.includes('//'))
+        e[`${f}.prefix`] = 'Use a folder like videos/ or media/2026/: letters, digits and - _ . / only, up to 255 characters.';
+      const key = `bucket/${t.bucket}/${prefix}`;
+      if (seen.has(key)) e[f] = 'This folder is a trigger twice.';
+      seen.add(key);
+    }
+  });
+  return { ...e, ...validatePlacement(s.network, s.subnet) };
+}
+
 const prefixPattern = new RegExp(RULES.backupPrefixPattern);
 const s3BucketPattern = new RegExp(RULES.s3BucketPattern);
 
@@ -325,8 +406,8 @@ const s3BucketPattern = new RegExp(RULES.s3BucketPattern);
 export function validateBackup(s: BackupSpec): FieldErrors {
   const e: FieldErrors = {};
   const src = s.source ?? {};
-  if (Boolean(src.database) === Boolean(src.cache)) e['spec.source'] = 'Back up one database or one cache.';
-  else if (validateName(src.database ?? src.cache ?? '')) e['spec.source'] = 'Name an existing database or cache.';
+  if ([src.database, src.cache, src.volume].filter(Boolean).length !== 1) e['spec.source'] = 'Back up one database, one cache or one volume.';
+  else if (validateName(src.database ?? src.cache ?? src.volume ?? '')) e['spec.source'] = 'Name an existing database, cache or volume.';
   const d = s.destination ?? {};
   if (Boolean(d.bucket) === Boolean(d.s3)) e['spec.destination'] = 'Store backups in one EnclaveStack bucket or one external S3 bucket.';
   else if (d.bucket && validateName(d.bucket)) e['spec.destination.bucket'] = 'Name an existing bucket.';
@@ -596,6 +677,8 @@ function validateKind(kind: Kind, spec: unknown): FieldErrors {
       return validateDomain(spec as DomainSpec);
     case 'job':
       return validateJob(spec as JobSpec);
+    case 'function':
+      return validateFunction(spec as FunctionSpec);
     case 'backup':
       return validateBackup(spec as BackupSpec);
     case 'network':
@@ -675,14 +758,15 @@ export function validateTopic(s: TopicSpec): FieldErrors {
   const seen = new Set<string>();
   subs.forEach((sub, i) => {
     const f = `spec.subscriptions[${i}]`;
-    if (Boolean(sub.queue) === Boolean(sub.url)) {
-      e[f] = 'Subscribe a queue or a webhook URL — choose one.';
+    if ([sub.queue, sub.url, sub.function].filter(Boolean).length !== 1) {
+      e[f] = 'Subscribe a queue, a webhook URL or a function — choose one.';
       return;
     }
     if (sub.queue && validateName(sub.queue)) e[`${f}.queue`] = 'Name an existing queue.';
-    if (sub.queue && sub.secret) e[`${f}.secret`] = 'Only webhooks are signed.';
+    if (sub.function && validateName(sub.function)) e[`${f}.function`] = 'Name an existing function.';
+    if ((sub.queue || sub.function) && sub.secret) e[`${f}.secret`] = 'Only webhooks are signed.';
     if (sub.url && !validWebhookUrl(sub.url.trim())) e[`${f}.url`] = 'Use an https:// URL (http:// only for localhost), up to 2048 characters.';
-    const target = sub.queue ? `queue/${sub.queue}` : (sub.url ?? '').trim();
+    const target = sub.queue ? `queue/${sub.queue}` : sub.function ? `function/${sub.function}` : (sub.url ?? '').trim();
     if (seen.has(target)) e[f] = 'This subscription is listed twice.';
     seen.add(target);
   });

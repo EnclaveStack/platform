@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -50,6 +52,8 @@ type Handler struct {
 	EdgeKey string
 	Log     *slog.Logger
 	Metrics *observability.Metrics
+	// Hook takes a Git webhook that arrived on a public address (ADR-056); nil answers 404.
+	Hook func(ctx context.Context, appID string, h service.GitHook) (api.HookResult, error)
 }
 
 // ServeHTTP implements http.Handler.
@@ -75,8 +79,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.signout(w, r)
 	case r.URL.Path == PathSignedOut && r.Method == http.MethodGet:
 		h.render(w, "signedout.html", h.view(r), http.StatusOK)
+	case strings.HasPrefix(r.URL.Path, api.PublicHookPath) && r.Method == http.MethodPost && h.Hook != nil:
+		h.gitHook(w, r)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// gitHook passes a Git webhook from a public address to the same call as the API's (L3-002 §18.2).
+func (h *Handler) gitHook(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, api.PublicHookPath)
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, api.HookBodyMax))
+	if err != nil {
+		http.Error(w, "The webhook's body is too large or couldn't be read.", http.StatusRequestEntityTooLarge)
+		return
+	}
+	out, err := h.Hook(r.Context(), id, service.GitHook{Header: r.Header, Body: body})
+	w.Header().Set("Content-Type", "application/json")
+	var e *api.Error
+	switch {
+	case errors.As(err, &e):
+		w.WriteHeader(api.ErrorCodes[e.Code])
+		_ = json.NewEncoder(w).Encode(api.ErrorEnvelope{Error: &api.Error{Code: e.Code, Message: e.Message}})
+	case err != nil:
+		h.Log.Error("git webhook failed", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(api.ErrorEnvelope{Error: &api.Error{Code: api.CodeInternal, Message: "Something went wrong. Try again."}})
+	default:
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 

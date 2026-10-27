@@ -6,9 +6,9 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v19 |
+| Version | v20 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-25 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -878,6 +878,62 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
   - The console has to be built before the binaries, so a release needs Node and pnpm as well as Go, as `make build` does.
   - The server image runs the control plane beside the Docker it drives. The gate listens inside the container by default, so public access (ADR-053) needs the installed program; the image is for apps, data and the console.
 
+## ADR-055 — Functions run on the job engine, one container per event
+- **Status**: Accepted (DAR-044) — 2026-10-26, `L2-016` FN-01 – FN-12
+- **Context**: `L2-016` asks for functions that run when something happens: a schedule, a queue message, a topic message, a new object or an HTTP call. EnclaveStack already runs one-off containers for jobs (ADR-017), records runs, adopts them after a restart, and watches bucket folders for transcoders (ADR-034).
+- **Decision**:
+  - **A new kind, `function` (`fn_` IDs).** Its spec is a job's without the schedule (image, command, env, secretEnv, memory, timeout, network, subnet, bucket access, placement), plus `concurrency` and `triggers`. Each trigger is exactly one of `schedule` (with `timeZone`), `queue` or `bucket` (with `prefix`). Steps: `check` (the queues and buckets named exist; each queue's visibility timeout is at least the timeout plus 30 s, FN-09) and `ready`.
+  - **A run per event.** Every event inserts a row in `runs` with its trigger (`schedule`, `queue`, `topic`, `bucket`, `invoke` or `manual`) and its event JSON (`runs.event_json`, at most 256 KiB). The scheduler adopts it and executes it as it does a job's run: `engine.JobRun` gains `Files`, which the driver copies into the container before it starts. So the event is at `/enclave/event.json`, and `ENCLAVE_EVENT_FILE`, `ENCLAVE_EVENT_SOURCE`, `ENCLAVE_RUN_ID` and `ENCLAVE_FUNCTION` are set after the function's own environment, which may not use those names. Runs share `maxConcurrentRuns` with jobs. Runs left running by a previous process are adopted, as job runs are.
+  - **Concurrency.** Before inserting a run, the source counts the function's running runs (`CountRunning`) and stops at `concurrency`, leaving the event where it was (FN-07). An invocation over the limit gets `429 FUNCTION_BUSY`. A due schedule over the limit inserts a skipped run.
+  - **Sources.** A schedule uses `next_run_at`, as jobs do. A bucket trigger is a transcoder's watch (`seen_objects`, a baseline first; FN-10). A queue trigger is a receive loop in the scheduler pass: `Broker.Receive` as the system user, at most the free slots. The run keeps the message's receipt (`runs.receipt`). Success deletes the message; anything else leaves it to come back after the visibility timeout (FN-08). A topic reaches a function through a subscription `{"function": name}`. The delivery loop inserts a run carrying the delivery and acknowledges the delivery when the run succeeds, or naks it with the topic's backoff when it fails, which is why delivery waits for the run. The topic's in-flight limit is the function's concurrency.
+  - **Invoking.** `POST /api/v1/resources/{id}/invoke` (editor) checks the body is JSON of at most 256 KiB, then inserts a run with `{"source":"invoke","body":…}` and answers `202` with the run. `?wait=true` polls the run until it ends or 60 s pass, and answers `200` with the run detail (`RunDetail`), or the run still `running`.
+- **Consequences**: every event pays a container start (around 0.3–1 s on Docker), which suits glue work, not latency-critical paths; warm containers are out of scope. Functions reuse runs, run output limits, retention (SweepRuns), metrics and the `run_failed` alert condition with no new machinery.
+
+## ADR-056 — Preview environments are managed child apps, started by verified Git webhooks
+- **Status**: Accepted (DAR-045) — 2026-10-26, `L2-016` PRV-01 – PRV-09
+- **Context**: Previews need an app per pull request with the parent's settings, made and removed when the pull request changes. A machine at home is behind NAT, so webhooks must be able to arrive through the tunnels of ADR-051.
+- **Decision**:
+  - **Spec.** `AppSpec.Previews` (`enabled`, `ttlHours` 72, `maxActive` 5, `domain {suffix, tls, zone, tunnel}`); `GitSource.WebhookSecret` (a secret's name) and `GitSource.DeployOnPush`. Previews need a source app.
+  - **A preview is an app** whose `owner_id` is the parent and whose spec is the parent's with `source.ref` set to the pull request's head (`refs/pull/N/head` on GitHub, `refs/merge-requests/N/head` on GitLab, or the ref given by hand). `previews` and `webhookSecret` are dropped, `replicas` is 1, `publish` is false, and `ENCLAVE_PREVIEW` and `ENCLAVE_PREVIEW_REF` are added to `env`. It is named `<app>-pr-<N>`, with the app's name cut so the whole fits 40 characters. A preview can't be patched (`422 IMMUTABLE_FIELD`, as managed secrets). It can be redeployed, restarted and deleted. Its outputs carry `previewOf`, `previewRef` and `expiresAt`. A suffix adds a domain `<preview>.<suffix>`, owned by the preview, with the suffix's TLS, zone and tunnel. Deleting an app marks its previews and their domains for deletion in the same transaction (PRV-09).
+  - **Webhook endpoint.** `POST /api/v1/hooks/git/{appId}` is public, rate-limited and limited to 1 MiB. It answers `404` unless the app has a webhook secret. GitHub requests must carry `X-Hub-Signature-256: sha256=HMAC-SHA256(secret, body)`; GitLab requests must carry `X-Gitlab-Token` equal to the secret. Both are compared in constant time, and anything else is `401`. `X-GitHub-Event` `ping` answers `200`. `pull_request` `opened`, `reopened` and `synchronize`, and GitLab merge-request `open`, `reopen` and `update`, make the preview or redeploy it (a new generation). `closed` and GitLab's `close` and `merge` delete it. `push` to `refs/heads/<app ref>` with deploy on push redeploys the parent. Anything else answers `200 {"result":"ignored"}`, so Git hosts don't retry it. Each outcome is an event on the parent.
+  - **Through tunnels.** Every public route (`gatedHandle`, ADR-053) sends `/.enclave/hooks/*` straight to the gate listener with the edge key, before open paths and the gate's check. The gate passes `POST /.enclave/hooks/git/{appId}` to the same service call. So the hook URL works on any public domain or app link.
+  - **Expiry.** The reconciler's drift pass deletes previews whose `expiresAt` has passed. `expiresAt` is moved forward each time a preview is made or redeployed.
+- **Consequences**: a webhook secret is the only credential, so the hook endpoint needs no session. A preview of a fork's pull request builds that fork's code with the parent's secrets. The guide warns about this, and GitHub's "approve workflows from outside collaborators" doesn't apply to webhooks. Repositories that take outside pull requests should use the CLI from CI instead.
+
+## ADR-057 — A standby control plane: copies pushed over the agent channel, promotion with epoch fencing
+- **Status**: Accepted (DAR-046) — 2026-10-26, `L2-016` SBY-01 – SBY-07
+- **Context**: The control plane is one process with one SQLite file (ADR-005). If its machine dies, every project, secret and setting is gone, though apps on other machines keep running. A consensus store would replace ADR-005. The owner chose a standby that takes over.
+- **Decision**:
+  - **Role.** `machines.role` gains `standby`. A standby joins like any machine (ADR-043), is never placed on, and there is at most one (`409 STANDBY_EXISTS`).
+  - **Copies.** The main machine's standby loop runs every `--standby-every` (15 s by default). It compares the size and modification time of the database file and its write-ahead log with those of the last copy sent, which changes with every commit and costs nothing to read. If they changed, it writes `VACUUM INTO` a temporary file (a consistent copy while writes go on), packs it with `master.key` and a manifest (`version`, `machineId`, `epoch`, `takenAt`, `sha256`) into a gzip tar, and `PUT`s it to the standby's agent at `/agent/v1/standby/copy`. The agent writes it to `<state>/standby/copy-<n>.tar.gz` through a temporary file and a rename, keeps two copies, and answers the manifest. The standby's machine outputs show `lastCopyAt` (when the database was copied, the manifest's `takenAt`), `lastCopyBytes` and `lastCopyError`. A commit made while a copy is taken and sent may be missing from it, so when the file changed meanwhile the next tick copies again. More than 2 minutes without a copy is a warning on its page.
+  - **Promotion.** `enclave standby promote` (or the agent itself, after `--auto-promote-after` passes without a call from the main) runs these steps:
+    1. unpacks the newest copy whose SHA-256 checks into the data directory;
+    2. in one transaction, makes the standby's row the main machine, sets the old main offline with no address, and raises `cluster.epoch` by one;
+    3. starts the control plane in the same process.
+
+    Resources placed on the old main then wait or reschedule as on any offline machine (ADR-046).
+  - **Fencing.** The control plane sends `X-Enclave-Epoch` on every agent call. An agent keeps the highest epoch it has seen in `<state>/epoch`. It answers a lower one with `409` and the class `fenced`, and adopts a higher one. When an agent call is fenced, the old main's machines manager raises `Fenced`. The server then stops the reconciler, the monitor and the standby loop. Its API answers `503 CONTROL_PLANE_REPLACED` and `/readyz` fails.
+- **Consequences**: up to one interval of changes can be lost (RPO ≈ 15 s; RTO is a command, or the auto-promote time). Data that lives on the main machine's own engine isn't copied, which the guide says plainly (SBY-07). Two machines can't tell a dead main from a cut network. Auto-promotion is therefore off by default, and fencing makes sure only one control plane can drive the agents. The old main's own engine is local, not behind an agent, so it can't be fenced, but its control plane stops when any agent refuses it. With no other machines it can't learn it was replaced: the guide says to stop it before promoting, if it can still be reached.
+
+## ADR-058 — Database TLS from EnclaveStack's database CA, setup scripts at first start, binding to every address
+- **Status**: Accepted — 2026-10-26, `L2-016` DBX-01 – DBX-05
+- **Decision**:
+  - **The database CA.** An ECDSA P-256 CA is made on first use and kept in `database_ca`, its key sealed with the secret box. It is separate from the machine CA (ADR-043), so a database certificate can never act as an agent's or control plane's identity. Each ensure of a TLS database issues a leaf certificate valid for a year. Its SANs are the container name, the private DNS name, `localhost`, `127.0.0.1` and, when exposed, the machine's addresses. The leaf, its key (0600, owned by the engine's user) and the CA are copied into `/etc/enclave-tls/` before start. A drift check re-ensures a database whose certificate ends within 30 days.
+  - **PostgreSQL** starts with `ssl=on`, the file paths and an `hba_file` that allows only `hostssl` (and local sockets for health checks). **MySQL** gets `--ssl-ca/--ssl-cert/--ssl-key` and `--require-secure-transport=ON`. Outputs add `tls: true` and `caCertificate`. The connection string gets `?sslmode=require` (PostgreSQL) or `?ssl-mode=REQUIRED` (MySQL), and the guide shows how to verify the CA. Turning TLS on or off changes the spec, so the container is recreated on the same volume (DBX-03).
+  - **Setup script.** `initScript` is copied to `/docker-entrypoint-initdb.d/enclave-init.sql` (`.js` for MongoDB), which every engine image runs once on an empty data directory. The field is immutable after create (`IMMUTABLE_FIELD`). A failing script makes the container exit, and the step fails with the log tail, as any failed start does.
+  - **Exposed.** The published port binds to `0.0.0.0` rather than the publish address. Outputs list `exposedAddresses` (`ip:port` for each non-loopback IPv4 address of the machine). Validation refuses `exposed` without `tls` and for engines without TLS.
+- **Consequences**: apps that connected without TLS fail once TLS is on. That is the point, and the console says so before turning it on. MongoDB and ClickHouse TLS stay out of scope.
+
+## ADR-059 — Volume backups are snapshot archives on the backup machinery
+- **Status**: Accepted — 2026-10-26, `L2-016` VBK-01 – VBK-03
+- **Decision**: `BackupSource.Volume` names a filesystem volume. A run streams `Driver.SnapshotVolume` (ADR-028) through gzip into the destination as `<prefix>/<run>.tar.gz`, with SHA-256 and size as other artifacts. Retention, schedules and destinations are a database backup's. Restoring with `replace` streams the archive into `Driver.RestoreVolume`, which empties the volume first, then restarts every app that mounts it. `new` creates a filesystem volume with the given name on the same machine and restores into it once it is ready. A disk volume as the source fails validation with a pointer to snapshots.
+- **Consequences**: copies are file by file while apps write (VBK-02), as snapshots already are. Apps that need a consistent point in time should use a database.
+
+## ADR-060 — Event alerts read the event log from a cursor
+- **Status**: Accepted — 2026-10-26, `L2-016` EVN-01 – EVN-03
+- **Decision**: a new condition type, `event`, with `resources` (1–20 references) and `events` (1–20 of `api.NotifiableEvents`). In each cycle, the monitor reads `resource_events` with `id` above the alert's cursor, for those resources and types, up to 100 rows. It queues one notification per row to each channel (`event: "event"`, with the resource, the type, the message and the time) and moves the cursor in the same transaction. The cursor is the alert's row in `alert_cursors`. When the alert is made, changed or turned on, the cursor starts at the newest event id (EVN-03). An event alert has no state other than `ok` and `disabled`, and `repeatMinutes` must be 0.
+- **Consequences**: a notification follows its event within one monitor interval (30 s by default). Events are kept 500 per resource, so a burst bigger than that between cycles loses the oldest, which is acceptable for notifications.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -909,3 +965,4 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v17 | 2026-10-24 | Soupler | ADR-050: transcoder renditions, HLS ladders, tags and notifications (L2-012) |
 | v18 | 2026-10-24 | Soupler | ADR-051 – ADR-053 for public access: tunnel connectors and per-tunnel edge listeners, edge machines joined from the main machine with relays over the mesh, the gate (planned; L2-014) |
 | v19 | 2026-10-25 | Soupler | ADR-054: releases built by `cmd/release`, signed keyless with cosign, published on a `v*` tag with a Homebrew tap, an install script and a server image (issue #3) |
+| v20 | 2026-10-26 | Soupler | ADR-055 – ADR-060 for v0.10: functions, previews, the standby control plane, database TLS and setup scripts, volume backups, event alerts (`L2-016`) |

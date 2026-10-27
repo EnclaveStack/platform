@@ -43,6 +43,8 @@ type Payload struct {
 	StartedAt  time.Time  `json:"startedAt"`
 	ResolvedAt *time.Time `json:"resolvedAt"`
 	URL        string     `json:"url,omitempty"`
+	// Type is the event's type in an event alert's notification (ADR-060).
+	Type string `json:"type,omitempty"`
 }
 
 // Subject is a notification's one-line summary.
@@ -52,6 +54,8 @@ func (p Payload) Subject() string {
 		return fmt.Sprintf("[EnclaveStack] Test of %s", p.Alert)
 	case api.EventResolved:
 		return fmt.Sprintf("[EnclaveStack] RESOLVED: %s on %s", p.Alert, api.RefText(p.Resource))
+	case api.EventEvent:
+		return fmt.Sprintf("[EnclaveStack] %s: %s on %s", strings.ToUpper(strings.ReplaceAll(p.Type, "_", " ")), p.Alert, api.RefText(p.Resource))
 	}
 	return fmt.Sprintf("[EnclaveStack] FIRING: %s on %s", p.Alert, api.RefText(p.Resource))
 }
@@ -73,7 +77,11 @@ func (p Payload) Text() string {
 	if p.Project != "" {
 		fmt.Fprintf(&b, "Project: %s\n", p.Project)
 	}
-	if p.Event != api.EventTest {
+	switch p.Event {
+	case api.EventTest:
+	case api.EventEvent:
+		fmt.Fprintf(&b, "At: %s\n", p.StartedAt.UTC().Format("2 Jan 2006 15:04 UTC"))
+	default:
 		fmt.Fprintf(&b, "Started: %s\n", p.StartedAt.UTC().Format("2 Jan 2006 15:04 UTC"))
 	}
 	if p.ResolvedAt != nil {

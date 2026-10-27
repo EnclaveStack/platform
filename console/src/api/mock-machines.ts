@@ -38,7 +38,23 @@ const PUBLIC_ACCESS = [
     parameters: [{ name: 'machine', title: 'Edge machine', description: 'The edge machine the relay runs on (Machines › Add an edge machine).', type: 'string' as const, required: true }] },
 ].map((e) => ({ ...e, category: 'public-access' as const, members: [member('tunnel', '')], outputs: [] as string[] }));
 
-/** Outside services apps use (L2-015 CNX-02): the catalogue's Connections category. */
+/**
+ * Outside services apps use (L2-015 CNX-02, L2-016 CNX-08 – CNX-12): the catalogue's Connections category. Each output
+ * names where its secret comes from: `param:<name>` (a secret parameter, left out when not given, CNX-05) or
+ * `member:<name>` (a secret the template makes from the settings, valued by `values`).
+ */
+type Values = (name: string) => unknown;
+const CONNECTION_SPECS: Record<string, { values: Record<string, (v: Values) => string>; sources: Record<string, string> }> = {
+  supabase: { values: { url: (v) => `https://${String(v('project') ?? '').toLowerCase()}` },
+    sources: { SUPABASE_URL: 'member:url', SUPABASE_ANON_KEY: 'param:anonKey', SUPABASE_SERVICE_ROLE_KEY: 'param:serviceKey', DATABASE_URL: 'param:dbUrl' } },
+  neon: { values: {}, sources: { DATABASE_URL: 'param:pooledUrl', DATABASE_URL_UNPOOLED: 'param:directUrl' } },
+  firebase: { values: { projectid: (v) => String(v('projectId') ?? ''), authdomain: (v) => `${String(v('projectId') ?? '')}.firebaseapp.com` },
+    sources: { FIREBASE_PROJECT_ID: 'member:projectid', FIREBASE_AUTH_DOMAIN: 'member:authdomain', FIREBASE_API_KEY: 'param:apiKey', FIREBASE_SERVICE_ACCOUNT: 'param:serviceAccount' } },
+  auth0: { values: { domain: (v) => String(v('domain') ?? '').toLowerCase(), issuer: (v) => `https://${String(v('domain') ?? '').toLowerCase()}`, clientid: (v) => String(v('clientId') ?? '') },
+    sources: { AUTH0_DOMAIN: 'member:domain', AUTH0_ISSUER_BASE_URL: 'member:issuer', AUTH0_CLIENT_ID: 'member:clientid', AUTH0_CLIENT_SECRET: 'param:clientSecret' } },
+  clerk: { values: {}, sources: { CLERK_SECRET_KEY: 'param:secretKey', CLERK_PUBLISHABLE_KEY: 'param:publishableKey' } },
+  sentry: { values: {}, sources: { SENTRY_DSN: 'param:dsn', SENTRY_AUTH_TOKEN: 'param:authToken' } },
+};
 const CONNECTIONS = [
   { name: 'supabase', title: 'Supabase', signup: 'https://supabase.com/dashboard/sign-up',
     description: "Your hosted Supabase project's address and keys, kept as secrets for your apps to use. It runs nothing here: your apps reach Supabase over the internet.",
@@ -48,13 +64,47 @@ const CONNECTIONS = [
       secretParam('serviceKey', 'service_role key', 'The service_role key, or the newer secret key (sb_secret_…), under Project Settings › API Keys. For servers only: it bypasses row-level security.', false),
       secretParam('dbUrl', 'Database connection string', "For apps that use Postgres directly: the pooler's connection string with your password in it, under Connect. The direct one needs IPv6.", false),
     ],
-    members: [member('secret', 'url')], outputs: ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'] },
-].map((e) => ({ ...e, category: 'connections' as const }));
+    members: [member('secret', 'url')] },
+  { name: 'neon', title: 'Neon', signup: 'https://console.neon.tech/signup',
+    description: "Your Neon Postgres database's connection strings, kept as secrets for your apps to use. It runs nothing here: your apps reach Neon over the internet.",
+    parameters: [
+      secretParam('pooledUrl', 'Pooled connection string', "The connection string with -pooler in its host name, under Connect on your project's dashboard (Connection pooling on). Most apps use this one."),
+      secretParam('directUrl', 'Direct connection string', 'The same string with Connection pooling off: for migrations and tools that need a direct connection.', false),
+    ],
+    members: [] },
+  { name: 'firebase', title: 'Firebase', signup: 'https://console.firebase.google.com/',
+    description: "Your Firebase project's ID and keys, kept as secrets for your apps to use. It runs nothing here: your apps reach Firebase over the internet.",
+    parameters: [
+      { name: 'projectId', title: 'Project ID', description: 'The project ID under Project settings › General, like my-app-1a2b3.', type: 'string' as const, required: true },
+      secretParam('apiKey', 'Web API key', 'The Web API key under Project settings › General, for apps that use Firebase from browsers.', false),
+      secretParam('serviceAccount', 'Service account key', 'For servers (the Admin SDK): the whole JSON file from Project settings › Service accounts › Generate new private key.', false),
+    ],
+    members: [member('secret', 'projectid'), member('secret', 'authdomain')] },
+  { name: 'auth0', title: 'Auth0', signup: 'https://auth0.com/signup',
+    description: "Your Auth0 application's domain and keys, kept as secrets for your apps to use for sign-in. It runs nothing here: your apps reach Auth0 over the internet.",
+    parameters: [
+      { name: 'domain', title: 'Domain', description: "The application's Domain under Applications › your app › Settings, like acme.us.auth0.com (or your own sign-in domain).", type: 'hostname' as const, required: true },
+      { name: 'clientId', title: 'Client ID', description: 'The Client ID on the same page.', type: 'string' as const, required: true },
+      secretParam('clientSecret', 'Client secret', 'The Client Secret on the same page, for apps that sign people in on the server.', false),
+    ],
+    members: [member('secret', 'domain'), member('secret', 'issuer'), member('secret', 'clientid')] },
+  { name: 'clerk', title: 'Clerk', signup: 'https://dashboard.clerk.com/sign-up',
+    description: "Your Clerk application's keys, kept as secrets for your apps to use for sign-in. It runs nothing here: your apps reach Clerk over the internet.",
+    parameters: [
+      secretParam('secretKey', 'Secret key', 'The secret key (sk_live_… or sk_test_…) under Configure › API keys. For servers only.'),
+      secretParam('publishableKey', 'Publishable key', 'The publishable key (pk_live_… or pk_test_…) on the same page. Safe to use in browsers.', false),
+    ],
+    members: [] },
+  { name: 'sentry', title: 'Sentry', signup: 'https://sentry.io/signup/',
+    description: "Your Sentry project's DSN and an auth token, kept as secrets for your apps to report errors with. It runs nothing here: your apps reach Sentry over the internet.",
+    parameters: [
+      secretParam('dsn', 'DSN', 'The DSN under Project settings › Client Keys (DSN), like https://abc123@o1.ingest.sentry.io/456.'),
+      secretParam('authToken', 'Auth token', 'For uploading source maps or releases at build time: an organization token under Settings › Auth Tokens.', false),
+    ],
+    members: [] },
+].map((e) => ({ ...e, category: 'connections' as const, outputs: Object.keys(CONNECTION_SPECS[e.name]?.sources ?? {}) }));
 
-/** The secret parameter each connection output names (L3-002 §17); outputs of keys not given are left out (CNX-05). */
-const CONNECTION_OUTPUTS: Record<string, string> = { SUPABASE_URL: '', SUPABASE_ANON_KEY: 'anonKey', SUPABASE_SERVICE_ROLE_KEY: 'serviceKey', DATABASE_URL: 'dbUrl' };
-
-/** The thirteen built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
+/** The eighteen built-in entries (internal/catalogue/builtin), as GET /catalogue lists them: by name. */
 export const BUILTIN_CATALOGUE: CatalogueEntry[] = ([
   { name: 'wordpress', title: 'WordPress', description: 'A WordPress site with its MySQL database and a volume for uploads, themes and plugins.',
     parameters: [domainParam(false, 'Serve the site at this host name, with HTTPS.'), { name: 'memoryMiB', title: 'Memory (MiB)', type: 'number' as const, default: 512 }],
@@ -125,7 +175,7 @@ export function renderStack(entry: CatalogueEntry, stack: string, params: Record
         members.push({ kind: m.kind, name, spec: { type: 'filesystem' } });
         break;
       case 'secret':
-        members.push({ kind: m.kind, name, spec: {}, value: entry.category === 'connections' ? `https://${String(value('project') ?? '').toLowerCase()}`
+        members.push({ kind: m.kind, name, spec: {}, value: entry.category === 'connections' ? CONNECTION_SPECS[entry.name]?.values[local]?.(value) ?? ''
           : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) });
         break;
       case 'domain':
@@ -144,10 +194,10 @@ export function renderStack(entry: CatalogueEntry, stack: string, params: Record
   for (const [k, v] of Object.entries(secrets)) members.unshift({ kind: 'secret', name: `${stack}-${k.toLowerCase()}`, spec: {}, value: v });
   const outputs: Record<string, string> = {};
   if (entry.category === 'connections') {
-    for (const o of entry.outputs) {
-      const p = CONNECTION_OUTPUTS[o];
-      if (p === '') outputs[o] = `${stack}-url`;
-      else if (p && secrets[p]) outputs[o] = `${stack}-${p.toLowerCase()}`;
+    for (const [o, source] of Object.entries(CONNECTION_SPECS[entry.name]?.sources ?? {})) {
+      const [from, n] = source.split(':') as [string, string];
+      if (from === 'member') outputs[o] = `${stack}-${n}`;
+      else if (secrets[n]) outputs[o] = `${stack}-${n.toLowerCase()}`;
     }
     return { members, outputs };
   }

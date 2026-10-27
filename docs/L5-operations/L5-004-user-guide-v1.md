@@ -6,9 +6,9 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v7 |
+| Version | v8 |
 | Created | 2026-10-23 |
-| Last Updated | 2026-10-25 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -900,7 +900,7 @@ Every page in the console shows a resource's **Details**: each line is a label, 
 | Sender domain | The only domain mail may come from; Any allows all. |
 | Messages kept | How many caught messages are kept. |
 | Watches | The bucket folder it watches for new files. |
-| Watching | Whether new files are converted automatically. |
+| Watching | Whether new files are converted automatically; for a function, the bucket folders whose new files start a run. |
 | Output | Where converted files go. {name} and {meta:<tag>} are filled in from each file. |
 | Presets | Ready-made outputs it writes for each file. |
 | Limits | Files at once, memory per file and the longest one file may take. |
@@ -1004,7 +1004,8 @@ Every page in the console shows a resource's **Details**: each line is a label, 
 | Machine engine | The container engine on it, and its version. |
 | CPUs | Processor cores EnclaveStack may use. |
 | VMs | Whether it can run virtual machines. |
-| Role | Worker machines run resources; an edge machine only relays visitors for relay tunnels. |
+| Role | Worker machines run resources; an edge machine only relays visitors for relay tunnels; the standby keeps a copy of the control plane. |
+| Last copy | When the standby last received a copy of the control plane, and its size. Older than 2 minutes means copies aren’t arriving. |
 | Relays | The relay tunnels that run on this edge machine. |
 
 **Public access**
@@ -1028,6 +1029,23 @@ Every page in the console shows a resource's **Details**: each line is a label, 
 | Cloudflare Access | The people Cloudflare checks with a one-time code before the gate. |
 | Access application | The Cloudflare Access application that checks visitors first. |
 | DNS record | The record that sends visitors to the tunnel, and whether EnclaveStack made it. |
+
+**Functions, previews and database options**
+
+| Detail | What it means |
+|---|---|
+| Triggers | What starts a run besides Invoke: a schedule, a queue’s messages or new files in a bucket folder. Topics subscribe a function from the topic. |
+| Runs at once | At most this many runs go at the same time; more events wait, and calls are told to try again. |
+| Encrypted connections | Yes means it takes TLS connections only; its connection strings ask for TLS. |
+| Reachable at | The addresses other computers on your network connect to. |
+| Setup script | The script ran once, when the database was first made. |
+| Webhook URL | Give this to your Git host as the webhook address, with the webhook secret. |
+| Deploys on push | Whether a push to its branch redeploys it. |
+| Previews | How many previews of pull requests exist now. |
+| Preview of | The app this preview copies; it follows that app’s settings. |
+| Built from | The branch or pull request this preview builds. |
+| Pull request | The pull request it was made for. |
+| Deleted after | It is deleted then unless a push comes first. |
 
 ## 15 · Reach your apps from the internet
 
@@ -1304,6 +1322,124 @@ The app reads them like any other variable. Keep the `service_role` key on serve
 
 Open the stack, choose **Edit parameters**, paste the new key and save (keys you leave empty stay as they are). Then restart the apps that use it, since an app reads its variables when it starts. You can't delete the stack while an app still uses one of its secrets.
 
+## 17 · Functions, previews, a standby and more
+
+> *`L2-016`. Everything here works from the console, the CLI and OpenTofu.*
+
+### 17.1 Functions: code that runs when something happens
+
+A **function** is a container image that starts once for each event and stops when it's done. You don't keep a server running for it. Each run reads its event from the file `/enclave/event.json` (the variable `ENCLAVE_EVENT_FILE` names it), prints what it likes, and exits: exit code 0 means it worked.
+
+What starts a run:
+
+| Trigger | What the event holds |
+|---|---|
+| **Invoke** (console button, CLI, API) | `{"source":"invoke","body":…}`: the JSON you sent |
+| A **schedule**, like `@daily` | `{"source":"schedule","scheduledFor":…}` |
+| A **queue**'s messages | `{"source":"queue","queue":…,"message":{"body":…,…}}`; the message is deleted when the run succeeds, and comes back if it fails |
+| New files in a **bucket** folder | `{"source":"bucket","bucket":…,"key":…,"size":…,"modifiedAt":…}` |
+| A **topic** that subscribes the function | `{"source":"topic","topic":…,"message":{"body":…,…}}` |
+| **Run now** | `{"source":"manual"}` |
+
+Try one:
+
+```sh
+enclave function create hello --image alpine:3 --wait -- cat /enclave/event.json
+enclave function invoke hello --data '{"name":"Ada"}' --wait   # prints the run's output
+enclave function runs hello                                    # every run, newest first
+```
+
+Run it on new uploads and every night:
+
+```sh
+enclave function create thumbs --image ghcr.io/you/thumbs:1.0 \
+  --on-bucket uploads/in/ --schedule @daily --bucket uploads:readwrite --wait
+enclave topic create orders --function thumbs                    # each message of a topic, too
+```
+
+In the console: **Compute › Functions › New function**. The function's page has **Invoke**, **Run now** and a **Runs** tab; open a run to see its event and output. A function runs at most 5 runs at once by default (`--concurrency`); more calls get "try again in a few seconds". A run is stopped after 60 seconds unless you raise `--run-timeout` (up to 15 minutes). A queue trigger needs the queue's visibility timeout to be at least the function's timeout plus 30 seconds, so a message isn't handed out twice while it runs.
+
+In OpenTofu:
+
+```hcl
+resource "enclave_function" "thumbs" {
+  name     = "thumbs"
+  image    = "ghcr.io/you/thumbs:1.0"
+  triggers = [{ bucket = "uploads", prefix = "in/" }, { schedule = "@daily" }]
+}
+```
+
+### 17.2 Deploy on push, and a preview of each pull request
+
+An app built from Git can follow your repository:
+
+1. Make a secret with a long random value: `openssl rand -hex 32 | enclave secret create web-hook --from-stdin`.
+2. Give it to the app, and turn on what you want:
+
+```sh
+enclave app update web --webhook-secret web-hook --deploy-on-push --previews --preview-domain preview.localhost
+enclave app get web        # shows the Webhook URL
+```
+
+3. In your repository's settings, add a webhook with that **Webhook URL**, content type `application/json` and the secret's value (GitHub calls it *secret*, GitLab *secret token*). Send **pushes** and **pull requests** (GitLab: *merge requests*).
+
+Your Git host has to reach the URL, so the app's console needs a way in from the internet (section 15) or a host on your network.
+
+Now a push to the app's branch redeploys it, and each pull request gets its own app, named like `web-pr-42`, that builds the pull request's code. A new push to the pull request redeploys its preview; closing the pull request deletes it. A preview with no push for 72 hours (`--preview-ttl`) is deleted too. At most 5 previews exist at once (`--preview-max`). With a preview domain, a preview answers at `https://web-pr-42.preview.localhost`. Through a tunnel (`--preview-tunnel`), visitors sign in first, as on every public domain.
+
+Make one by hand, without a webhook:
+
+```sh
+enclave app preview create web --ref feature/login --wait
+enclave app preview ls web
+enclave app preview rm web web-feature-login
+```
+
+In the console, the app's **Previews** tab shows the webhook address, the previews and **Create preview**. A preview follows its app: change the app, not the preview.
+
+### 17.3 Database options: TLS, other computers and a setup script
+
+```sh
+enclave database create shop --engine postgres --tls --exposed --init-script-file ./schema.sql --wait
+enclave database get shop       # the CA certificate and the addresses other computers use
+```
+
+- **`--tls`** (PostgreSQL and MySQL): the database takes encrypted connections only. Connection strings carry `sslmode=require` or `ssl-mode=REQUIRED`. Clients that check the server (`sslmode=verify-full`) trust the **CA certificate** shown on its page.
+- **`--exposed`**: other computers on your network can connect, at the addresses under **Reachable at**. It needs `--tls`, so passwords never cross the network in the clear.
+- **`--init-script-file`**: SQL (MongoDB: JavaScript) that runs once when the database is first made: tables, users, seed rows. If it fails, the database fails with its error. It can't be changed afterwards.
+
+In the console these are under **Connections** and **Setup script** in the database form.
+
+### 17.4 Back up a volume's files
+
+A backup can copy a **filesystem volume** as well as a database or cache. Each run stores its files as one `.tar.gz` in a bucket or S3; restoring puts them back.
+
+```sh
+enclave backup create uploads-nightly --volume uploads --bucket backups --wait
+```
+
+A disk volume (one a VM uses) is copied with a snapshot instead.
+
+### 17.5 Hear about events as they happen
+
+An **event alert** sends each matching event to its channels once, as it happens: a deploy, a failed build, a preview made.
+
+```sh
+enclave alert create web-deploys --resource app/web --event redeployed --event build_failed --channel ops
+```
+
+The events you can choose: `ready`, `redeployed`, `failed`, `built`, `build_failed`, `run_failed`, `run_timed_out`, `restored`, `rescheduled`, `moved`, `drift_detected`, `certificate_renewed`, `preview_created`, `preview_deleted`.
+
+### 17.6 A standby that can take over
+
+A **standby** is a second computer that keeps a copy of this one's control plane: everything EnclaveStack knows, copied every 15 seconds. It runs nothing else. If the main machine is lost, you make the standby the main machine.
+
+1. **Machines › Add a standby** (or `enclave machine add spare --role standby`), then run the join command it shows on the other computer. It ends in `--standby`.
+2. The standby's page shows **Last copy**. If no copy has arrived for over 2 minutes, it says so.
+3. To take over, on the standby: `enclave standby promote`. It starts the control plane from its newest copy; every machine then follows it, and the old main machine is fenced: if it comes back, it changes nothing. Changes made after the last copy are lost, so stop the old main machine first if you still can.
+
+There's one standby at a time. Automatic takeover is off by default, because a cut network looks the same as a lost machine; turn it on with `enclave agent run --auto-promote-after 5m` on the standby if you accept that.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -1315,3 +1451,4 @@ Open the stack, choose **Edit parameters**, paste the new key and save (keys you
 | v5 | 2026-10-24 | Soupler | §15 reach your apps from the internet: how a visit works, NAT and CGNAT, the tunnel, the ways in from the catalogue (quick link, Tailscale, ngrok, custom, Cloudflare, your own server), why it's safe, a quick link, Tailscale private and public, ngrok and custom, stage beside prod on AWS with Cloudflare (moving DNS, token, commands), more environments as subdomain zones, DNS at GoDaddy or another provider, your own server with Route 53, troubleshooting; glossary words (L2-014) |
 | v6 | 2026-10-25 | Soupler | §16 use a service that runs elsewhere: connect Supabase, use it from an app, change a key (L2-015) |
 | v7 | 2026-10-25 | Soupler | §1a install without building (Homebrew, the install script, the server image); §8.9 the OpenTofu plug-in from a release; §10.3 updating an installed program (ADR-054) |
+| v8 | 2026-10-26 | Soupler | §17 functions, deploy on push and previews, database TLS, other computers and setup scripts, volume backups, event alerts, the standby; §14 rows for their details (L2-016) |

@@ -1,0 +1,13 @@
+name: sentry
+title: Sentry
+category: connections
+signup: https://sentry.io/signup/
+description: "Your Sentry project's DSN and an auth token, kept as secrets for your apps to report errors with. It runs nothing here: your apps reach Sentry over the internet."
+version: 1.0.0
+parameters:
+  - { name: dsn, title: DSN, description: "The DSN under Project settings › Client Keys (DSN), like https://abc123@o1.ingest.sentry.io/456.", type: secret, required: true }
+  - { name: authToken, title: Auth token, description: "For uploading source maps or releases at build time: an organization token under Settings › Auth Tokens.", type: secret }
+resources: []
+outputs:
+  SENTRY_DSN: "${param:dsn}"
+  SENTRY_AUTH_TOKEN: "${param:authToken}"

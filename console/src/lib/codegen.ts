@@ -1,5 +1,5 @@
 import { RULES } from '../api/generated';
-import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
+import type { Placed, StackSpec, AlertSpec, ChannelSpec, DashboardSpec, LogExportSpec, SecretStoreSpec, AppSpec, BackupSpec, BucketGrant, BucketSpec, CacheSpec, CDNSpec, DatabaseSpec, DomainSpec, EmailSpec, FirewallRule, FirewallSpec, FunctionSpec, JobSpec, LoadBalancerSpec, NetworkSpec, QueueSpec, RecordSpec, Resource, SearchSpec, SnapshotSpec, TopicSpec, TranscoderSpec, TunnelSpec, Gate, VMSpec, VolumeMount, VolumeSpec, ZoneSpec } from '../api/types';
 
 // "Use from code" (CON-18): the CLI command and OpenTofu block that produce a resource as it is now,
 // so operators can move from clicks to code. Secret values are never included.
@@ -139,6 +139,8 @@ function kindCommand(r: Resource): string {
       if (c.type === 'metric') {
         parts.push(`--metric ${c.metric ?? ''}`, ...c.resources.map((x) => `--resource ${x}`), `--${c.operator ?? 'above'} ${c.threshold ?? 0}`);
         if (c.forMinutes && c.forMinutes !== RULES.alertForDefault) parts.push(`--for ${c.forMinutes}m`);
+      } else if (c.type === 'event') {
+        parts.push(...c.resources.map((x) => `--resource ${x}`), ...(c.events ?? []).map((ev) => `--event ${ev}`));
       } else if (c.type === 'machine_offline') {
         parts.push(...c.resources.map((x) => `--machine-offline ${x.replace(RULES.machineRefPrefix, '')}`));
         if (c.forMinutes && c.forMinutes !== 1) parts.push(`--for ${c.forMinutes}m`);
@@ -244,7 +246,8 @@ function kindCommand(r: Resource): string {
     case 'database': {
       const d = r.spec as DatabaseSpec;
       const engine = d.engine && d.engine !== 'postgres' ? ` --engine ${d.engine}` : '';
-      return `enclave db create ${r.name}${engine} --version ${d.version}${placementFlags(d)} --wait`;
+      const opts = (d.tls ? ' --tls' : '') + (d.exposed ? ' --exposed' : '') + (d.initScript ? ` --init-script-file ./${r.name}-init.sql` : '');
+      return `enclave db create ${r.name}${engine} --version ${d.version}${opts}${placementFlags(d)} --wait`;
     }
     case 'queue': {
       const q = r.spec as QueueSpec;
@@ -261,7 +264,7 @@ function kindCommand(r: Resource): string {
       const parts = [`enclave topic create ${r.name}`];
       if (t.retentionHours && t.retentionHours !== RULES.topicRetentionDefault) parts.push(`--retention ${t.retentionHours}h`);
       for (const sub of t.subscriptions ?? []) {
-        parts.push(sub.queue ? `--queue ${sub.queue}` : `--webhook ${sh(`${sub.url ?? ''}${sub.secret ? `,secret=${sub.secret}` : ''}`)}`);
+        parts.push(sub.queue ? `--queue ${sub.queue}` : sub.function ? `--function ${sub.function}` : `--webhook ${sh(`${sub.url ?? ''}${sub.secret ? `,secret=${sub.secret}` : ''}`)}`);
       }
       return [...parts, '--wait'].join(' \\\n  ');
     }
@@ -353,6 +356,25 @@ function kindCommand(r: Resource): string {
       if (src) return `enclave secret create ${r.name} --from-store ${src.store} --key ${sh(src.key)}${src.field ? ` --field ${sh(src.field)}` : ''} --wait`;
       return `enclave secret create ${r.name} --from-stdin < value.txt`;
     }
+    case 'function': {
+      const f = r.spec as FunctionSpec;
+      const parts = [`enclave function create ${r.name}`, `--image ${sh(f.image)}`];
+      for (const t of f.triggers ?? []) {
+        if (t.schedule) parts.push(`--schedule ${sh(t.schedule)}`, ...(t.timeZone ? [`--time-zone ${t.timeZone}`] : []));
+        if (t.queue) parts.push(`--queue ${t.queue}`);
+        if (t.bucket) parts.push(`--on-bucket ${sh(`${t.bucket}${t.prefix ? `/${t.prefix}` : ''}`)}`);
+      }
+      if (f.timeoutSeconds && f.timeoutSeconds !== RULES.functionTimeoutDefault) parts.push(`--run-timeout ${f.timeoutSeconds}s`);
+      if (f.memoryMiB && f.memoryMiB !== RULES.functionMemoryDefault) parts.push(`--memory ${f.memoryMiB}`);
+      if (f.concurrency && f.concurrency !== RULES.functionConcurrencyDefault) parts.push(`--concurrency ${f.concurrency}`);
+      if (placementFlags(f)) parts.push(placementFlags(f).trim());
+      parts.push(...bucketFlags(f.bucketAccess));
+      for (const [k, v] of Object.entries(f.env ?? {})) parts.push(`--env ${sh(`${k}=${v}`)}`);
+      for (const [k, v] of Object.entries(f.secretEnv ?? {})) parts.push(`--secret-env ${k}=${v}`);
+      parts.push('--wait');
+      if (f.command?.length) parts.push(`-- ${f.command.map(sh).join(' ')}`);
+      return parts.join(' \\\n  ');
+    }
     case 'job': {
       const j = r.spec as JobSpec;
       const parts = [`enclave job create ${r.name}`, `--schedule ${sh(j.schedule)}`];
@@ -372,7 +394,7 @@ function kindCommand(r: Resource): string {
     }
     case 'backup': {
       const b = r.spec as BackupSpec;
-      const parts = [`enclave backup create ${r.name}`, b.source.database ? `--source database/${b.source.database}` : `--source cache/${b.source.cache ?? ''}`];
+      const parts = [`enclave backup create ${r.name}`, b.source.database ? `--source database/${b.source.database}` : b.source.volume ? `--source volume/${b.source.volume}` : `--source cache/${b.source.cache ?? ''}`];
       if (b.destination.s3) {
         const s3 = b.destination.s3;
         parts.push(`--s3-endpoint ${sh(s3.endpoint)}`);
@@ -431,7 +453,21 @@ function kindCommand(r: Resource): string {
         if (g.context && g.context !== RULES.gitContextDefault) parts.push(`--context ${sh(g.context)}`);
         if (g.credentialsSecret) parts.push(`--git-credentials ${g.credentialsSecret}`);
         for (const [k, v] of Object.entries(g.buildArgs ?? {})) parts.push(`--build-arg ${sh(`${k}=${v}`)}`);
+        if (g.webhookSecret) parts.push(`--webhook-secret ${g.webhookSecret}`);
+        if (g.deployOnPush) parts.push('--deploy-on-push');
       } else parts.push(`--image ${sh(s.image ?? '')}`);
+      const pv = s.previews;
+      if (pv?.enabled) {
+        parts.push('--previews');
+        if (pv.domain) {
+          parts.push(`--preview-domain ${pv.domain.suffix}`);
+          if (pv.domain.zone) parts.push(`--preview-zone ${pv.domain.zone}`);
+          if (pv.domain.tunnel) parts.push(`--preview-tunnel ${pv.domain.tunnel}`);
+          if (pv.domain.tls && pv.domain.tls !== (pv.domain.zone || pv.domain.tunnel ? 'auto' : 'internal')) parts.push(`--preview-tls ${pv.domain.tls}`);
+        }
+        if (pv.ttlHours && pv.ttlHours !== RULES.previewTtlDefault) parts.push(`--preview-ttl ${pv.ttlHours}`);
+        if (pv.maxActive && pv.maxActive !== RULES.previewMaxActiveDefault) parts.push(`--preview-max ${pv.maxActive}`);
+      }
       if (s.port) parts.push(`--port ${s.port}`);
       if (s.publish) parts.push('--publish');
       if (s.memoryMiB && s.memoryMiB !== 256) parts.push(`--memory ${s.memoryMiB}`);
@@ -525,6 +561,9 @@ export function tofuBlock(r: Resource): string {
       const d = r.spec as DatabaseSpec;
       if (d.engine && d.engine !== 'postgres') lines.push(`  engine = ${hcl(d.engine)}`);
       lines.push(`  version = ${hcl(d.version)}`);
+      if (d.tls) lines.push('  tls = true');
+      if (d.exposed) lines.push('  exposed = true');
+      if (d.initScript) lines.push(`  init_script = file("\${path.module}/${r.name}-init.sql")`);
       placement(d);
       break;
     }
@@ -541,7 +580,7 @@ export function tofuBlock(r: Resource): string {
       const t = r.spec as TopicSpec;
       if (t.retentionHours && t.retentionHours !== RULES.topicRetentionDefault) lines.push(`  retention_hours = ${t.retentionHours}`);
       if (t.subscriptions?.length) {
-        lines.push(`  subscriptions = [\n${t.subscriptions.map((sub) => (sub.queue ? `    { queue = ${hcl(sub.queue)} },`
+        lines.push(`  subscriptions = [\n${t.subscriptions.map((sub) => (sub.queue ? `    { queue = ${hcl(sub.queue)} },` : sub.function ? `    { function = ${hcl(sub.function)} },`
           : `    { url = ${hcl(sub.url ?? '')}${sub.secret ? `, secret = ${hcl(sub.secret)}` : ''} },`)).join('\n')}\n  ]`);
       }
       break;
@@ -636,6 +675,29 @@ export function tofuBlock(r: Resource): string {
       if (d.ttl && d.ttl !== RULES.recordTtlDefault) lines.push(`  ttl = ${d.ttl}`);
       break;
     }
+    case 'function': {
+      const f = r.spec as FunctionSpec;
+      lines.push(`  image = ${hcl(f.image)}`);
+      if (f.command?.length) lines.push(`  command = [${f.command.map(hcl).join(', ')}]`);
+      const env = hclMap(f.env);
+      if (env) lines.push(`  env = ${env}`);
+      const senv = hclMap(f.secretEnv);
+      if (senv) lines.push(`  secret_env = ${senv}`);
+      if (f.memoryMiB && f.memoryMiB !== RULES.functionMemoryDefault) lines.push(`  memory_mib = ${f.memoryMiB}`);
+      if (f.timeoutSeconds && f.timeoutSeconds !== RULES.functionTimeoutDefault) lines.push(`  timeout_seconds = ${f.timeoutSeconds}`);
+      if (f.concurrency && f.concurrency !== RULES.functionConcurrencyDefault) lines.push(`  concurrency = ${f.concurrency}`);
+      if (f.triggers?.length) {
+        const trig = (t: NonNullable<FunctionSpec['triggers']>[number]) => [
+          ...(t.schedule ? [`schedule = ${hcl(t.schedule)}`] : []), ...(t.timeZone ? [`time_zone = ${hcl(t.timeZone)}`] : []),
+          ...(t.queue ? [`queue = ${hcl(t.queue)}`] : []), ...(t.bucket ? [`bucket = ${hcl(t.bucket)}`] : []), ...(t.prefix ? [`prefix = ${hcl(t.prefix)}`] : []),
+        ].join(', ');
+        lines.push(`  triggers = [\n${f.triggers.map((t) => `    { ${trig(t)} },`).join('\n')}\n  ]`);
+      }
+      placement(f);
+      const fg = grantsHcl(f.bucketAccess);
+      if (fg) lines.push(fg);
+      break;
+    }
     case 'job': {
       const j = r.spec as JobSpec;
       lines.push(`  schedule = ${hcl(j.schedule)}`);
@@ -658,7 +720,7 @@ export function tofuBlock(r: Resource): string {
     }
     case 'backup': {
       const b = r.spec as BackupSpec;
-      lines.push(b.source.database ? `  source = { database = ${hcl(b.source.database)} }` : `  source = { cache = ${hcl(b.source.cache ?? '')} }`);
+      lines.push(b.source.database ? `  source = { database = ${hcl(b.source.database)} }` : b.source.volume ? `  source = { volume = ${hcl(b.source.volume)} }` : `  source = { cache = ${hcl(b.source.cache ?? '')} }`);
       if (b.destination.s3) {
         const s3 = b.destination.s3;
         const fields = [`    endpoint = ${hcl(s3.endpoint)}`];
@@ -732,6 +794,7 @@ export function tofuBlock(r: Resource): string {
         if (c.forMinutes && c.forMinutes !== RULES.alertForDefault) fields.push(`for_minutes = ${c.forMinutes}`);
       }
       if (c.type === 'machine_offline' && c.forMinutes && c.forMinutes !== 1) fields.push(`for_minutes = ${c.forMinutes}`);
+      if (c.type === 'event') fields.push(`events = ${refs(c.events ?? [])}`);
       if (c.type === 'crash_loop') {
         if (c.restarts && c.restarts !== RULES.alertRestartsDefault) fields.push(`restarts = ${c.restarts}`);
         if (c.windowMinutes && c.windowMinutes !== RULES.alertWindowDefault) fields.push(`window_minutes = ${c.windowMinutes}`);
@@ -797,8 +860,23 @@ export function tofuBlock(r: Resource): string {
         if (g.credentialsSecret) fields.push(`    credentials_secret = ${hcl(g.credentialsSecret)}`);
         const args = Object.entries(g.buildArgs ?? {});
         if (args.length) fields.push(`    build_args = { ${args.map(([k, v]) => `${k} = ${hcl(v)}`).join(', ')} }`);
+        if (g.webhookSecret) fields.push(`    webhook_secret = ${hcl(g.webhookSecret)}`);
+        if (g.deployOnPush) fields.push('    deploy_on_push = true');
         lines.push(`  source = {\n${fields.join('\n')}\n  }`);
       } else lines.push(`  image = ${hcl(s.image ?? '')}`);
+      if (s.previews) {
+        const pv = s.previews;
+        const fields = [`    enabled = ${pv.enabled}`];
+        if (pv.ttlHours && pv.ttlHours !== RULES.previewTtlDefault) fields.push(`    ttl_hours = ${pv.ttlHours}`);
+        if (pv.maxActive && pv.maxActive !== RULES.previewMaxActiveDefault) fields.push(`    max_active = ${pv.maxActive}`);
+        if (pv.domain) {
+          const d = pv.domain;
+          const df = [`suffix = ${hcl(d.suffix)}`, ...(d.zone ? [`zone = ${hcl(d.zone)}`] : []), ...(d.tunnel ? [`tunnel = ${hcl(d.tunnel)}`] : []),
+            ...(d.tls && d.tls !== (d.zone || d.tunnel ? 'auto' : 'internal') ? [`tls = ${hcl(d.tls)}`] : [])];
+          fields.push(`    domain = { ${df.join(', ')} }`);
+        }
+        lines.push(`  previews = {\n${fields.join('\n')}\n  }`);
+      }
       if (s.port) lines.push(`  port = ${s.port}`);
       if (s.publish) lines.push('  publish = true');
       if (s.memoryMiB && s.memoryMiB !== 256) lines.push(`  memory_mib = ${s.memoryMiB}`);

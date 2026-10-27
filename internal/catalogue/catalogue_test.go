@@ -3,6 +3,7 @@ package catalogue
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -11,11 +12,12 @@ import (
 
 // Every built-in renders, and every member it renders is a valid API spec (CAT-02, CAT-08).
 func TestEveryBuiltinRendersValidSpecs(t *testing.T) {
-	if len(Builtins()) != 13 {
+	if len(Builtins()) != 18 {
 		t.Fatalf("%d built-ins", len(Builtins()))
 	}
 	// What an installer would give the Public access entries' required parameters (L2-014 TUN-15).
-	given := map[string]any{"app": "web", "machine": "vps1", "image": "ghcr.io/acme/tunnel:1", "accountId": "0123456789abcdef0123456789abcdef"}
+	given := map[string]any{"app": "web", "machine": "vps1", "image": "ghcr.io/acme/tunnel:1", "accountId": "0123456789abcdef0123456789abcdef",
+		"projectId": "my-app-1a2b3", "clientId": "abc123def456"}
 	for _, tpl := range Builtins() {
 		params := map[string]any{}
 		secrets := map[string]string{}
@@ -211,7 +213,7 @@ func TestBuiltinsAreByName(t *testing.T) {
 	for _, b := range Builtins() {
 		names = append(names, b.Name)
 	}
-	if strings.Join(names, ",") != "cloudflare-tunnel,custom-tunnel,ghost,gitea,n8n,ngrok,own-server,plausible,quick-link,supabase,tailscale,uptime-kuma,wordpress" {
+	if strings.Join(names, ",") != "auth0,clerk,cloudflare-tunnel,custom-tunnel,firebase,ghost,gitea,n8n,neon,ngrok,own-server,plausible,quick-link,sentry,supabase,tailscale,uptime-kuma,wordpress" {
 		t.Errorf("%v", names)
 	}
 }
@@ -320,5 +322,81 @@ outputs:
 	// A secret kept from an earlier version of the stack counts as given.
 	if r, _ := tpl.Render("s", "default", nil, map[string]string{"token": "kept"}); r.Outputs["both"] != "s-a and s-token" {
 		t.Errorf("outputs %v", r.Outputs)
+	}
+}
+
+// The connections of L2-016 CNX-08 – CNX-12: each runs nothing, needs its required settings, and its outputs
+// name only the secrets that exist.
+func TestConnectionTemplates(t *testing.T) {
+	cases := []struct {
+		name    string
+		values  map[string]any
+		secrets map[string]string
+		want    map[string]string
+		missing string // a required setting left out
+	}{
+		{name: "neon", secrets: map[string]string{"pooledUrl": "postgresql://u:p@ep-x-pooler.neon.tech/db"},
+			want: map[string]string{"DATABASE_URL": "c-pooledurl"}, missing: "pooledUrl"},
+		{name: "firebase", values: map[string]any{"projectId": "my-app-1a2b3"}, secrets: map[string]string{"serviceAccount": `{"type":"service_account"}`},
+			want: map[string]string{"FIREBASE_PROJECT_ID": "c-projectid", "FIREBASE_AUTH_DOMAIN": "c-authdomain", "FIREBASE_SERVICE_ACCOUNT": "c-serviceaccount"}, missing: "projectId"},
+		{name: "auth0", values: map[string]any{"domain": "acme.us.auth0.com", "clientId": "abc123def456"}, secrets: map[string]string{"clientSecret": "s3cret"},
+			want: map[string]string{"AUTH0_DOMAIN": "c-domain", "AUTH0_ISSUER_BASE_URL": "c-issuer", "AUTH0_CLIENT_ID": "c-clientid", "AUTH0_CLIENT_SECRET": "c-clientsecret"}, missing: "clientId"},
+		{name: "clerk", secrets: map[string]string{"secretKey": "sk_test_x", "publishableKey": "pk_test_y"},
+			want: map[string]string{"CLERK_SECRET_KEY": "c-secretkey", "CLERK_PUBLISHABLE_KEY": "c-publishablekey"}, missing: "secretKey"},
+		{name: "sentry", secrets: map[string]string{"dsn": "https://abc@o1.ingest.sentry.io/2"},
+			want: map[string]string{"SENTRY_DSN": "c-dsn"}, missing: "dsn"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tpl, ok := Builtin(c.name)
+			if !ok {
+				t.Fatal("no entry")
+			}
+			if e := tpl.Entry(true, []string{tpl.Version}); e.Category != api.CategoryConnections || !strings.HasPrefix(e.Signup, "https://") {
+				t.Fatalf("entry %+v", e)
+			}
+			for _, m := range tpl.Members {
+				if m.Kind != api.KindSecret {
+					t.Errorf("a connection runs nothing, but has a %s", m.Kind)
+				}
+			}
+			r, err := tpl.Render("c", "shop", c.values, c.secrets)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(r.Outputs) != fmt.Sprint(c.want) {
+				t.Errorf("outputs %v, want %v", r.Outputs, c.want)
+			}
+			for _, v := range r.Outputs {
+				for _, secret := range c.secrets {
+					if v == secret {
+						t.Errorf("an output shows a secret's value: %v", r.Outputs)
+					}
+				}
+			}
+			values, secrets := maps.Clone(c.values), maps.Clone(c.secrets)
+			delete(values, c.missing)
+			delete(secrets, c.missing)
+			if _, err := tpl.Render("c", "shop", values, secrets); err == nil || !strings.Contains(err.Error(), c.missing) {
+				t.Errorf("without %s: %v", c.missing, err)
+			}
+		})
+	}
+	auth0, _ := Builtin("auth0")
+	r, err := auth0.Render("c", "shop", map[string]any{"domain": "acme.us.auth0.com", "clientId": "abc123def456"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range r.Members {
+		if m.Name == "c-issuer" && m.Value != "https://acme.us.auth0.com" {
+			t.Errorf("issuer %q", m.Value)
+		}
+	}
+	// Only a required secret parameter lets a template have no resources.
+	if _, err := Parse([]byte("name: conn\ntitle: X\nversion: 1.0.0\nparameters: [{ name: key, type: secret, required: true }]\nresources: []\noutputs: { KEY: \"${param:key}\" }\n")); err != nil {
+		t.Errorf("a secret-only template: %v", err)
+	}
+	if _, err := Parse([]byte("name: conn\ntitle: X\nversion: 1.0.0\nparameters: [{ name: key, type: secret }]\nresources: []\n")); err == nil {
+		t.Error("an optional secret alone can't make the stack's secret")
 	}
 }

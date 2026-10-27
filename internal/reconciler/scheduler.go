@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -81,6 +82,8 @@ func (r *Reconciler) SchedulerPass(ctx context.Context) {
 		return
 	}
 	r.watchTranscoders(ctx)
+	r.watchFunctions(ctx)
+	r.expirePreviews(ctx)
 	running, err := r.Store.RunningRuns(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -153,7 +156,8 @@ func (r *Reconciler) claimDue(ctx context.Context, id string) error {
 			trigger = api.TriggerCatchUp
 		}
 		run := &domain.Run{ID: domain.NewID("run"), ResourceID: id, Trigger: trigger, Status: api.RunRunning, ScheduledFor: &last, StartedAt: now}
-		if overlap == api.OverlapForbid {
+		switch overlap {
+		case api.OverlapForbid:
 			busy, err := q.HasRunningRun(ctx, id)
 			if err != nil {
 				return err
@@ -161,6 +165,16 @@ func (r *Reconciler) claimDue(ctx context.Context, id string) error {
 			if busy {
 				run.Status, run.FinishedAt = api.RunSkipped, &now
 				run.Message = "Skipped: the previous run is still going (overlap: forbid)."
+			}
+		case overlapConcurrency:
+			if run.Event, err = json.Marshal(api.FunctionEvent{Source: api.SourceSchedule, ScheduledFor: &last}); err != nil {
+				return err
+			}
+			if full, err := functionFull(ctx, q, res); err != nil {
+				return err
+			} else if full {
+				run.Status, run.FinishedAt = api.RunSkipped, &now
+				run.Message = "Skipped: the function already runs as many runs as its concurrency allows."
 			}
 		}
 		if err := q.InsertRun(ctx, run); err != nil {
@@ -193,6 +207,13 @@ func scheduleOf(res *domain.Resource) (api.Schedule, string, error) {
 	case api.BackupSpec:
 		sched, err := api.ParseSchedule(s.Schedule, s.TimeZone)
 		return sched, api.OverlapForbid, err // two dumps of one source at once help nobody
+	case api.FunctionSpec:
+		t, ok := s.Schedule()
+		if !ok {
+			return api.Schedule{}, "", errNoSchedule
+		}
+		sched, err := api.ParseSchedule(t.Schedule, t.TimeZone)
+		return sched, overlapConcurrency, err // runs overlap up to the function's concurrency (FN-07)
 	}
 	return api.Schedule{}, "", fmt.Errorf("a %s has no schedule", res.Kind)
 }
@@ -217,6 +238,8 @@ func (r *Reconciler) execute(ctx context.Context, run *domain.Run) {
 		r.runBackup(ctx, res, run, log)
 	case api.KindTranscoder:
 		r.runTranscode(ctx, res, run, log)
+	case api.KindFunction:
+		r.runFunction(ctx, res, run, log)
 	default:
 		r.finish(context.WithoutCancel(ctx), res, run, api.RunFailed, nil, nil, fmt.Sprintf("A %s can't run.", res.Kind), log)
 	}
@@ -224,18 +247,23 @@ func (r *Reconciler) execute(ctx context.Context, run *domain.Run) {
 
 // runJob starts (or re-attaches to) a job's container and records the outcome.
 func (r *Reconciler) runJob(ctx context.Context, res *domain.Resource, run *domain.Run, log *slog.Logger) {
-	done := context.WithoutCancel(ctx)
 	jr, timeout, err := r.jobRun(ctx, res, run)
 	if err != nil {
-		r.finish(done, res, run, api.RunFailed, nil, nil, err.Error(), log)
+		r.finish(context.WithoutCancel(ctx), res, run, api.RunFailed, nil, nil, err.Error(), log)
 		return
 	}
+	r.runContainer(ctx, res, run, jr, timeout, log)
+}
+
+// runContainer starts (or re-attaches to) a run's container, waits for it within its timeout and records
+// the outcome; it reports whether it did (a shutdown leaves the run to be adopted again).
+func (r *Reconciler) runContainer(ctx context.Context, res *domain.Resource, run *domain.Run, jr engine.JobRun, timeout time.Duration, log *slog.Logger) bool {
+	done := context.WithoutCancel(ctx)
 	if err := r.Driver.StartJob(ctx, jr); err != nil {
 		if errors.Is(err, engine.ErrUnavailable) || ctx.Err() != nil {
-			return // stays running; adopted again when the engine (or the process) is back
+			return false // stays running; adopted again when the engine (or the process) is back
 		}
-		r.finish(done, res, run, api.RunFailed, nil, nil, "The run couldn't start: "+truncate(err.Error()), log)
-		return
+		return r.finish(done, res, run, api.RunFailed, nil, nil, "The run couldn't start: "+truncate(err.Error()), log)
 	}
 	remaining := run.StartedAt.Add(timeout).Sub(r.Now())
 	if remaining < time.Second {
@@ -244,24 +272,22 @@ func (r *Reconciler) runJob(ctx context.Context, res *domain.Resource, run *doma
 	out, err := r.Driver.WaitJob(ctx, run.ID, remaining)
 	switch {
 	case ctx.Err() != nil:
-		return
+		return false
 	case errors.Is(err, engine.ErrJobMissing):
-		r.finish(done, res, run, api.RunFailed, nil, nil, "The run's container disappeared before it finished.", log)
-		return
+		return r.finish(done, res, run, api.RunFailed, nil, nil, "The run's container disappeared before it finished.", log)
 	case errors.Is(err, engine.ErrUnavailable):
-		return
+		return false
 	case err != nil:
-		r.finish(done, res, run, api.RunFailed, nil, nil, "The run couldn't be followed: "+truncate(err.Error()), log)
-		return
+		return r.finish(done, res, run, api.RunFailed, nil, nil, "The run couldn't be followed: "+truncate(err.Error()), log)
 	}
 	exit := out.ExitCode
 	switch {
 	case out.TimedOut:
-		r.finish(done, res, run, api.RunTimedOut, &exit, out.Output, fmt.Sprintf("Stopped after the timeout of %s.", timeout), log)
+		return r.finish(done, res, run, api.RunTimedOut, &exit, out.Output, fmt.Sprintf("Stopped after the timeout of %s.", timeout), log)
 	case exit == 0:
-		r.finish(done, res, run, api.RunSucceeded, &exit, out.Output, "Exited with code 0.", log)
+		return r.finish(done, res, run, api.RunSucceeded, &exit, out.Output, "Exited with code 0.", log)
 	default:
-		r.finish(done, res, run, api.RunFailed, &exit, out.Output, fmt.Sprintf("Exited with code %d.", exit), log)
+		return r.finish(done, res, run, api.RunFailed, &exit, out.Output, fmt.Sprintf("Exited with code %d.", exit), log)
 	}
 }
 

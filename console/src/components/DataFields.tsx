@@ -36,8 +36,9 @@ const PRESET_WORDS: Record<Preset, string> = {
 };
 
 interface SubRow {
-  type: 'queue' | 'url';
+  type: 'queue' | 'url' | 'function';
   queue: string;
+  fn: string;
   url: string;
   secret: string;
 }
@@ -59,7 +60,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
   const [maxBytes, setMaxBytes] = useState(String(Math.round((q.maxMessageBytes ?? RULES.messageBytesDefault) / 1024)));
   const [maxReceives, setMaxReceives] = useState(String(q.maxReceives ?? 0));
   const [dlq, setDlq] = useState(q.deadLetterQueue ?? '');
-  const [subs, setSubs] = useState<SubRow[]>((t.subscriptions ?? []).map((s) => ({ type: s.queue ? 'queue' : 'url', queue: s.queue ?? '', url: s.url ?? '', secret: s.secret ?? '' })));
+  const [subs, setSubs] = useState<SubRow[]>((t.subscriptions ?? []).map((s): SubRow => ({ type: s.queue ? 'queue' : s.function ? 'function' : 'url', queue: s.queue ?? '', fn: s.function ?? '', url: s.url ?? '', secret: s.secret ?? '' })));
   const [searchVersion, setSearchVersion] = useState<'2' | '3'>(se.version ?? '3');
   const [searchMemory, setSearchMemory] = useState(String(se.memoryMiB ?? RULES.searchMemoryDefault));
   const placed = spec as { network?: string; subnet?: string };
@@ -101,7 +102,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
         return s as Record<string, unknown>;
       }
       case 'topic': {
-        const list: Subscription[] = subs.map((r) => (r.type === 'queue' ? { queue: r.queue } : { url: r.url.trim(), ...(r.secret ? { secret: r.secret } : {}) }));
+        const list: Subscription[] = subs.map((r) => (r.type === 'queue' ? { queue: r.queue } : r.type === 'function' ? { function: r.fn } : { url: r.url.trim(), ...(r.secret ? { secret: r.secret } : {}) }));
         return { retentionHours: num(retention), subscriptions: list };
       }
       case 'search':
@@ -183,13 +184,23 @@ export function useDataForm(kind: Kind, existing?: Resource) {
                   const update = (patch: Partial<SubRow>) => setSubs(subs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
                   return (
                     <FormRow key={i}>
-                      <Field id={`f-sub-type-${i}`} hint="Each message goes to a queue of yours, or is posted to a web address." label="Deliver to" error={err(f)}>
+                      <Field id={`f-sub-type-${i}`} hint="Each message goes to a queue of yours, starts a function, or is posted to a web address." label="Deliver to" error={err(f)}>
                         <Select id={`f-sub-type-${i}`} value={row.type} onChange={(e) => update({ type: e.target.value as SubRow['type'] })}>
                           <option value="queue">A queue</option>
+                          <option value="function">A function</option>
                           <option value="url">A webhook</option>
                         </Select>
                       </Field>
-                      {row.type === 'queue' ? (
+                      {row.type === 'function' ? (
+                        <Field id={`f-sub-fn-${i}`} hint="Each message starts a run of the function, with the message as its event." label="Function" error={err(`${f}.function`)}>
+                          <Select id={`f-sub-fn-${i}`} value={row.fn} onChange={(e) => update({ fn: e.target.value })}>
+                            <option value="">Choose a function…</option>
+                            {names('function').map((n) => (
+                              <option key={n} value={n}>{n}</option>
+                            ))}
+                          </Select>
+                        </Field>
+                      ) : row.type === 'queue' ? (
                         <Field id={`f-sub-queue-${i}`} hint="The queue that gets a copy of every message." label="Queue" error={err(`${f}.queue`)}>
                           <Select id={`f-sub-queue-${i}`} value={row.queue} onChange={(e) => update({ queue: e.target.value })}>
                             <option value="">Choose a queue…</option>
@@ -221,7 +232,7 @@ export function useDataForm(kind: Kind, existing?: Resource) {
                 })}
                 {subs.length < RULES.subscriptionsMax && (
                   <Inline>
-                    <Button size="sm" onClick={() => setSubs([...subs, { type: 'queue', queue: '', url: '', secret: '' }])}>Add subscription</Button>
+                    <Button size="sm" onClick={() => setSubs([...subs, { type: 'queue', queue: '', fn: '', url: '', secret: '' }])}>Add subscription</Button>
                   </Inline>
                 )}
               </Stack>

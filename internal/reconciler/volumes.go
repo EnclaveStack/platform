@@ -80,9 +80,50 @@ func (r *Reconciler) ensureVolume(ctx context.Context, res *domain.Resource, rep
 		}
 		r.event(ctx, res, "filled", fmt.Sprintf("Filled from the snapshot %s.", s.Snapshot))
 	}
+	if pending := pendingRestoreOf(res.Outputs); pending != nil && s.Type == api.VolumeFilesystem {
+		from, err := r.restoreVolume(ctx, res, pending, rep)
+		if err != nil {
+			return nil, err
+		}
+		out[OutputRestoredFrom] = from
+	} else if from, ok := res.Outputs[OutputRestoredFrom]; ok {
+		out[OutputRestoredFrom] = from
+	}
 	rep.Step("fill", api.StepDone)
 	r.volumeFacts(ctx, res, s, out, true)
 	return out, nil
+}
+
+// restoreVolume restores a filesystem volume from a backup run, then restarts the apps that mount it so
+// they see the files (VBK-03). The marker goes with the outputs once it worked.
+func (r *Reconciler) restoreVolume(ctx context.Context, res *domain.Resource, pending *PendingRestore, rep engine.Reporter) (string, error) {
+	in, err := r.inputs(ctx, res)
+	if err != nil {
+		return "", err
+	}
+	from, err := r.restoreInto(ctx, res, in, pending, rep)
+	if err != nil {
+		if engine.IsPermanent(err) {
+			res.Outputs = withoutOutput(res.Outputs, OutputPendingRestore)
+		}
+		return "", err
+	}
+	if pending.Replace {
+		deps, err := r.Store.Dependants(ctx, res.ID)
+		if err != nil {
+			return from, err
+		}
+		for _, d := range deps {
+			if d.Kind == api.KindApp && d.Phase == api.PhaseReady {
+				if err := r.Driver.Restart(ctx, d); err != nil {
+					r.event(ctx, d, "restart_failed", "Restarting after its volume was restored failed: "+truncate(err.Error()))
+					continue
+				}
+				r.event(ctx, d, "restarted", "Restarted: its volume "+res.Name+" was restored.")
+			}
+		}
+	}
+	return from, nil
 }
 
 // fillVolume copies a snapshot into a new volume.

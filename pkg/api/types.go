@@ -45,20 +45,22 @@ const (
 	KindStack Kind = "stack"
 	// Public access (L2-014).
 	KindTunnel Kind = "tunnel"
+	// v0.10 (L2-016).
+	KindFunction Kind = "function"
 )
 
 // Kinds lists every kind in display order.
 var Kinds = []Kind{KindApp, KindDatabase, KindCache, KindBucket, KindSecret, KindDomain, KindJob, KindBackup,
 	KindNetwork, KindFirewall, KindLoadBalancer, KindZone, KindRecord, KindVM, KindVolume, KindSnapshot,
 	KindQueue, KindTopic, KindSearch, KindTranscoder, KindCDN, KindEmail,
-	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore, KindStack, KindTunnel}
+	KindDashboard, KindAlert, KindChannel, KindLogExport, KindSecretStore, KindStack, KindTunnel, KindFunction}
 
 // IDPrefix is the prefix of resource IDs per kind (L3-005 §2).
 var IDPrefix = map[Kind]string{KindApp: "app", KindDatabase: "db", KindCache: "cache", KindBucket: "bkt", KindSecret: "sec", KindDomain: "dom", KindJob: "job", KindBackup: "bak",
 	KindNetwork: "net", KindFirewall: "fw", KindLoadBalancer: "lb", KindZone: "zone", KindRecord: "rec",
 	KindVM: "vm", KindVolume: "vol", KindSnapshot: "snap",
 	KindQueue: "q", KindTopic: "tpc", KindSearch: "srch", KindTranscoder: "tc", KindCDN: "cdn", KindEmail: "mail",
-	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst", KindStack: "stk", KindTunnel: "tun"}
+	KindDashboard: "dash", KindAlert: "alrt", KindChannel: "chan", KindLogExport: "logx", KindSecretStore: "sst", KindStack: "stk", KindTunnel: "tun", KindFunction: "fn"}
 
 // Valid reports whether k is a known kind.
 func (k Kind) Valid() bool {
@@ -154,6 +156,8 @@ type AppSpec struct {
 	Volumes []VolumeMount `json:"volumes,omitempty"`
 	// BucketAccess gives the app keys of its own for these buckets (L2-011, ADR-049).
 	BucketAccess []BucketGrant `json:"bucketAccess,omitempty"`
+	// Previews makes an app per pull request (L2-016 PRV-01, ADR-056); source apps only.
+	Previews *Previews `json:"previews,omitempty"`
 	// Placed chooses the machine it runs on (ADR-044).
 	Placed
 }
@@ -167,6 +171,10 @@ type GitSource struct {
 	// CredentialsSecret names a secret holding {"token"} (https) or {"privateKey","knownHosts"} (ssh).
 	CredentialsSecret string            `json:"credentialsSecret,omitempty"`
 	BuildArgs         map[string]string `json:"buildArgs,omitempty"`
+	// WebhookSecret names the secret Git webhooks are checked with (PRV-03); DeployOnPush redeploys the app
+	// on a push to Ref (PRV-05).
+	WebhookSecret string `json:"webhookSecret,omitempty"`
+	DeployOnPush  bool   `json:"deployOnPush,omitempty"`
 }
 
 // HealthCheck types.
@@ -201,6 +209,10 @@ type DatabaseSpec struct {
 	Version string `json:"version"`
 	Network string `json:"network,omitempty"`
 	Subnet  string `json:"subnet,omitempty"`
+	// TLS, Exposed and InitScript are the database options of L2-016 DBX-01 – DBX-05 (ADR-058).
+	TLS        bool   `json:"tls,omitempty"`
+	Exposed    bool   `json:"exposed,omitempty"`
+	InitScript string `json:"initScript,omitempty"`
 	// Placed chooses the machine it runs on (ADR-044).
 	Placed
 }
@@ -277,10 +289,26 @@ type JobSpec struct {
 	Placed
 }
 
-// BackupSource names what a backup copies: exactly one of a database or a cache.
+// BackupSource names what a backup copies: exactly one of a database, a cache or a filesystem volume
+// (L2-016 VBK-01).
 type BackupSource struct {
 	Database string `json:"database,omitempty"`
 	Cache    string `json:"cache,omitempty"`
+	Volume   string `json:"volume,omitempty"`
+}
+
+// Name is the source's name, whichever it is.
+func (s BackupSource) Name() string { return s.Database + s.Cache + s.Volume }
+
+// Kind is the kind of the source.
+func (s BackupSource) Kind() Kind {
+	switch {
+	case s.Database != "":
+		return KindDatabase
+	case s.Cache != "":
+		return KindCache
+	}
+	return KindVolume
 }
 
 // S3Destination is external S3-compatible storage. The credentials secret holds {"accessKey","secretKey"}.
@@ -329,6 +357,11 @@ const (
 	TriggerManual     = "manual"
 	TriggerCatchUp    = "catch_up"
 	TriggerPreRestore = "pre_restore"
+	// A function's events (ADR-055).
+	TriggerQueue  = "queue"
+	TriggerTopic  = "topic"
+	TriggerBucket = "bucket"
+	TriggerInvoke = "invoke"
 
 	RunRunning   = "running"
 	RunSucceeded = "succeeded"
@@ -340,7 +373,7 @@ const (
 // RunStatuses and RunTriggers are the allowed values.
 var (
 	RunStatuses = []string{RunRunning, RunSucceeded, RunFailed, RunTimedOut, RunSkipped}
-	RunTriggers = []string{TriggerSchedule, TriggerManual, TriggerCatchUp, TriggerPreRestore, TriggerWatch}
+	RunTriggers = []string{TriggerSchedule, TriggerManual, TriggerCatchUp, TriggerPreRestore, TriggerWatch, TriggerQueue, TriggerTopic, TriggerBucket, TriggerInvoke}
 )
 
 // Artifact is what a backup run produced.
@@ -366,6 +399,8 @@ type Run struct {
 	// Key and Outputs are a transcoder run's input object and the keys it wrote (ADR-034).
 	Key     string   `json:"key,omitempty"`
 	Outputs []string `json:"outputs,omitempty"`
+	// Event is a function run's event, as its container received it (ADR-055).
+	Event json.RawMessage `json:"event,omitempty"`
 }
 
 // RunDetail adds the output tail (at most 64 KiB, as printed).

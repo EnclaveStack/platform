@@ -6,9 +6,9 @@
 | Document ID | L3-004-decision-analysis-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v9 |
+| Version | v10 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-24 |
+| Last Updated | 2026-10-26 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -597,6 +597,45 @@ The owner wants the way in to be the user's choice, installed from the catalogue
 
 Resolution: **built-in plug-ins plus `custom`**. Quick link, Tailscale, Cloudflare, ngrok and the relay are plug-ins. `custom` runs any other connector image with `ENCLAVE_UPSTREAM`. A connector as an ordinary app was rejected, because an app joins user networks and would bypass the per-tunnel listener and the gate. The catalogue entries are templates whose members are a credentials secret and a `tunnel` (ADR-048), so installing one and creating one from **Tunnels** are the same thing.
 
+## DAR-044 — What a function is (→ ADR-055)
+
+| Criterion | Weight | A container image started per event, on the job engine | Code uploaded for built-in runtimes (Node, Python, Go) | Both: images, plus a runtime shortcut built from Git |
+|---|---|---|---|---|
+| Any language and any dependency | 25 | 5 | 2 | 5 |
+| Reuses what exists (runs, adoption, limits, output, alerts) | 25 | 5 | 3 | 4 |
+| Nothing new to keep patched (base images per runtime) | 20 | 5 | 1 | 2 |
+| Quick to write for small glue code | 15 | 3 | 5 | 5 |
+| Effort | 15 | 5 | 2 | 2 |
+| **Weighted total** | 100 | **4.70** | 2.50 | 3.70 |
+
+Resolution: **a container image**, chosen with the owner. Builds from Git (ADR-019) already turn code into an image, so a runtime shortcut can come later without changing the kind.
+
+## DAR-045 — What starts a preview (→ ADR-056)
+
+| Criterion | Weight | Git webhooks (GitHub, GitLab) plus the CLI | The CLI and console only | Polling the Git host's API for open pull requests |
+|---|---|---|---|---|
+| Previews follow pull requests with no one's help | 30 | 5 | 1 | 4 |
+| Works behind NAT | 20 | 4 (through a tunnel) | 5 | 5 |
+| No API token for the Git host to keep | 20 | 5 | 5 | 1 |
+| Works with any Git host | 15 | 3 (CLI for the rest) | 5 | 2 |
+| Effort | 15 | 3 | 5 | 2 |
+| **Weighted total** | 100 | **4.20** | 3.80 | 3.00 |
+
+Resolution: **webhooks plus the CLI**, chosen with the owner. Webhooks arrive at the control plane, or through any tunnel at `/.enclave/hooks/`.
+
+## DAR-046 — How the control plane survives its machine (→ ADR-057)
+
+| Criterion | Weight | A standby fed with copies, promoted by command or after a timeout, with epoch fencing | A consensus cluster of three or more (Raft) | Scheduled backups of the control plane to a bucket, restored by hand |
+|---|---|---|---|---|
+| Keeps ADR-005 (one SQLite file) | 25 | 5 | 1 | 5 |
+| Little lost when the main dies | 20 | 4 (about 15 s) | 5 | 2 (hours) |
+| Quick to take over | 20 | 4 | 5 | 1 |
+| Can't end with two control planes driving the agents | 20 | 4 (fencing) | 5 | 3 |
+| Effort and risk | 15 | 4 | 1 | 5 |
+| **Weighted total** | 100 | **4.25** | 3.40 | 3.20 |
+
+Resolution: **a standby with fencing**, chosen with the owner. A cluster would replace the store and the reconciler's single-writer design.
+
 ## Version history
 
 | Version | Date | Author | Summary of changes |
@@ -610,3 +649,4 @@ Resolution: **built-in plug-ins plus `custom`**. Quick link, Tailscale, Cloudfla
 | v7 | 2026-10-22 | Soupler | DAR-023 criterion reads "an Apache-2.0 project" (`L1-001` v4); OpenSearch is Apache-2.0 itself, so the scores stand |
 | v8 | 2026-10-22 | Soupler | DAR-034 – DAR-039 for v0.8: agent transport, networks across machines (spike recorded), unique addresses, moving data, template language, choosing a machine |
 | v9 | 2026-10-24 | Soupler | DAR-040 – DAR-042 for public access: the way in (provider tunnel and own relay), where a relay's TLS ends, how the gate checks a visitor (L2-014) |
+| v10 | 2026-10-26 | Soupler | DAR-044 – DAR-046 for v0.10: what a function is, what starts a preview, how the control plane survives its machine (`L2-016`) |

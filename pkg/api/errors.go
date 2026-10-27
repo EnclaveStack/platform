@@ -48,6 +48,11 @@ const (
 	CodeMachineOffline  ErrorCode = "MACHINE_OFFLINE"
 	CodeJoinCodeInvalid ErrorCode = "JOIN_CODE_INVALID"
 	CodePartOfStack     ErrorCode = "PART_OF_STACK"
+	// v0.10 (L3-002 §18.8).
+	CodeFunctionBusy         ErrorCode = "FUNCTION_BUSY"
+	CodePreviewLimit         ErrorCode = "PREVIEW_LIMIT"
+	CodeStandbyExists        ErrorCode = "STANDBY_EXISTS"
+	CodeControlPlaneReplaced ErrorCode = "CONTROL_PLANE_REPLACED"
 )
 
 // ErrorCodes maps every code to its HTTP status. It is the complete list (L3-002 §1).
@@ -89,6 +94,10 @@ var ErrorCodes = map[ErrorCode]int{
 	CodeMachineOffline:       http.StatusConflict,
 	CodeJoinCodeInvalid:      http.StatusGone,
 	CodePartOfStack:          http.StatusConflict,
+	CodeFunctionBusy:         http.StatusTooManyRequests,
+	CodePreviewLimit:         http.StatusConflict,
+	CodeStandbyExists:        http.StatusConflict,
+	CodeControlPlaneReplaced: http.StatusServiceUnavailable,
 }
 
 // FieldCode identifies why a single field failed validation.

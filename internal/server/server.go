@@ -100,6 +100,8 @@ type Config struct {
 	// ACMEDirectory and ACMERootFile point automatic certificates at another CA (e2e tests use Pebble).
 	ACMEDirectory string
 	ACMERootFile  string
+	// StandbyEvery is how often changes are copied to the standby; 0 = 15 s (ADR-057).
+	StandbyEvery time.Duration
 }
 
 // Running is a started control plane.
@@ -339,10 +341,17 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	idem := &service.Idempotency{Store: st, Now: time.Now}
 	var listenURL string // set once the listener is bound
 	serverURL := func(context.Context) string { return service.ServerURL(cfg.ConsoleURL, listenURL) }
+	rec.ServerURL = serverURL // apps' webhook URLs (ADR-056)
 	machineSvc := &service.Machines{Store: st, Manager: mgr, Queue: rec, Now: time.Now, Log: log,
 		Throttle: auth.NewThrottle(10, 15*time.Minute, time.Now), ServerURL: serverURL, Links: rec.MeshLinks}
-	h := httpapi.New(authSvc, resSvc, idem, st.Ping, log, metrics, httpapi.Config{
-		RateLimit: cfg.RateLimit, SecureCookies: cfg.SecureCookies, Assets: webui.FS(cfg.ConsoleDir), Machines: machineSvc})
+	ready := func(ctx context.Context) error {
+		if mgr.Replaced() { // a promoted standby runs the cluster now (ADR-057)
+			return machines.ErrReplaced
+		}
+		return st.Ping(ctx)
+	}
+	h := httpapi.New(authSvc, resSvc, idem, ready, log, metrics, httpapi.Config{
+		RateLimit: cfg.RateLimit, SecureCookies: cfg.SecureCookies, Assets: webui.FS(cfg.ConsoleDir), Machines: machineSvc, Replaced: mgr.Replaced})
 
 	code, err := authSvc.PrepareSetupCode(ctx)
 	if err != nil {
@@ -359,7 +368,7 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 
 	// The gate listens where the edge proxy's container reaches this machine, and nowhere else (ADR-053).
 	gateSvc := &service.Gate{Store: st, Throttle: auth.NewThrottle(10, 15*time.Minute, time.Now), Now: time.Now, Log: log.With("component", "gate"), Metrics: metrics}
-	gateHandler := &gate.Handler{Gate: gateSvc, EdgeKey: edgeKey, Log: log.With("component", "gate"), Metrics: metrics}
+	gateHandler := &gate.Handler{Gate: gateSvc, EdgeKey: edgeKey, Log: log.With("component", "gate"), Metrics: metrics, Hook: resSvc.Hook}
 	gateSrv := &http.Server{Handler: gateHandler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second,
 		IdleTimeout: 120 * time.Second, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	gateLn, err := listenGate(ctx, cfg.GateListen, drv)
@@ -373,6 +382,10 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	rec.Gate = engine.GateConfig{Upstream: net.JoinHostPort(engine.GateHost, fmt.Sprint(gatePort)), EdgeKey: edgeKey}
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	// The work that drives machines stops when a promoted standby fences this control plane (ADR-057); the
+	// API keeps answering, with 503 CONTROL_PLANE_REPLACED.
+	workCtx, stopWork := context.WithCancel(runCtx)
+	mgr.Fenced = stopWork
 	listenURL = "http://" + ln.Addr().String()
 	r := &Running{URL: listenURL, SetupCode: code, Fake: fk, FakeHypervisor: fakeHV, Backups: memBackups, Git: memGit, DNS: memDNS, ACME: localACME, Broker: memBroker, Mail: memMail, Store: st, Log: log, Machines: mgr, cancel: cancel, done: make(chan struct{})}
 	mon := &monitor.Monitor{Store: st, Box: box, Driver: router, Hypervisor: router, Broker: rec.Broker, Mail: mailClient, HTTP: &http.Client{}, Opener: opener,
@@ -385,7 +398,12 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(6)
+	wg.Add(7)
+	go func() {
+		defer wg.Done()
+		mgr.RunStandby(workCtx, machines.StandbyConfig{DBPath: filepath.Join(cfg.DataDir, "enclave.db"), KeyPath: filepath.Join(cfg.DataDir, "master.key"),
+			TempDir: filepath.Join(cfg.DataDir, "tmp"), Every: cfg.StandbyEvery})
+	}()
 	go func() {
 		defer wg.Done()
 		if gateLn == nil {
@@ -405,16 +423,16 @@ func Start(ctx context.Context, cfg Config, logOut io.Writer) (*Running, error) 
 	}()
 	go func() {
 		defer wg.Done()
-		mgr.Run(runCtx)
+		mgr.Run(workCtx)
 	}()
 	go func() {
 		defer wg.Done()
-		rec.Run(runCtx)
+		rec.Run(workCtx)
 	}()
 	go func() {
 		defer wg.Done()
 		if !cfg.ManualMonitor {
-			mon.Run(runCtx)
+			mon.Run(workCtx)
 		}
 	}()
 	go func() {

@@ -19,15 +19,17 @@ export function connectionString(r: Resource): string {
   const port = String(o.port ?? o.internalPort ?? '');
   const user = String(o.username ?? '');
   const db = String(o.database ?? '');
+  // A TLS database takes encrypted connections only (L2-016 DBX-02), as the CLI prints them.
+  const tls = o.tls === true;
   switch ((r.spec as DatabaseSpec).engine) {
     case 'mysql':
-      return `mysql://${user}:<password>@${host}:${port}/${db}`;
+      return `mysql://${user}:<password>@${host}:${port}/${db}${tls ? '?ssl-mode=REQUIRED' : ''}`;
     case 'mongodb':
       return `mongodb://${user}:<password>@${host}:${port}/${db}?authSource=admin`;
     case 'clickhouse':
       return `http://${user}:<password>@${host}:${port}/?database=${db}`;
     default:
-      return `postgres://${user}:<password>@${host}:${port}/${db}`;
+      return `postgres://${user}:<password>@${host}:${port}/${db}${tls ? '?sslmode=require' : ''}`;
   }
 }
 
@@ -40,6 +42,15 @@ export function ConnectCard({ r }: { r: Resource }) {
     case 'database':
       code = [{ label: 'From this machine', code: connectionString(r) }];
       if (o.nativePort) code.push({ label: 'ClickHouse native protocol', code: `clickhouse-client --host ${String(o.host)} --port ${String(o.nativePort)} --user ${String(o.username)}` });
+      // v0.10 (CON-86): other computers, and the CA their clients check the certificate with.
+      for (const a of (o.exposedAddresses as unknown as string[] | undefined) ?? []) {
+        const [h = '', p = ''] = a.split(':');
+        code.push({ label: `From other computers (${h})`, code: connectionString({ ...r, outputs: { ...o, host: h, port: p } }) });
+      }
+      if (o.caCertificate) {
+        code.push({ label: 'CA certificate', code: String(o.caCertificate) });
+        note += ' Clients that check the server, like sslmode=verify-full, trust the CA certificate above.';
+      }
       break;
     case 'queue':
     case 'topic':

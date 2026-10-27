@@ -327,11 +327,14 @@ func (a *app) purgeCmd(kind api.Kind, what string) *cobra.Command {
 
 // ─── topics (CLI-31) ───────────────────────────────────────────────────────
 
-// parseSubscriptions reads --queue NAME and --webhook URL[,secret=NAME].
-func parseSubscriptions(queues, hooks []string) ([]api.Subscription, error) {
+// parseSubscriptions reads --queue NAME, --function NAME and --webhook URL[,secret=NAME].
+func parseSubscriptions(queues, functions, hooks []string) ([]api.Subscription, error) {
 	subs := []api.Subscription{}
 	for _, q := range queues {
 		subs = append(subs, api.Subscription{Queue: q})
+	}
+	for _, f := range functions { // each message starts a run (L2-016 CLI-64)
+		subs = append(subs, api.Subscription{Function: f})
 	}
 	for _, h := range hooks {
 		url, opt, _ := strings.Cut(h, ",")
@@ -350,13 +353,14 @@ func parseSubscriptions(queues, hooks []string) ([]api.Subscription, error) {
 
 func (a *app) topicCmd() *cobra.Command {
 	cmd := a.kindCmd(api.KindTopic, "topic", []string{"topics"}, "Topics: messages delivered to every subscription (SNS-like)")
-	flags := func(c *cobra.Command, retention *time.Duration, queues, hooks *[]string, wait *bool) {
+	flags := func(c *cobra.Command, retention *time.Duration, queues, functions, hooks *[]string, wait *bool) {
 		c.Flags().DurationVar(retention, "retention", 0, "how long published messages are kept for retries (1h–336h, default 24h)")
 		c.Flags().StringArrayVar(queues, "queue", nil, "subscribe a queue (repeatable)")
+		c.Flags().StringArrayVar(functions, "function", nil, "subscribe a function: each message starts a run (repeatable)")
 		c.Flags().StringArrayVar(hooks, "webhook", nil, "subscribe a webhook: URL or URL,secret=NAME to sign (repeatable)")
 		c.Flags().BoolVar(wait, "wait", false, "wait until ready")
 	}
-	build := func(changed func(string) bool, retention time.Duration, queues, hooks []string) (map[string]any, error) {
+	build := func(changed func(string) bool, retention time.Duration, queues, functions, hooks []string) (map[string]any, error) {
 		p := map[string]any{}
 		if changed("retention") {
 			h, err := wholeHours("retention", retention)
@@ -365,8 +369,8 @@ func (a *app) topicCmd() *cobra.Command {
 			}
 			p["retentionHours"] = h
 		}
-		if changed("queue") || changed("webhook") {
-			subs, err := parseSubscriptions(queues, hooks)
+		if changed("queue") || changed("function") || changed("webhook") {
+			subs, err := parseSubscriptions(queues, functions, hooks)
 			if err != nil {
 				return nil, err
 			}
@@ -375,29 +379,29 @@ func (a *app) topicCmd() *cobra.Command {
 		return p, nil
 	}
 	var cRet time.Duration
-	var cQueues, cHooks []string
+	var cQueues, cFunctions, cHooks []string
 	var cWait bool
 	create := &cobra.Command{Use: "create NAME", Short: "Create a topic", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := build(cmd.Flags().Changed, cRet, cQueues, cHooks)
+			p, err := build(cmd.Flags().Changed, cRet, cQueues, cFunctions, cHooks)
 			if err != nil {
 				return err
 			}
 			return a.create(cmd.Context(), api.KindTopic, args[0], p, cWait)
 		}}
-	flags(create, &cRet, &cQueues, &cHooks, &cWait)
+	flags(create, &cRet, &cQueues, &cFunctions, &cHooks, &cWait)
 	var uRet time.Duration
-	var uQueues, uHooks []string
+	var uQueues, uFunctions, uHooks []string
 	var uWait bool
-	update := &cobra.Command{Use: "update NAME", Short: "Change a topic (--queue and --webhook together replace its subscriptions)", Args: cobra.ExactArgs(1),
+	update := &cobra.Command{Use: "update NAME", Short: "Change a topic (--queue, --function and --webhook together replace its subscriptions)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := build(cmd.Flags().Changed, uRet, uQueues, uHooks)
+			p, err := build(cmd.Flags().Changed, uRet, uQueues, uFunctions, uHooks)
 			if err != nil {
 				return err
 			}
 			return a.update(cmd.Context(), api.KindTopic, args[0], p, uWait)
 		}}
-	flags(update, &uRet, &uQueues, &uHooks, &uWait)
+	flags(update, &uRet, &uQueues, &uFunctions, &uHooks, &uWait)
 	deliveries := &cobra.Command{Use: "deliveries NAME", Short: "Show each subscription's deliveries", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := a.resolve(cmd.Context(), api.KindTopic, args[0])
@@ -878,13 +882,20 @@ func connectionString(r api.Resource) string {
 	if host == "" {
 		host, port = fieldText(r.Outputs["internalHost"]), fieldText(r.Outputs["internalPort"])
 	}
+	tls := r.Outputs["tls"] == true // TLS databases take encrypted connections only (DBX-02)
 	switch r.Outputs["engine"] {
 	case api.EngineMySQL:
+		if tls {
+			return fmt.Sprintf("mysql://%s:<password>@%s:%s/%s?ssl-mode=REQUIRED", user, host, port, db)
+		}
 		return fmt.Sprintf("mysql://%s:<password>@%s:%s/%s", user, host, port, db)
 	case api.EngineMongoDB:
 		return fmt.Sprintf("mongodb://%s:<password>@%s:%s/%s?authSource=admin", user, host, port, db)
 	case api.EngineClickHouse:
 		return fmt.Sprintf("http://%s:<password>@%s:%s/?database=%s", user, host, port, db)
+	}
+	if tls {
+		return fmt.Sprintf("postgres://%s:<password>@%s:%s/%s?sslmode=require", user, host, port, db)
 	}
 	return fmt.Sprintf("postgres://%s:<password>@%s:%s/%s", user, host, port, db)
 }

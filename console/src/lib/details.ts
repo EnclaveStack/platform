@@ -23,6 +23,9 @@ export const OUTPUT_LABELS: Record<string, string> = {
   syncedSecrets: 'Secrets synced', syncedAt: 'Last synced', store: 'Store', key: 'Key', widgets: 'Widgets',
   connection: 'Connection', connections: 'Connections', tunnelId: 'Tunnel ID', gate: 'Gate', device: 'Device name', funnel: 'Public with Funnel',
   public: 'Public', tunnel: 'Tunnel', tunnelState: 'Tunnel connection', accessApplicationId: 'Access application',
+  // v0.10 (L2-016)
+  tls: 'Encrypted connections', exposedAddresses: 'Reachable at', initScript: 'Setup script', webhookUrl: 'Webhook URL', previews: 'Previews',
+  previewOf: 'Preview of', previewRef: 'Built from', pullRequest: 'Pull request', expiresAt: 'Deleted after',
 };
 
 /** Label → what it is and what to do with it. */
@@ -115,7 +118,20 @@ export const DETAIL_HELP: Record<string, string> = {
   'Sender domain': 'The only domain mail may come from; Any allows all.',
   'Messages kept': 'How many caught messages are kept.',
   Watches: 'The bucket folder it watches for new files.',
-  Watching: 'Whether new files are converted automatically.',
+  Watching: 'Whether new files are converted automatically; for a function, the bucket folders whose new files start a run.',
+  // Functions and previews (v0.10)
+  Triggers: 'What starts a run besides Invoke: a schedule, a queue’s messages or new files in a bucket folder. Topics subscribe a function from the topic.',
+  'Runs at once': 'At most this many runs go at the same time; more events wait, and calls are told to try again.',
+  'Encrypted connections': 'Yes means it takes TLS connections only; its connection strings ask for TLS.',
+  'Reachable at': 'The addresses other computers on your network connect to.',
+  'Setup script': 'The script ran once, when the database was first made.',
+  'Webhook URL': 'Give this to your Git host as the webhook address, with the webhook secret.',
+  'Deploys on push': 'Whether a push to its branch redeploys it.',
+  Previews: 'How many previews of pull requests exist now.',
+  'Preview of': 'The app this preview copies; it follows that app’s settings.',
+  'Built from': 'The branch or pull request this preview builds.',
+  'Pull request': 'The pull request it was made for.',
+  'Deleted after': 'It is deleted then unless a push comes first.',
   Output: 'Where converted files go. {name} and {meta:<tag>} are filled in from each file.',
   Presets: 'Ready-made outputs it writes for each file.',
   Limits: 'Files at once, memory per file and the longest one file may take.',
@@ -197,7 +213,8 @@ export const DETAIL_HELP: Record<string, string> = {
   System: 'Its operating system and processor.',
   Agent: 'The EnclaveStack version its agent runs.',
   'Machine engine': 'The container engine on it, and its version.',
-  Role: 'Worker machines run resources; an edge machine only relays visitors for relay tunnels.',
+  Role: 'Worker machines run resources; an edge machine only relays visitors for relay tunnels; the standby keeps a copy of the control plane.',
+  'Last copy': 'When the standby last received a copy of the control plane, and its size. Older than 2 minutes means copies aren’t arriving.',
   Relays: 'The relay tunnels that run on this edge machine.',
   // Public access
   'Way in': 'How visitors reach it from the internet.',

@@ -20,48 +20,57 @@ func (a *app) serverCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Run the EnclaveStack control plane and console",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			switch logFormat {
-			case "json":
-			case "text":
-				cfg.LogText = true
-			case "auto":
-				cfg.LogText = term.IsTerminal(int(os.Stderr.Fd()))
-			default:
-				return usagef("--log-format must be json, text or auto")
-			}
-			if cfg.ConsoleDir == "" {
-				if st, err := os.Stat("console/dist"); err == nil && st.IsDir() {
-					cfg.ConsoleDir = "console/dist"
-				}
-			}
-			if cfg.FakeFaults == "" {
-				cfg.FakeFaults = a.io.Getenv("ENCLAVE_FAKE_FAULTS")
-			}
-			running, err := server.Start(cmd.Context(), cfg, a.io.Err)
-			if err != nil {
-				return err
-			}
-			// The banner goes to stdout, not the log stream: the setup code must never be logged (L3-006).
-			fmt.Fprintf(a.io.Out, "EnclaveStack %s\nConsole: %s\n", version.Version, running.URL)
-			if running.SetupCode != "" && setupCodeFile != "" {
-				// For automation (e2e tests): a private file, never the log stream.
-				if err := os.WriteFile(setupCodeFile, []byte(running.SetupCode+"\n"), 0o600); err != nil {
-					_ = running.Stop()
-					return err
-				}
-			}
-			if running.SetupCode != "" {
-				fmt.Fprintf(a.io.Out, "\nFirst run — open the console and enter this setup code:\n\n    %s\n\nIt works once, and a restart replaces it until setup is done.\n", running.SetupCode)
-			}
-			select {
-			case <-cmd.Context().Done():
-				return running.Stop()
-			case <-running.Done():
-				return running.Err()
-			}
-		},
+		RunE:  func(cmd *cobra.Command, _ []string) error { return a.serve(cmd, cfg, logFormat, setupCodeFile) },
 	}
+	a.serverFlags(cmd, &cfg, &logFormat, &setupCodeFile)
+	return cmd
+}
+
+// serve runs the control plane until the command's context ends (`enclave server`, and a promoted standby).
+func (a *app) serve(cmd *cobra.Command, cfg server.Config, logFormat, setupCodeFile string) error {
+	switch logFormat {
+	case "json":
+	case "text":
+		cfg.LogText = true
+	case "auto":
+		cfg.LogText = term.IsTerminal(int(os.Stderr.Fd()))
+	default:
+		return usagef("--log-format must be json, text or auto")
+	}
+	if cfg.ConsoleDir == "" {
+		if st, err := os.Stat("console/dist"); err == nil && st.IsDir() {
+			cfg.ConsoleDir = "console/dist"
+		}
+	}
+	if cfg.FakeFaults == "" {
+		cfg.FakeFaults = a.io.Getenv("ENCLAVE_FAKE_FAULTS")
+	}
+	running, err := server.Start(cmd.Context(), cfg, a.io.Err)
+	if err != nil {
+		return err
+	}
+	// The banner goes to stdout, not the log stream: the setup code must never be logged (L3-006).
+	fmt.Fprintf(a.io.Out, "EnclaveStack %s\nConsole: %s\n", version.Version, running.URL)
+	if running.SetupCode != "" && setupCodeFile != "" {
+		// For automation (e2e tests): a private file, never the log stream.
+		if err := os.WriteFile(setupCodeFile, []byte(running.SetupCode+"\n"), 0o600); err != nil {
+			_ = running.Stop()
+			return err
+		}
+	}
+	if running.SetupCode != "" {
+		fmt.Fprintf(a.io.Out, "\nFirst run — open the console and enter this setup code:\n\n    %s\n\nIt works once, and a restart replaces it until setup is done.\n", running.SetupCode)
+	}
+	select {
+	case <-cmd.Context().Done():
+		return running.Stop()
+	case <-running.Done():
+		return running.Err()
+	}
+}
+
+// serverFlags are the flags of `enclave server` (and of `enclave standby promote`, which runs it).
+func (a *app) serverFlags(cmd *cobra.Command, cfg *server.Config, logFormat, setupCodeFile *string) {
 	f := cmd.Flags()
 	f.StringVar(&cfg.Listen, "listen", "127.0.0.1:7070", "address to listen on; anything other than loopback needs TLS in front (L3-006)")
 	f.StringVar(&cfg.DataDir, "data-dir", server.DefaultDataDir(), "where EnclaveStack keeps its database and master key")
@@ -73,7 +82,7 @@ func (a *app) serverCmd() *cobra.Command {
 	f.IntVar(&cfg.EdgeHTTPSPort, "edge-https-port", 443, "edge proxy HTTPS port")
 	f.StringVar(&cfg.ConsoleDir, "console-dir", "", "serve the console from this directory (default: embedded, or ./console/dist)")
 	f.StringVar(&cfg.LogLevel, "log-level", "info", "debug, info, warn or error")
-	f.StringVar(&logFormat, "log-format", "auto", "json, text, or auto (text on a terminal)")
+	f.StringVar(logFormat, "log-format", "auto", "json, text, or auto (text on a terminal)")
 	f.Float64Var(&cfg.RateLimit, "rate-limit", 100, "API requests per second per client")
 	f.BoolVar(&cfg.SecureCookies, "secure-cookies", false, "mark session cookies Secure (when served over HTTPS)")
 	f.DurationVar(&cfg.FakeStepDelay, "fake-step-delay", 300*time.Millisecond, "fake driver: time each provisioning step takes")
@@ -105,9 +114,9 @@ func (a *app) serverCmd() *cobra.Command {
 	_ = f.MarkHidden("telegram-api")
 	_ = f.MarkHidden("fake-step-delay")
 	_ = f.MarkHidden("fake-faults")
-	f.StringVar(&setupCodeFile, "setup-code-file", "", "also write the first-run setup code to this file (mode 0600), for automation")
+	f.StringVar(setupCodeFile, "setup-code-file", "", "also write the first-run setup code to this file (mode 0600), for automation")
 	_ = f.MarkHidden("setup-code-file")
 	_ = f.MarkHidden("drift-interval")
 	_ = f.MarkHidden("poll-interval")
-	return cmd
+	f.DurationVar(&cfg.StandbyEvery, "standby-every", 0, "how often changes are copied to the standby (default 15s)")
 }

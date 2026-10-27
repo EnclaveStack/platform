@@ -29,6 +29,7 @@ var kindAliases = map[string]api.Kind{
 	"domain": api.KindDomain, "domains": api.KindDomain,
 	"tunnel": api.KindTunnel, "tunnels": api.KindTunnel,
 	"job": api.KindJob, "jobs": api.KindJob,
+	"function": api.KindFunction, "functions": api.KindFunction, "fn": api.KindFunction,
 	"backup": api.KindBackup, "backups": api.KindBackup,
 	"network": api.KindNetwork, "networks": api.KindNetwork, "net": api.KindNetwork,
 	"firewall": api.KindFirewall, "firewalls": api.KindFirewall, "fw": api.KindFirewall,
@@ -56,7 +57,7 @@ func parseKind(s string) (api.Kind, error) {
 	if k, ok := kindAliases[strings.ToLower(s)]; ok {
 		return k, nil
 	}
-	return "", usagef("unknown kind %q: use app, database (db), cache, bucket, secret, domain, job, backup, network, firewall (fw), loadbalancer (lb), zone, record, vm, volume (vol), snapshot (snap), queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore or stack", s)
+	return "", usagef("unknown kind %q: use app, database (db), cache, bucket, secret, domain, job, function (fn), backup, network, firewall (fw), loadbalancer (lb), zone, record, vm, volume (vol), snapshot (snap), queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore or stack", s)
 }
 
 const pollEvery = 500 * time.Millisecond
@@ -494,15 +495,23 @@ func (a *app) update(ctx context.Context, kind api.Kind, name string, patch map[
 
 func (a *app) dbCmd() *cobra.Command {
 	cmd := a.kindCmd(api.KindDatabase, "db", []string{"database", "databases"}, "Databases: PostgreSQL, MySQL, MongoDB or ClickHouse")
-	var engine, version string
-	var wait bool
+	var engine, version, initFile string
+	var wait, tls, exposed bool
 	var cp placementFlags
 	create := &cobra.Command{
 		Use: "create NAME", Short: "Create a database (engine and version can't change later)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.create(cmd.Context(), api.KindDatabase, args[0], api.DatabaseSpec{Engine: engine, Version: version, Network: cp.network, Subnet: cp.subnet, Placed: cp.placed()}, wait)
+			script, err := a.readFileFlag("init-script-file", initFile) // run once, on the empty database (DBX-04)
+			if err != nil {
+				return err
+			}
+			return a.create(cmd.Context(), api.KindDatabase, args[0], api.DatabaseSpec{Engine: engine, Version: version, Network: cp.network, Subnet: cp.subnet, Placed: cp.placed(),
+				TLS: tls, Exposed: exposed, InitScript: script}, wait)
 		},
 	}
+	create.Flags().BoolVar(&tls, "tls", false, "encrypted connections only, with a certificate from EnclaveStack's database CA (PostgreSQL, MySQL)")
+	create.Flags().BoolVar(&exposed, "exposed", false, "reachable from other computers on this machine's addresses (needs --tls)")
+	create.Flags().StringVar(&initFile, "init-script-file", "", "an SQL (MongoDB: JavaScript) file run once when the database is first made, or - for stdin")
 	var versions []string
 	for _, e := range api.DatabaseEngines {
 		versions = append(versions, e+" "+strings.Join(api.DatabaseEngineVersions[e], ", "))
@@ -512,16 +521,25 @@ func (a *app) dbCmd() *cobra.Command {
 	create.Flags().BoolVar(&wait, "wait", false, "wait until ready")
 	cp.bind(create)
 	var up placementFlags
-	var uwait bool
+	var uwait, utls, uexposed bool
 	update := &cobra.Command{
-		Use: "update NAME", Short: "Move a database to another network or subnet (its data is kept)", Args: cobra.ExactArgs(1),
+		Use: "update NAME", Short: "Move a database to another network or subnet, or turn TLS and outside access on or off (its data is kept)", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			patch := map[string]any{}
-			up.patch(cmd.Flags().Changed, patch)
+			ch := cmd.Flags().Changed
+			up.patch(ch, patch)
+			if ch("tls") {
+				patch["tls"] = utls
+			}
+			if ch("exposed") {
+				patch["exposed"] = uexposed
+			}
 			return a.update(cmd.Context(), api.KindDatabase, args[0], patch, uwait)
 		},
 	}
 	up.bind(update)
+	update.Flags().BoolVar(&utls, "tls", false, "encrypted connections only (--tls=false turns it off)")
+	update.Flags().BoolVar(&uexposed, "exposed", false, "reachable from other computers (needs TLS)")
 	update.Flags().BoolVar(&uwait, "wait", false, "wait until ready")
 	var restartWait bool
 	restart := &cobra.Command{Use: "restart NAME", Short: "Restart a database", Args: cobra.ExactArgs(1),
@@ -955,14 +973,15 @@ func (a *app) runsCmd(kind api.Kind) *cobra.Command {
 func (a *app) backupCmd() *cobra.Command {
 	cmd := a.kindCmd(api.KindBackup, "backup", []string{"backups"}, "Backups: scheduled dumps of a database or cache, with restore")
 	type flags struct {
-		source, bucket, endpoint, region, s3bucket, creds, prefix, schedule, zone string
+		source, volume, bucket, endpoint, region, s3bucket, creds, prefix, schedule, zone string
 		keep, keepDays                                                            int
 		timeout                                                                   time.Duration
 		wait                                                                      bool
 	}
 	bind := func(c *cobra.Command, f *flags, withSource bool) {
 		if withSource {
-			c.Flags().StringVar(&f.source, "source", "", "what to back up: database/NAME or cache/NAME")
+			c.Flags().StringVar(&f.source, "source", "", "what to back up: database/NAME, cache/NAME or volume/NAME")
+			c.Flags().StringVar(&f.volume, "volume", "", "back up this filesystem volume's files (the same as --source volume/NAME)")
 		}
 		c.Flags().StringVar(&f.bucket, "bucket", "", "store backups in this EnclaveStack bucket")
 		c.Flags().StringVar(&f.endpoint, "s3-endpoint", "", "or in external S3: endpoint, e.g. https://s3.eu-central-1.amazonaws.com")
@@ -985,9 +1004,15 @@ func (a *app) backupCmd() *cobra.Command {
 	}
 	var cf flags
 	create := &cobra.Command{
-		Use: "create NAME --source database/NAME|cache/NAME (--bucket BUCKET | --s3-endpoint URL --s3-bucket B --s3-credentials SECRET)", Short: "Back up a database or cache on a schedule",
+		Use: "create NAME (--source database/NAME|cache/NAME | --volume NAME) (--bucket BUCKET | --s3-endpoint URL --s3-bucket B --s3-credentials SECRET)", Short: "Back up a database, cache or filesystem volume on a schedule",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cf.volume != "" {
+				if cf.source != "" {
+					return usagef("use --source or --volume")
+				}
+				cf.source = "volume/" + cf.volume
+			}
 			kind, name, ok := strings.Cut(cf.source, "/")
 			var src api.BackupSource
 			switch {
@@ -995,8 +1020,10 @@ func (a *app) backupCmd() *cobra.Command {
 				src.Database = name
 			case ok && kind == "cache":
 				src.Cache = name
+			case ok && kind == "volume":
+				src.Volume = name
 			default:
-				return usagef("--source takes database/NAME or cache/NAME")
+				return usagef("--source takes database/NAME, cache/NAME or volume/NAME")
 			}
 			spec := api.BackupSpec{Source: src, Destination: dest(&cf), Prefix: cf.prefix,
 				Schedule: cf.schedule, TimeZone: cf.zone, Keep: cf.keep, KeepDays: cf.keepDays, TimeoutSeconds: int(cf.timeout.Seconds())}
@@ -1046,7 +1073,7 @@ func (a *app) backupCmd() *cobra.Command {
 			if replace {
 				var s api.BackupSpec
 				_ = json.Unmarshal(b.Spec, &s)
-				source := s.Source.Database + s.Source.Cache
+				source := s.Source.Name()
 				if err := a.confirm(fmt.Sprintf("Replace all data in %s with backup run %s? A safety backup is taken first.", source, runID), yes); err != nil {
 					return err
 				}
@@ -1148,9 +1175,13 @@ type appFlags struct {
 	place                                   placementFlags
 	volumes                                 []string
 	buckets                                 []string
+	// Git webhooks and previews (L2-016 CLI-60)
+	webhookSecret string
+	deployOnPush  bool
+	previews      previewFlags
 }
 
-var gitFlags = []string{"git", "ref", "dockerfile", "context", "git-credentials", "build-arg"}
+var gitFlags = []string{"git", "ref", "dockerfile", "context", "git-credentials", "build-arg", "webhook-secret", "deploy-on-push"}
 
 // source builds a Git source from the flags, starting from cur (an update keeps unchanged fields).
 func (f *appFlags) source(changed func(string) bool, cur *api.GitSource) (*api.GitSource, error) {
@@ -1180,6 +1211,12 @@ func (f *appFlags) source(changed func(string) bool, cur *api.GitSource) (*api.G
 		}
 		s.BuildArgs = args
 	}
+	if changed("webhook-secret") {
+		s.WebhookSecret = f.webhookSecret
+	}
+	if changed("deploy-on-push") {
+		s.DeployOnPush = f.deployOnPush
+	}
 	if s.Git == "" || s.Ref == "" {
 		return nil, usagef("building from Git needs --git URL and --ref (a branch, tag or commit)")
 	}
@@ -1205,6 +1242,9 @@ func (f *appFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.context, "context", "", "build context directory in the repository (default .)")
 	cmd.Flags().StringVar(&f.gitCreds, "git-credentials", "", `secret holding {"token"} or {"privateKey","knownHosts"} for a private repository`)
 	cmd.Flags().StringArrayVar(&f.buildArgs, "build-arg", nil, "build argument KEY=VALUE, not for secrets (repeatable)")
+	cmd.Flags().StringVar(&f.webhookSecret, "webhook-secret", "", "secret Git webhooks are checked with (GitHub's secret or GitLab's token)")
+	cmd.Flags().BoolVar(&f.deployOnPush, "deploy-on-push", false, "redeploy when the Git webhook says --ref moved")
+	f.previews.bind(cmd)
 	cmd.Flags().IntVar(&f.port, "port", 0, "port the app listens on")
 	cmd.Flags().StringArrayVar(&f.env, "env", nil, "environment variable KEY=VALUE (repeatable)")
 	cmd.Flags().StringArrayVar(&f.secretEnv, "secret-env", nil, "environment variable from a secret KEY=SECRET_NAME (repeatable)")
@@ -1311,7 +1351,8 @@ func (a *app) appCmd() *cobra.Command {
 				return err
 			}
 			spec := api.AppSpec{Image: cf.image, Source: src, Port: cf.port, Env: env, SecretEnv: senv, Command: cf.command, Publish: cf.publish, MemoryMiB: cf.memory,
-				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts, BucketAccess: buckets, Placed: cf.place.placed()}
+				Strategy: cf.strategy, HealthCheck: hc, Replicas: cf.replicas, Network: cf.place.network, Subnet: cf.place.subnet, Volumes: mounts, BucketAccess: buckets, Placed: cf.place.placed(),
+				Previews: cf.previews.previews(ch, nil)}
 			return a.create(cmd.Context(), api.KindApp, args[0], spec, cf.wait)
 		},
 	}
@@ -1328,7 +1369,7 @@ func (a *app) appCmd() *cobra.Command {
 			if ch("image") {
 				patch["image"], patch["source"] = uf.image, nil // switching to an image drops the Git source
 			}
-			if anyChanged(ch, gitFlags) {
+			if anyChanged(ch, gitFlags) || anyChanged(ch, previewFlagNames) {
 				c, err := a.client()
 				if err != nil {
 					return err
@@ -1339,11 +1380,16 @@ func (a *app) appCmd() *cobra.Command {
 				}
 				var spec api.AppSpec
 				_ = json.Unmarshal(cur.Spec, &spec)
-				src, err := uf.source(ch, spec.Source)
-				if err != nil {
-					return err
+				if anyChanged(ch, gitFlags) {
+					src, err := uf.source(ch, spec.Source)
+					if err != nil {
+						return err
+					}
+					patch["source"], patch["image"] = src, nil
 				}
-				patch["source"], patch["image"] = src, nil
+				if p := uf.previews.previews(ch, spec.Previews); p != nil {
+					patch["previews"] = p
+				}
 			}
 			if ch("port") {
 				patch["port"] = uf.port
@@ -1413,7 +1459,7 @@ func (a *app) appCmd() *cobra.Command {
 			return a.action(cmd.Context(), api.KindApp, args[0], api.ActionRedeploy, rwait)
 		}}
 	redeploy.Flags().BoolVar(&rwait, "wait", false, "wait until ready")
-	cmd.AddCommand(create, update, restart, redeploy)
+	cmd.AddCommand(create, update, restart, redeploy, a.previewCmd())
 	return cmd
 }
 

@@ -1,0 +1,13 @@
+name: neon
+title: Neon
+category: connections
+signup: https://console.neon.tech/signup
+description: "Your Neon Postgres database's connection strings, kept as secrets for your apps to use. It runs nothing here: your apps reach Neon over the internet."
+version: 1.0.0
+parameters:
+  - { name: pooledUrl, title: Pooled connection string, description: "The connection string with -pooler in its host name, under Connect on your project's dashboard (Connection pooling on). Most apps use this one.", type: secret, required: true }
+  - { name: directUrl, title: Direct connection string, description: "The same string with Connection pooling off: for migrations and tools that need a direct connection.", type: secret }
+resources: []
+outputs:
+  DATABASE_URL: "${param:pooledUrl}"
+  DATABASE_URL_UNPOOLED: "${param:directUrl}"

@@ -41,7 +41,9 @@ const (
 	LabelManaged    = "enclave.managed"
 	LabelResourceID = "enclave.resource-id"
 	LabelGeneration = "enclave.generation"
-	LabelKind       = "enclave.kind"
+	// LabelTLSSerial is a TLS database's certificate serial (ADR-058).
+	LabelTLSSerial = "enclave.tls-serial"
+	LabelKind      = "enclave.kind"
 )
 
 // Images. MinIO's own images were withdrawn from Docker Hub and quay.io in 2025; the object store uses
@@ -212,6 +214,11 @@ type plan struct {
 	files          map[string]map[string][]byte
 	healthyTimeout time.Duration
 	nofile         int64
+	// v0.10 (ADR-058): files only the engine's own user may read (keys), that user's ID, and published
+	// ports bound to every address of the machine.
+	privateFiles map[string]map[string][]byte
+	fileOwner    int
+	exposed      bool
 }
 
 func (d *Driver) planFor(in engine.EnsureInput) (plan, error) {
@@ -224,7 +231,7 @@ func (d *Driver) basePlan(in engine.EnsureInput) (plan, error) {
 	r := in.Resource
 	switch s := in.Spec.(type) {
 	case api.DatabaseSpec:
-		return databasePlan(r, s, in.Password)
+		return databasePlan(r, s, in.Password, in.TLS)
 	case api.SearchSpec:
 		return searchPlan(s, in.Password), nil
 	case api.EmailSpec:
@@ -271,12 +278,16 @@ func (d *Driver) Ensure(ctx context.Context, in engine.EnsureInput, report engin
 	create := firstStep(r.Kind, "create", "cache")
 	report.Step(create, api.StepActive)
 	labels := map[string]string{LabelManaged: "true", LabelResourceID: r.ID, LabelGeneration: strconv.FormatInt(r.Generation, 10), LabelKind: string(r.Kind)}
+	if in.TLS != nil {
+		labels[LabelTLSSerial] = in.TLS.Serial // a new certificate recreates the container (ADR-058)
+	}
 	existing, err := d.inspect(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 	keep := map[int]int{}
-	if existing != nil && (in.Recreate || existing.Config.Labels[LabelGeneration] != labels[LabelGeneration] || existing.Config.Labels[LabelResourceID] != r.ID) {
+	if existing != nil && (in.Recreate || existing.Config.Labels[LabelGeneration] != labels[LabelGeneration] || existing.Config.Labels[LabelResourceID] != r.ID ||
+		existing.Config.Labels[LabelTLSSerial] != labels[LabelTLSSerial]) {
 		// Keep the published ports across recreation so connection strings stay valid.
 		if existing.Config.Labels[LabelResourceID] == r.ID {
 			for _, port := range append([]int{p.port}, p.extraPorts...) {
@@ -296,6 +307,11 @@ func (d *Driver) Ensure(ctx context.Context, in engine.EnsureInput, report engin
 		}
 		for dir, files := range p.files { // configuration read at start (ADR-030, ADR-033)
 			if err := d.copyFiles(ctx, name, dir, files, 0o644); err != nil {
+				return nil, err
+			}
+		}
+		for dir, files := range p.privateFiles { // keys, readable by the engine's user only (ADR-058)
+			if err := d.copyTarOwned(ctx, name, "/", strings.Trim(dir, "/")+"/", files, 0o600, p.fileOwner); err != nil {
 				return nil, err
 			}
 		}
@@ -506,7 +522,11 @@ func (d *Driver) create(ctx context.Context, r *domain.Resource, name, alias str
 			if err != nil {
 				return err
 			}
-			host.PortBindings[port] = []nat.PortBinding{{HostIP: d.opts.PublishAddress, HostPort: hp}}
+			bind := d.opts.PublishAddress
+			if p.exposed { // reachable from other computers (ADR-058)
+				bind = "0.0.0.0"
+			}
+			host.PortBindings[port] = []nat.PortBinding{{HostIP: bind, HostPort: hp}}
 		}
 	}
 	if p.nofile > 0 {
@@ -616,6 +636,11 @@ func (d *Driver) outputs(r *domain.Resource, p plan, c *container.InspectRespons
 	switch s := in.Spec.(type) {
 	case api.DatabaseSpec: // no host ports in a network without internet
 		out = engine.DatabaseOutputs(r, s, host, hostPort(c, engine.DatabasePort(s.Engine)), hostPort(c, engine.ClickHouseNative))
+		if p.exposed { // reachable from other computers on each of this machine's addresses (DBX-05)
+			if hp := hostPort(c, engine.DatabasePort(s.Engine)); hp > 0 {
+				out["exposedAddresses"] = exposedAddresses(hp)
+			}
+		}
 	case api.SearchSpec:
 		out = engine.SearchOutputs(r, host, hostPort(c, engine.SearchPort), engine.SearchVersions[s.Version])
 	case api.EmailSpec:
@@ -666,8 +691,8 @@ func (d *Driver) Delete(ctx context.Context, r *domain.Resource, store engine.Ob
 		return d.deleteBucket(ctx, r, store)
 	case api.KindVolume:
 		return d.deleteVolume(ctx, r)
-	case api.KindApp, api.KindJob:
-		// Every container labelled with the resource: an app's revisions, a job's runs in progress.
+	case api.KindApp, api.KindJob, api.KindFunction:
+		// Every container labelled with the resource: an app's revisions, a job's or function's runs in progress.
 		revs, err := d.revisions(ctx, r)
 		if err != nil {
 			return err

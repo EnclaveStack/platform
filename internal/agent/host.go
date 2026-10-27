@@ -22,6 +22,8 @@ type HostConfig struct {
 	PublishAddress string
 	QEMU           string
 	Log            *slog.Logger
+	// Started is given the agent's server before it listens (see RunConfig).
+	Started func(*Server)
 }
 
 // RunHost builds this computer's engines and runs the agent until ctx ends.
@@ -29,7 +31,7 @@ func RunHost(ctx context.Context, cfg HostConfig) error {
 	if cfg.StateDir == "" {
 		cfg.StateDir = DefaultStateDir()
 	}
-	run := RunConfig{StateDir: cfg.StateDir, Listen: cfg.Listen, Log: cfg.Log}
+	run := RunConfig{StateDir: cfg.StateDir, Listen: cfg.Listen, Log: cfg.Log, Started: cfg.Started}
 	switch cfg.Driver {
 	case "fake":
 		d := fake.New(300 * time.Millisecond)

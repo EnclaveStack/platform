@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/url"
 	"time"
 )
@@ -43,14 +44,20 @@ type CA struct {
 	PEM  []byte
 }
 
-// NewCA makes a CA valid 10 years; it returns the certificate and the key, both PEM.
+// NewCA makes the machines' CA valid 10 years; it returns the certificate and the key, both PEM.
 func NewCA(now time.Time) (certPEM, keyPEM []byte, err error) {
+	return NewNamedCA(now, "EnclaveStack machines CA")
+}
+
+// NewNamedCA makes a CA called name, valid 10 years: the machines' CA, or the databases' (ADR-058), which
+// is kept apart so a database certificate can never pass as a machine's.
+func NewNamedCA(now time.Time, name string) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
 	tmpl := &x509.Certificate{
-		SerialNumber: serial(), Subject: pkix.Name{CommonName: "EnclaveStack machines CA"},
+		SerialNumber: serial(), Subject: pkix.Name{CommonName: name},
 		NotBefore: now.Add(-clockSkew), NotAfter: now.Add(caValidity),
 		IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
 		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -106,6 +113,32 @@ func (ca *CA) SignAgent(csrPEM []byte, machineID string, now time.Time) (certPEM
 		return nil, "", time.Time{}, err
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: pemCertificate, Bytes: der}), sn.Text(16), notAfter, nil
+}
+
+// IssueServer issues a server certificate and its key for the names and addresses given, valid for
+// validity (a database's, ADR-058).
+func (ca *CA) IssueServer(cn string, dnsNames []string, ips []net.IP, now time.Time, validity time.Duration) (certPEM, keyPEM []byte, serialHex string, notAfter time.Time, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, "", time.Time{}, err
+	}
+	sn := serial()
+	notAfter = now.Add(validity)
+	tmpl := &x509.Certificate{
+		SerialNumber: sn, Subject: pkix.Name{CommonName: cn}, DNSNames: dnsNames, IPAddresses: ips,
+		NotBefore: now.Add(-clockSkew), NotAfter: notAfter,
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
+	if err != nil {
+		return nil, nil, "", time.Time{}, err
+	}
+	// PKCS #8: what PostgreSQL and MySQL both read.
+	pk, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, "", time.Time{}, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: pemCertificate, Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pk}), sn.Text(16), notAfter, nil
 }
 
 // ControlPlaneCertificate issues the control plane's client certificate, valid 30 days, kept in memory.

@@ -53,7 +53,10 @@ type Manager struct {
 	// without an address the other machines can't reach it.
 	TunnelAddress string
 	TunnelPort    int
+	// Fenced is told once when an agent refuses this control plane: a standby was promoted (ADR-057).
+	Fenced func()
 
+	fence   fencing
 	mu      sync.RWMutex
 	ca      *agent.CA
 	cpCert  tls.Certificate
@@ -263,6 +266,7 @@ func (m *Manager) client(ctx context.Context, mc store.Machine) (*remote, error)
 		return nil, err
 	}
 	next := &remote{client: agent.NewRemote(mc.ID, mc.Address, mc.AgentPort, cfg), serial: mc.CertSerial, addr: mc.Address, port: mc.AgentPort}
+	next.client.Epoch, next.client.OnFenced = m.currentEpoch, m.fenced
 	if r != nil {
 		if r.client != nil {
 			r.client.Close()
@@ -434,6 +438,9 @@ func (m *Manager) markOnline(id string, online bool, since time.Time) {
 // Load reads the machines' last known states at start, so calls to machines that were online are tried at
 // once; the first check decides.
 func (m *Manager) Load(ctx context.Context) error {
+	if err := m.LoadEpoch(ctx); err != nil {
+		return err
+	}
 	all, err := m.Store.ListMachines(ctx)
 	if err != nil {
 		return err
@@ -477,7 +484,7 @@ func (m *Manager) Candidates(ctx context.Context) ([]domain.Candidate, error) {
 	out := make([]domain.Candidate, 0, len(all))
 	for _, mc := range all {
 		// Nothing is ever placed on an edge machine (L2-014 EDG-03).
-		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Online: m.Online(mc.ID), Schedulable: mc.Schedulable && !mc.IsEdge(),
+		c := domain.Candidate{ID: mc.ID, Name: mc.Name, Main: mc.ID == m.Store.MainID(), Online: m.Online(mc.ID), Schedulable: mc.Schedulable && !mc.IsEdge() && !mc.IsStandby(),
 			Labels: mc.Labels, VMs: mc.Info.VMs.Available, MemoryTotalMiB: int(mc.Info.MemoryTotalBytes >> 20), ReservedMiB: reserved[mc.ID],
 			VersionOK: mc.Info.AgentVersion == "" || SameMinor(mc.Info.AgentVersion, version.Version)}
 		if c.Main {
