@@ -189,23 +189,33 @@ Then, from the repo: `make tofu DIR=path/to/that/folder CMD=plan` to see what wo
 | Service | What it is | Think of it as |
 |---|---|---|
 | **Apps** | Any container image, or a Git repository with a Dockerfile. Replicas and zero-downtime deploys with health checks | ECS / Cloud Run |
-| **Databases** | PostgreSQL, MySQL, MongoDB or ClickHouse, with a managed password | RDS |
+| **Functions** | A container that starts once for each event (a queue or topic message, a new file in a bucket, a schedule or a call) and stops when it's done | Lambda |
+| **Previews and deploy on push** | A push to your Git branch redeploys the app; each pull request gets its own temporary copy of the app, deleted when the pull request closes | Amplify previews |
+| **Databases** | PostgreSQL, MySQL, MongoDB or ClickHouse, with a managed password; optionally encrypted connections only (TLS), reachable from other computers on your network, and a setup script that runs once | RDS |
 | **Caches** | Redis, persisted to disk | ElastiCache |
 | **Buckets** | S3-compatible object storage; browse, upload and download files from the console, CLI or OpenTofu; each app or job can get keys of its own that reach only the buckets it needs, read-only or read-write | S3 + IAM roles for each service |
 | **Secrets** | Encrypted values your apps get as environment variables, or read from Vault, 1Password, AWS, Doppler or Infisical | Secrets Manager |
 | **Domains** | Hostnames with automatic HTTPS (Let's Encrypt, or a local CA) | ALB + ACM |
-| **Jobs and backups** | Scheduled commands, and scheduled dumps with one-click restore | EventBridge + AWS Backup |
+| **Jobs and backups** | Scheduled commands, and scheduled copies of databases, caches and volumes' files, with one-click restore | EventBridge + AWS Backup |
 | **Networks and firewalls** | Private networks with subnets and private DNS, and allow rules between resources | VPC + security groups |
 | **Load balancers and DNS** | HTTP or TCP balancing across replicas, and DNS zones and records at Cloudflare or Route 53 | ELB + Route 53 |
 | **VMs, volumes and snapshots** | Whole machines on QEMU with SSH, plus disks and folders that outlive what uses them | EC2 + EBS |
 | **Queues, topics, search, email, CDN and transcoding** | NATS JetStream, OpenSearch, SMTP with a message viewer, a caching edge and FFmpeg; transcoders make presets, renditions of your size and bitrate and adaptive HLS ladders, and send a signed webhook or topic message when each file is done | SQS, SNS, OpenSearch, SES, CloudFront, MediaConvert |
-| **Operate** | Projects, people and roles, metrics and dashboards, alerts (email, Slack, Discord, Telegram or webhooks) and log export | IAM + CloudWatch |
-| **Catalogue** | WordPress, Ghost, n8n, Uptime Kuma, Gitea and Plausible, or your own template, installed as one stack | Marketplace |
+| **Operate** | Projects, people and roles, metrics and dashboards, alerts on metrics or on events as they happen (email, Slack, Discord, Telegram or webhooks) and log export | IAM + CloudWatch |
+| **Public access** | Your apps from anywhere through a quick link, Tailscale, ngrok, Cloudflare or a server of your own, always behind a sign-in gate | API Gateway + CloudFront |
+| **Catalogue** | WordPress, Ghost, n8n, Uptime Kuma, Gitea and Plausible, or your own template, installed as one stack; connections keep the keys of Supabase, Neon, Firebase, Auth0, Clerk or Sentry as secrets for your apps | Marketplace |
 
 <div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/catalogue-dark.png" />
   <img src=".github/assets/catalogue-light.png" alt="The catalogue: ready-made stacks to install" width="1000" />
+</picture>
+</div>
+
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/function-dark.png" />
+  <img src=".github/assets/function-light.png" alt="A function in the console: its trigger, last run and the Invoke and Run now actions" width="1000" />
 </picture>
 </div>
 
@@ -273,11 +283,12 @@ enclave agent join http://<main machine>:7070 --code <code>
 - **Private networks span machines** over an encrypted WireGuard tunnel, so an app on one reaches a database on the other by name.
 - **When a machine goes offline**, its apps restart elsewhere, and data waits for its machine.
 - **Move** anything, data included: `enclave move database/orders --to main`. **Drain** a machine before you unplug it.
+- **A standby** keeps a copy of everything EnclaveStack knows, sent every 15 seconds. If the main machine is lost, run `enclave standby promote` on the standby and it takes over. Add one with `enclave machine add spare --role standby`.
 
 <div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/machines-dark.png" />
-  <img src=".github/assets/machines-light.png" alt="Machines: the main machine online and a second one waiting to join" width="1000" />
+  <img src=".github/assets/machines-light.png" alt="Machines: the main machine online, a second one waiting to join, and a standby" width="1000" />
 </picture>
 </div>
 
@@ -307,10 +318,13 @@ You describe what you want, and the **control plane** stores it. A **reconciler*
 | v0.6 | MySQL, MongoDB, ClickHouse, queues, topics, search, email, CDN and transcoding | Built |
 | v0.7 | Projects, roles, metrics, dashboards, alerts, log export and outside secret stores | Built |
 | v0.8 | Many machines, moving resources and the catalogue | Built |
+| v0.9 | Public access (tunnels, the gate, edge machines), connections (Supabase) and installing without building | Released as 0.9.0 |
+| v0.10 | Functions, deploy on push and previews, a standby that takes over, database TLS and setup scripts, volume backups, event alerts, and connections for Neon, Firebase, Auth0, Clerk and Sentry | Built, not released yet |
 
-Every release above is tested on all three surfaces and on real Docker, but none is published yet. Not yet tried by hand:
-- two physical computers joined over a network;
-- a few real third-party services: Slack, Discord and Telegram, a real email relay, and 1Password, AWS, Doppler and Infisical.
+Every release above is tested on all three surfaces and on real Docker. Not yet tried by hand:
+- two physical computers joined over a network, including a standby taking over;
+- a real GitHub or GitLab webhook making a preview;
+- a few real third-party services: Slack, Discord and Telegram, a real email relay, 1Password, AWS, Doppler and Infisical, and the six connections with real accounts.
 
 The full roadmap is in [`L1-002`](docs/L1-strategy/L1-002-coolify-study-and-service-roadmap-v1.md).
 
@@ -362,6 +376,7 @@ Not yet: it is pre-release. Releases are published and every one is built and te
 - **API**: [`L3-002`](docs/L3-architecture/L3-002-console-api-contract-v1.md) and [`api/openapi.yaml`](api/openapi.yaml)
 - **Security**: [`L3-006`](docs/L3-architecture/L3-006-security-architecture-v1.md)
 - **Local setup and troubleshooting**: [`L4-001`](docs/L4-infrastructure/L4-001-local-dev-setup-v1.md)
+- **Using every feature, start to finish**: [the user guide, `L5-004`](docs/L5-operations/L5-004-user-guide-v1.md) (§17 covers v0.10)
 - **What each feature does, step by step**: [`L5-001`](docs/L5-operations/L5-001-feature-test-playbook-v1.md)
 - **Changes**: [`CHANGELOG.md`](CHANGELOG.md)
 
