@@ -104,26 +104,44 @@ func (m *Manager) RunStandby(ctx context.Context, cfg StandbyConfig) {
 		if m.Replaced() {
 			return
 		}
-		now := fingerprintOf(cfg.DBPath)
-		if now == last {
+		before := fingerprintOf(cfg.DBPath)
+		if before == last {
 			continue
 		}
-		sent, err := m.CopyToStandby(ctx, cfg)
+		sent, changed, err := m.copyToStandby(ctx, cfg, before)
 		if err != nil && ctx.Err() == nil {
 			m.Log.Warn("copy to the standby failed", "error", err)
 		}
-		if sent || err == nil {
-			last = fingerprintOf(cfg.DBPath) // after recording the copy, so the record isn't a change
-		}
+		last = copiedState(last, sent, changed, err, func() fingerprint { return fingerprintOf(cfg.DBPath) })
 	}
+}
+
+// copiedState is the database state the standby now holds, for the next tick to compare with. A write
+// during the copy may be missing from it, so the next tick copies again; otherwise the state after the
+// copy was recorded, so the record itself isn't a change. A failed attempt with no standby keeps last.
+func copiedState(last fingerprint, sent, changed bool, err error, now func() fingerprint) fingerprint {
+	switch {
+	case changed:
+		return fingerprint{}
+	case sent || err == nil:
+		return now()
+	}
+	return last
 }
 
 // CopyToStandby sends one copy to the standby, if there is one online, and records the attempt. It
 // reports whether there was a standby to send to.
 func (m *Manager) CopyToStandby(ctx context.Context, cfg StandbyConfig) (bool, error) {
+	sent, _, err := m.copyToStandby(ctx, cfg, fingerprintOf(cfg.DBPath))
+	return sent, err
+}
+
+// copyToStandby is CopyToStandby that also reports whether the database changed from before while the
+// copy was made, which the copy may not hold.
+func (m *Manager) copyToStandby(ctx context.Context, cfg StandbyConfig, before fingerprint) (sent, changed bool, err error) {
 	all, err := m.Store.ListMachines(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	var sb *store.Machine
 	for i := range all {
@@ -132,56 +150,58 @@ func (m *Manager) CopyToStandby(ctx context.Context, cfg StandbyConfig) (bool, e
 		}
 	}
 	if sb == nil || !m.Online(sb.ID) {
-		return false, nil
+		return false, false, nil
 	}
-	n, err := m.sendCopy(ctx, *sb, cfg)
-	failure := ""
+	n, takenAt, err := m.sendCopy(ctx, *sb, cfg)
+	changed = fingerprintOf(cfg.DBPath) != before
+	failure, at := "", takenAt // a copy holds the data as of when it was taken, not when it arrived
 	if err != nil {
-		failure = err.Error()
+		failure, at = err.Error(), m.Now()
 	}
-	if rerr := m.Store.RecordStandbyCopy(ctx, sb.ID, n, failure, m.Now()); rerr != nil {
-		return true, errors.Join(err, rerr)
+	if rerr := m.Store.RecordStandbyCopy(ctx, sb.ID, n, failure, at); rerr != nil {
+		return true, changed, errors.Join(err, rerr)
 	}
-	return true, err
+	return true, changed, err
 }
 
-func (m *Manager) sendCopy(ctx context.Context, sb store.Machine, cfg StandbyConfig) (int64, error) {
+// sendCopy sends one copy and returns its size and when the database was copied.
+func (m *Manager) sendCopy(ctx context.Context, sb store.Machine, cfg StandbyConfig) (int64, time.Time, error) {
 	if err := os.MkdirAll(cfg.TempDir, 0o700); err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	dir, err := os.MkdirTemp(cfg.TempDir, "standby-*")
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	defer os.RemoveAll(dir)
 	db := filepath.Join(dir, agent.CopyDatabase)
+	now := m.Now() // before the copy: every change committed by now is in it
 	if err := m.Store.VacuumInto(ctx, db); err != nil {
-		return 0, fmt.Errorf("copy the database: %w", err)
+		return 0, now, fmt.Errorf("copy the database: %w", err)
 	}
 	archive := filepath.Join(dir, "copy.tar.gz")
 	f, err := os.OpenFile(archive, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return 0, err
+		return 0, now, err
 	}
-	now := m.Now()
 	_, err = agent.WriteCopy(f, db, cfg.KeyPath, version.Version, m.Store.MainID(), m.currentEpoch(), now)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		return 0, fmt.Errorf("pack the copy: %w", err)
+		return 0, now, fmt.Errorf("pack the copy: %w", err)
 	}
 	r, err := m.client(ctx, sb)
 	if err != nil {
-		return 0, err
+		return 0, now, err
 	}
 	sctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	c, err := r.client.SendStandbyCopy(sctx, archive, now)
 	if err != nil {
-		return 0, fmt.Errorf("send the copy to %s: %w", sb.Name, err)
+		return 0, now, fmt.Errorf("send the copy to %s: %w", sb.Name, err)
 	}
-	return c.Bytes, nil
+	return c.Bytes, now, nil
 }
 
 // Promotion is what a promotion did.

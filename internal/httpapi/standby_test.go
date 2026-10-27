@@ -47,10 +47,12 @@ func TestStandbyCopiesPromotesAndFencesTheOldMain(t *testing.T) {
 		t.Fatal(err)
 	}
 	testenv.WaitReady(t, c, sec.ID)
+	// Last copy is when the database was copied, so a copy after this holds the committed secret.
+	committed := time.Now()
 	var m api.MachineSummary
 	testenv.Eventually(t, 10*time.Second, "a copy after the secret", func() bool {
 		m, err = c.GetMachineByName(ctx, "spare")
-		return err == nil && m.Standby != nil && m.Standby.LastCopyAt != nil && m.Standby.LastCopyAt.After(sec.CreatedAt) && !m.Standby.Stale
+		return err == nil && m.Standby != nil && m.Standby.LastCopyAt != nil && m.Standby.LastCopyAt.After(committed) && !m.Standby.Stale
 	})
 	if m.Standby.LastCopyBytes == 0 || m.Standby.LastCopyError != "" {
 		t.Errorf("standby %+v", m.Standby)
