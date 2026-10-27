@@ -45,7 +45,27 @@ func validateDatabaseEngine(s DatabaseSpec) []FieldError {
 	if !slices.Contains(versions, s.Version) {
 		return []FieldError{{Field: "spec.version", Code: FieldNotAllowed, Message: fmt.Sprintf("Choose a %s version: %s.", s.Engine, strings.Join(versions, " or "))}}
 	}
-	return nil
+	return validateDatabaseOptions(s)
+}
+
+// TLSEngines serve TLS (L2-016 DBX-01); InitScriptMax bounds a setup script (DBX-04).
+var TLSEngines = []string{EnginePostgres, EngineMySQL}
+
+const InitScriptMax = 64 << 10
+
+// validateDatabaseOptions checks TLS, exposed and the setup script (ADR-058).
+func validateDatabaseOptions(s DatabaseSpec) []FieldError {
+	var errs []FieldError
+	if s.TLS && !slices.Contains(TLSEngines, s.Engine) {
+		errs = append(errs, FieldError{Field: "spec.tls", Code: FieldNotAllowed, Message: "TLS is available for PostgreSQL and MySQL."})
+	}
+	if s.Exposed && !s.TLS {
+		errs = append(errs, FieldError{Field: "spec.exposed", Code: FieldNotAllowed, Message: "Turn TLS on first: a database reachable from other computers only takes encrypted connections."})
+	}
+	if len(s.InitScript) > InitScriptMax {
+		errs = append(errs, FieldError{Field: "spec.initScript", Code: FieldTooLong, Message: "A setup script can be at most 64 KiB."})
+	}
+	return errs
 }
 
 // QueueSpec is a queue of messages (ADR-029, QUE-*).
@@ -57,10 +77,12 @@ type QueueSpec struct {
 	DeadLetterQueue          string `json:"deadLetterQueue,omitempty"`
 }
 
-// Subscription is one of a topic's targets: exactly one of a queue or a webhook URL (TOP-01).
+// Subscription is one of a topic's targets: exactly one of a queue, a webhook URL (TOP-01) or a function
+// (L2-016 FN-03).
 type Subscription struct {
-	Queue string `json:"queue,omitempty"`
-	URL   string `json:"url,omitempty"`
+	Queue    string `json:"queue,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Function string `json:"function,omitempty"`
 	// Secret names a secret whose value signs webhook bodies (TOP-02).
 	Secret string `json:"secret,omitempty"`
 }
@@ -69,6 +91,9 @@ type Subscription struct {
 func (s Subscription) Target() string {
 	if s.Queue != "" {
 		return string(KindQueue) + "/" + s.Queue
+	}
+	if s.Function != "" {
+		return string(KindFunction) + "/" + s.Function
 	}
 	return s.URL
 }
@@ -304,13 +329,22 @@ func validateTopic(s TopicSpec) []FieldError {
 	seen := map[string]bool{}
 	for i, sub := range s.Subscriptions {
 		f := fmt.Sprintf("spec.subscriptions[%d]", i)
+		targets := 0
+		for _, t := range []string{sub.Queue, sub.URL, sub.Function} {
+			if t != "" {
+				targets++
+			}
+		}
 		switch {
-		case (sub.Queue == "") == (sub.URL == ""):
-			errs = append(errs, FieldError{Field: f, Code: FieldExactlyOne, Message: "Subscribe a queue or a webhook URL — choose one."})
+		case targets != 1:
+			errs = append(errs, FieldError{Field: f, Code: FieldExactlyOne, Message: "Subscribe a queue, a webhook URL or a function — choose one."})
 			continue
-		case sub.Queue != "":
-			if ValidateName(sub.Queue) != nil {
+		case sub.Queue != "" || sub.Function != "":
+			if sub.Queue != "" && ValidateName(sub.Queue) != nil {
 				errs = append(errs, FieldError{Field: f + ".queue", Code: FieldInvalidFormat, Message: "Name an existing queue."})
+			}
+			if sub.Function != "" && ValidateName(sub.Function) != nil {
+				errs = append(errs, FieldError{Field: f + ".function", Code: FieldInvalidFormat, Message: "Name an existing function."})
 			}
 			if sub.Secret != "" {
 				errs = append(errs, FieldError{Field: f + ".secret", Code: FieldNotAllowed, Message: "Only webhooks are signed."})

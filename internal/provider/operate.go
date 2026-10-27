@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -97,6 +98,7 @@ type conditionModel struct {
 	ForMinutes    types.Int64    `tfsdk:"for_minutes"`
 	Restarts      types.Int64    `tfsdk:"restarts"`
 	WindowMinutes types.Int64    `tfsdk:"window_minutes"`
+	Events        []types.String `tfsdk:"events"`
 }
 
 type alertModel struct {
@@ -120,7 +122,7 @@ func (m *alertModel) condition() api.AlertCondition {
 		return api.AlertCondition{}
 	}
 	out := api.AlertCondition{Type: c.Type.ValueString(), Resources: toStrings(c.Resources), Metric: c.Metric.ValueString(), Operator: c.Operator.ValueString(),
-		ForMinutes: int(c.ForMinutes.ValueInt64()), Restarts: int(c.Restarts.ValueInt64()), WindowMinutes: int(c.WindowMinutes.ValueInt64())}
+		ForMinutes: int(c.ForMinutes.ValueInt64()), Restarts: int(c.Restarts.ValueInt64()), WindowMinutes: int(c.WindowMinutes.ValueInt64()), Events: toStrings(c.Events)}
 	if !c.Threshold.IsNull() && !c.Threshold.IsUnknown() {
 		t := c.Threshold.ValueFloat64()
 		out.Threshold = &t
@@ -152,6 +154,9 @@ func (m *alertModel) fill(r api.Resource) {
 	if c.Threshold != nil {
 		m.Condition.Threshold = types.Float64Value(*c.Threshold)
 	}
+	if len(c.Events) > 0 {
+		m.Condition.Events = tfStrings(c.Events)
+	}
 	m.Channels = tfStrings(s.Channels)
 	m.RepeatMinutes = types.Int64Value(int64(s.RepeatMinutes))
 	if !m.Enabled.IsNull() || s.Enabled != nil {
@@ -181,7 +186,7 @@ func newAlert() resource.Resource {
 					"name":    nameAttr("alert"),
 					"project": projectAttr(),
 					"condition": schema.SingleNestedAttribute{Required: true, Description: "What the alert watches.", Attributes: map[string]schema.Attribute{
-						"type": schema.StringAttribute{Required: true, Description: "metric, crash_loop, failed, run_failed or machine_offline (resources are machine/NAME).",
+						"type": schema.StringAttribute{Required: true, Description: "metric, crash_loop, failed, run_failed, machine_offline (resources are machine/NAME) or event.",
 							Validators: []validator.String{stringvalidator.OneOf(api.ConditionTypes...)}},
 						"resources":      schema.ListAttribute{Required: true, ElementType: types.StringType, Description: `1–10 resources as "kind/name" ("machine" for a machine metric).`},
 						"metric":         optString("metric: the metric, like cpu or percentFull."),
@@ -190,6 +195,8 @@ func newAlert() resource.Resource {
 						"for_minutes":    optInt("metric: minutes the line must be crossed (default 5)."),
 						"restarts":       optInt("crash_loop: restarts that make a crash loop (default 3)."),
 						"window_minutes": optInt("crash_loop: the window restarts are counted in (default 10)."),
+						"events": schema.ListAttribute{Optional: true, ElementType: types.StringType,
+							Description: "event: the event types sent as they happen: " + strings.Join(api.NotifiableEvents, ", ") + "."},
 					}},
 					"channels":       schema.ListAttribute{Required: true, ElementType: types.StringType, Description: "Channels to notify."},
 					"repeat_minutes": schema.Int64Attribute{Optional: true, Computed: true, Description: "Remind this often while firing; 0 (default) never."},

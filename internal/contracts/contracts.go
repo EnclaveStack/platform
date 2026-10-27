@@ -174,6 +174,15 @@ func TypeScript() string {
 		q(api.GateModes), q(api.TailscaleModes), api.GateOpenPathsMax, api.GatePathMaxLen, q(api.GatePathPrefix))
 	w("  accessEmailsMax: %d,\n  accessEmailDomainsMax: %d,\n  upstreamEnv: %s,\n  userHeader: %s,\n  machineRoles: %s,\n  catalogueCategories: %s,\n",
 		api.AccessEmailsMax, api.AccessEmailDomainMax, q(api.UpstreamEnv), q(api.UserHeader), q(api.MachineRoles), q(api.CatalogueCategories))
+	// v0.10 (L3-002 §18).
+	w("  functionMemoryMax: %d,\n  functionMemoryDefault: %d,\n  functionTimeoutMin: %d,\n  functionTimeoutMax: %d,\n  functionTimeoutDefault: %d,\n",
+		api.FunctionMemoryMaxMiB, api.FunctionMemoryDefaultMiB, api.FunctionTimeoutMin, api.FunctionTimeoutMax, api.FunctionTimeoutDefault)
+	w("  functionConcurrencyMin: %d,\n  functionConcurrencyMax: %d,\n  functionConcurrencyDefault: %d,\n  functionTriggersMax: %d,\n  invokeMaxBytes: %d,\n  eventPath: %s,\n",
+		api.FunctionConcurrencyMin, api.FunctionConcurrencyMax, api.FunctionConcurrencyDef, api.FunctionTriggersMax, api.InvokeMaxBytes, q(api.EventPath))
+	w("  previewTtlMin: %d,\n  previewTtlMax: %d,\n  previewTtlDefault: %d,\n  previewMaxActiveMin: %d,\n  previewMaxActiveMax: %d,\n  previewMaxActiveDefault: %d,\n",
+		api.PreviewTTLMin, api.PreviewTTLMax, api.PreviewTTLDefault, api.PreviewMaxActiveMin, api.PreviewMaxActiveMax, api.PreviewMaxDefault)
+	w("  tlsEngines: %s,\n  initScriptMax: %d,\n  notifiableEvents: %s,\n  alertEventsMax: %d,\n",
+		q(api.TLSEngines), api.InitScriptMax, q(api.NotifiableEvents), api.AlertEventsMax)
 	w("} as const;\n\n")
 	w("export const ROLES = %s as const;\n", q(api.Roles))
 	w("export const METRIC_UNITS = %s as const;\nexport type MetricUnit = (typeof METRIC_UNITS)[number];\n",

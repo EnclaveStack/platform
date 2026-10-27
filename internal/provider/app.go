@@ -52,7 +52,25 @@ type appModel struct {
 	Volumes      []mountModel       `tfsdk:"volumes"`
 	BucketAccess []bucketGrantModel `tfsdk:"bucket_access"`
 	BucketCreds  types.String       `tfsdk:"bucket_credentials_secret"`
-	Timeouts     timeouts.Value     `tfsdk:"timeouts"`
+	// v0.10 (L2-016 TF-55, ADR-056)
+	Previews   *previewsModel `tfsdk:"previews"`
+	WebhookURL types.String   `tfsdk:"webhook_url"`
+	Timeouts   timeouts.Value `tfsdk:"timeouts"`
+}
+
+// previewsModel mirrors api.Previews.
+type previewsModel struct {
+	Enabled   types.Bool          `tfsdk:"enabled"`
+	TTLHours  types.Int64         `tfsdk:"ttl_hours"`
+	MaxActive types.Int64         `tfsdk:"max_active"`
+	Domain    *previewDomainModel `tfsdk:"domain"`
+}
+
+type previewDomainModel struct {
+	Suffix types.String `tfsdk:"suffix"`
+	TLS    types.String `tfsdk:"tls"`
+	Zone   types.String `tfsdk:"zone"`
+	Tunnel types.String `tfsdk:"tunnel"`
 }
 
 // healthModel mirrors api.HealthCheck. Fields the user leaves unset stay null in state; the server's
@@ -77,6 +95,8 @@ type sourceGitModel struct {
 	Context           types.String `tfsdk:"context"`
 	CredentialsSecret types.String `tfsdk:"credentials_secret"`
 	BuildArgs         types.Map    `tfsdk:"build_args"`
+	WebhookSecret     types.String `tfsdk:"webhook_secret"`
+	DeployOnPush      types.Bool   `tfsdk:"deploy_on_push"`
 }
 
 type appResource struct{ base }
@@ -114,7 +134,26 @@ func (r *appResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp
 					"context":            schema.StringAttribute{Optional: true, Description: "Build context directory in the repository (default .)."},
 					"credentials_secret": schema.StringAttribute{Optional: true, Description: `Secret holding {"token"} (https) or {"privateKey","knownHosts"} (ssh).`},
 					"build_args":         schema.MapAttribute{Optional: true, ElementType: types.StringType, Description: "Build arguments. Not for secrets: they end up in image metadata."},
+					"webhook_secret":     schema.StringAttribute{Optional: true, Description: "Secret Git webhooks are checked with: GitHub's secret or GitLab's token."},
+					"deploy_on_push":     schema.BoolAttribute{Optional: true, Description: "Redeploy when the Git webhook says ref moved (default false)."},
 				}},
+			"previews": schema.SingleNestedAttribute{Optional: true,
+				Description: "An app per pull request, made, updated and deleted by the Git webhook (source apps only). Previews aren't part of state.",
+				Attributes: map[string]schema.Attribute{
+					"enabled": schema.BoolAttribute{Required: true, Description: "Make previews."},
+					"ttl_hours": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(api.PreviewTTLDefault),
+						Description: "Hours a preview lives without a push (1–720).", Validators: []validator.Int64{int64validator.Between(api.PreviewTTLMin, api.PreviewTTLMax)}},
+					"max_active": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(api.PreviewMaxDefault),
+						Description: "Previews at the same time (1–20).", Validators: []validator.Int64{int64validator.Between(api.PreviewMaxActiveMin, api.PreviewMaxActiveMax)}},
+					"domain": schema.SingleNestedAttribute{Optional: true, Description: "Each preview answers at <preview name>.<suffix>, behind the sign-in gate.",
+						Attributes: map[string]schema.Attribute{
+							"suffix": schema.StringAttribute{Required: true, Description: "e.g. preview.example.com."},
+							"tls":    schema.StringAttribute{Optional: true, Description: "auto, internal or off (default auto with a zone or tunnel, else internal)."},
+							"zone":   schema.StringAttribute{Optional: true, Description: "The zone that holds the names."},
+							"tunnel": schema.StringAttribute{Optional: true, Description: "The tunnel previews are reached through."},
+						}},
+				}},
+			"webhook_url":  schema.StringAttribute{Computed: true, Description: "Where the Git host sends webhooks (source apps)."},
 			"built_commit": schema.StringAttribute{Computed: true, Description: "The commit the serving revision was built from (source apps)."},
 			"port": schema.Int64Attribute{Optional: true, Description: "Port the app listens on.",
 				Validators: []validator.Int64{int64validator.Between(api.PortMin, api.PortMax)}},
@@ -170,9 +209,15 @@ func (m *appModel) spec(ctx context.Context) (api.AppSpec, diag.Diagnostics) {
 		Network: m.Network.ValueString(), Subnet: m.Subnet.ValueString(), Replicas: int(m.Replicas.ValueInt64()), Volumes: mountsOf(m.Volumes), BucketAccess: grantsOf(m.BucketAccess), Placed: m.placed()}
 	if g := m.Source; g != nil {
 		s.Source = &api.GitSource{Git: g.Git.ValueString(), Ref: g.Ref.ValueString(), Dockerfile: g.Dockerfile.ValueString(), Context: g.Context.ValueString(),
-			CredentialsSecret: g.CredentialsSecret.ValueString()}
+			CredentialsSecret: g.CredentialsSecret.ValueString(), WebhookSecret: g.WebhookSecret.ValueString(), DeployOnPush: g.DeployOnPush.ValueBool()}
 		if !g.BuildArgs.IsNull() {
 			diags.Append(g.BuildArgs.ElementsAs(ctx, &s.Source.BuildArgs, false)...)
+		}
+	}
+	if p := m.Previews; p != nil {
+		s.Previews = &api.Previews{Enabled: p.Enabled.ValueBool(), TTLHours: int(p.TTLHours.ValueInt64()), MaxActive: int(p.MaxActive.ValueInt64())}
+		if d := p.Domain; d != nil {
+			s.Previews.Domain = &api.PreviewDomain{Suffix: d.Suffix.ValueString(), TLS: d.TLS.ValueString(), Zone: d.Zone.ValueString(), Tunnel: d.Tunnel.ValueString()}
 		}
 	}
 	if !m.Command.IsNull() {
@@ -240,11 +285,36 @@ func fillSource(g *api.GitSource, prior *sourceGitModel) *sourceGitModel {
 	}
 	var pd, pc *types.String
 	priorArgs := types.MapNull(types.StringType)
+	push := types.BoolNull()
 	if prior != nil {
 		pd, pc, priorArgs = &prior.Dockerfile, &prior.Context, prior.BuildArgs
+		if !prior.DeployOnPush.IsNull() {
+			push = types.BoolValue(g.DeployOnPush)
+		}
+	}
+	if g.DeployOnPush {
+		push = types.BoolValue(true)
 	}
 	return &sourceGitModel{Git: types.StringValue(g.Git), Ref: types.StringValue(g.Ref), Dockerfile: keep(g.Dockerfile, api.GitDockerfileDefault, pd),
-		Context: keep(g.Context, api.GitContextDefault, pc), CredentialsSecret: strOrNull(g.CredentialsSecret), BuildArgs: mapOrNull(g.BuildArgs, priorArgs)}
+		Context: keep(g.Context, api.GitContextDefault, pc), CredentialsSecret: strOrNull(g.CredentialsSecret), BuildArgs: mapOrNull(g.BuildArgs, priorArgs),
+		WebhookSecret: strOrNull(g.WebhookSecret), DeployOnPush: push}
+}
+
+// fillPreviews mirrors the server's previews settings. The domain's TLS stays null when the configuration
+// left it to the server, which picks it from the zone and tunnel.
+func fillPreviews(p *api.Previews, prior *previewsModel) *previewsModel {
+	if p == nil {
+		return nil
+	}
+	out := &previewsModel{Enabled: types.BoolValue(p.Enabled), TTLHours: types.Int64Value(int64(p.TTLHours)), MaxActive: types.Int64Value(int64(p.MaxActive))}
+	if d := p.Domain; d != nil {
+		tls := types.StringNull()
+		if prior != nil && prior.Domain != nil && !prior.Domain.TLS.IsNull() {
+			tls = types.StringValue(d.TLS)
+		}
+		out.Domain = &previewDomainModel{Suffix: types.StringValue(d.Suffix), TLS: tls, Zone: strOrNull(d.Zone), Tunnel: strOrNull(d.Tunnel)}
+	}
+	return out
 }
 
 // fill copies server state into the model. Optional collections the user left unset stay null so
@@ -256,6 +326,7 @@ func (m *appModel) fill(r api.Resource) {
 	m.fillMachine(r, s.Placed)
 	m.ID, m.Name, m.Image = types.StringValue(r.ID), types.StringValue(r.Name), strOrNull(s.Image)
 	m.Source = fillSource(s.Source, m.Source)
+	m.Previews, m.WebhookURL = fillPreviews(s.Previews, m.Previews), outString(r, "webhookUrl")
 	m.BuiltCommit = outString(r, "builtCommit")
 	m.Port = types.Int64Null()
 	if s.Port > 0 {
@@ -357,7 +428,7 @@ func (r *appResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		"port": nilIfZero(spec.Port), "command": nilIfEmpty(spec.Command), "env": nilIfEmptyMap(spec.Env), "secretEnv": nilIfEmptyMap(spec.SecretEnv),
 		"strategy": spec.Strategy, "healthCheck": spec.HealthCheck, // a nil check encodes as null: cleared
 		"network": nilIfEmptyString(spec.Network), "subnet": nilIfEmptyString(spec.Subnet), "replicas": spec.Replicas, "volumes": nilIfNoMounts(spec.Volumes),
-		"bucketAccess": nilIfNoGrants(spec.BucketAccess)}
+		"bucketAccess": nilIfNoGrants(spec.BucketAccess), "previews": spec.Previews}
 	maps.Copy(patch, plan.machinePatch(&state.placementModel))
 	res, err := r.updateAndWait(ctx, state.ID.ValueString(), patch, timeout)
 	if err != nil {

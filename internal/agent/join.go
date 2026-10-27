@@ -21,6 +21,8 @@ type JoinOptions struct {
 	Listen     string // the agent's listen address, default ":7071"
 	TunnelPort int    // default 51820
 	StateDir   string
+	// Standby insists the code is a standby's (ADR-057).
+	Standby bool
 }
 
 // Join makes this computer's key, joins with the code, and saves the identity (MCH-04, ADR-043). The key
@@ -68,7 +70,11 @@ func Join(ctx context.Context, o JoinOptions) (Identity, error) {
 	if res.Server != "" {
 		server = res.Server
 	}
-	id := Identity{MachineID: res.MachineID, Name: res.Name, Server: server, Advertise: o.Advertise, Listen: o.Listen, TunnelPort: o.TunnelPort}
+	if o.Standby && res.Role != api.MachineStandby {
+		return Identity{}, fmt.Errorf("the code joined %s as a %s, not a standby: remove it and add a standby", res.Name, res.Role)
+	}
+	id := Identity{MachineID: res.MachineID, Name: res.Name, Server: server, Advertise: o.Advertise, Listen: o.Listen, TunnelPort: o.TunnelPort,
+		Standby: res.Role == api.MachineStandby}
 	if err := Save(o.StateDir, id, keyPEM, []byte(res.Certificate), []byte(res.CA)); err != nil {
 		return Identity{}, err
 	}

@@ -75,6 +75,35 @@ export const GUIDES: Record<Exclude<SectionSlug, 'records'>, Guide> = {
     ],
     related: ['apps', 'backups', 'alerts'],
   },
+  functions: {
+    what: [
+      'A function is a container that starts when something happens, does its work and stops. Nothing runs, and nothing uses memory, between events.',
+      'It starts for a message on a queue or topic, a file put in a bucket folder, a schedule, or a call from the console, the CLI or your own code. The event is in the file /enclave/event.json.',
+    ],
+    when: [
+      'Make thumbnails when a picture is uploaded to a bucket.',
+      'Handle each order message a topic sends, without a worker that runs all day.',
+      'Run a short task on a schedule, or when your app asks for it.',
+    ],
+    how: [
+      'Open Functions and choose New function.',
+      'Give it a name and an image whose command reads /enclave/event.json.',
+      'Add triggers: a queue, a bucket folder or a schedule. Topics send to a function from the topic’s subscriptions.',
+      'Use Invoke to send it an event and read the run’s output under Runs.',
+    ],
+    command: 'enclave function create hello --image alpine:3 --wait -- cat /enclave/event.json',
+    example: [
+      'A bucket called uploads gets pictures in the folder photos/.',
+      'Create a function called thumbs with an image that resizes pictures, and the trigger --on-bucket uploads/photos/.',
+      'Each picture uploaded starts a run; its event names the bucket and the key, and the run writes the thumbnail back.',
+    ],
+    note: [
+      'A run can last at most 15 minutes. Longer work belongs in a job.',
+      'At most as many runs as its concurrency go at once; queue messages wait, and calls are told to try again.',
+      'Each run keeps its event, exit code and the last lines it printed.',
+    ],
+    related: ['queues', 'topics', 'buckets'],
+  },
   vms: {
     what: [
       'A VM is a whole computer of its own, with its own operating system, running inside this one. You reach it over SSH and it can join your private networks.',

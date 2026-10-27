@@ -7,7 +7,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApi } from '../api/context';
 import { DETAIL_HELP, withHelp } from '../lib/details';
 import { RULES } from '../api/generated';
-import { ApiError, type AddedMachine, type DrainResult, type MachineSummary, type TunnelSpec } from '../api/types';
+import { ApiError, type AddedMachine, type DrainResult, type MachineRole, type MachineSummary, type TunnelSpec } from '../api/types';
 import { useSession } from '../auth/session';
 import { fromRows, KeyValueEditor, toRows, type Row as KV } from '../components/KeyValueEditor';
 import { MACHINE_STATE } from '../components/MachineFields';
@@ -37,7 +37,7 @@ export function MachinesPage() {
   const list = useLoad('machines', () => api.listMachines());
   const [params, setParams] = useSearchParams();
   // `?edge=1` opens Add an edge machine: the relay tunnel form links here (CON-78).
-  const [adding, setAdding] = useState<'worker' | 'edge' | null>(params.get('edge') === '1' ? 'edge' : null);
+  const [adding, setAdding] = useState<MachineRole | null>(params.get('edge') === '1' ? 'edge' : null);
   const [added, setAdded] = useState<AddedMachine | null>(null);
   const closeAdd = () => {
     setAdding(null);
@@ -51,8 +51,8 @@ export function MachinesPage() {
 
   const back = <Link to="/machines" className={buttonClass({ variant: 'ghost', size: 'sm' })}><Icons.ChevronLeft /> All machines</Link>;
   const addDrawer = adding && (
-    <Drawer title={adding === 'edge' ? 'Add an edge machine' : 'Add machine'} onClose={closeAdd}>
-      <AddMachineForm edge={adding === 'edge'} onDone={(a) => { closeAdd(); setAdded(a); list.reload(); }} />
+    <Drawer title={adding === 'edge' ? 'Add an edge machine' : adding === 'standby' ? 'Add a standby' : 'Add machine'} onClose={closeAdd}>
+      <AddMachineForm role={adding} onDone={(a) => { closeAdd(); setAdded(a); list.reload(); }} />
     </Drawer>
   );
 
@@ -81,6 +81,7 @@ export function MachinesPage() {
         actions={admin && (
           <Inline gap={2}>
             <Button icon={<Icons.Globe />} onClick={() => { setAdded(null); setAdding('edge'); }}>Add an edge machine</Button>
+            {!list.data?.some((m) => m.role === 'standby') && <Button icon={<Icons.Copy />} onClick={() => { setAdded(null); setAdding('standby'); }}>Add a standby</Button>}
             <Button variant="dark" icon={<Icons.Plus />} onClick={() => { setAdded(null); setAdding('worker'); }}>Add machine</Button>
           </Inline>
         )} />
@@ -107,7 +108,7 @@ export function MachinesPage() {
                 <td><Text size="sm">{m.resources} {m.resources === 1 ? 'resource' : 'resources'}</Text></td>
                 <td>
                   <Inline gap={2} wrap>
-                    {m.role === 'edge' ? <Chip icon={<Icons.Globe />}>Edge</Chip> : !m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
+                    {m.role === 'edge' ? <Chip icon={<Icons.Globe />}>Edge</Chip> : m.role === 'standby' ? <StandbyChip m={m} /> : !m.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
                     {m.versionMismatch && <Chip tone="warn">Different version</Chip>}
                   </Inline>
                 </td>
@@ -122,8 +123,15 @@ export function MachinesPage() {
   );
 }
 
-/** A worker runs resources; an edge machine is a server with a public address that only relays visitors (L2-014 EDG-01, EDG-02). */
-function AddMachineForm({ edge, onDone }: { edge: boolean; onDone: (a: AddedMachine) => void }) {
+/** The standby, and whether its copy is fresh (L2-016 HA-02). */
+function StandbyChip({ m }: { m: MachineSummary }) {
+  return <Chip icon={<Icons.Copy />} tone={m.standby?.stale ? 'warn' : undefined}>{m.standby?.stale ? 'Standby · copy is old' : 'Standby'}</Chip>;
+}
+
+/** A worker runs resources; an edge machine is a server with a public address that only relays visitors (L2-014 EDG-01, EDG-02);
+ * the standby keeps a copy of the control plane and can take over (L2-016 HA-01). */
+function AddMachineForm({ role, onDone }: { role: MachineRole; onDone: (a: AddedMachine) => void }) {
+  const edge = role === 'edge';
   const api = useApi();
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -148,7 +156,7 @@ function AddMachineForm({ edge, onDone }: { edge: boolean; onDone: (a: AddedMach
     setBusy(true);
     setError(null);
     try {
-      onDone(await api.addMachine(name.trim(), l, edge ? { address: addr, ...(port !== undefined ? { agentPort: port } : {}) } : undefined));
+      onDone(await api.addMachine(name.trim(), l, edge ? { address: addr, ...(port !== undefined ? { agentPort: port } : {}) } : role === 'standby' ? { standby: true } : undefined));
     } catch (err) {
       if (err instanceof ApiError && err.details.length) setErrors(Object.fromEntries(err.details.map((d) => [d.field, d.message])));
       else setError(errorText(err));
@@ -159,6 +167,7 @@ function AddMachineForm({ edge, onDone }: { edge: boolean; onDone: (a: AddedMach
   return (
     <Form onSubmit={submit} noValidate>
       {error && <Alert>{error}</Alert>}
+      {role === 'standby' && <Text as="p" tone="muted">A second computer that keeps a copy of this machine's control plane, every few seconds. If this machine is lost, run enclave standby promote on it and it carries on with your resources. It runs nothing else until then.</Text>}
       {edge && <Text as="p" tone="muted">A small server you rent with a public address. It relays visitors for your own domains to this machine over an encrypted tunnel; nothing else runs on it.</Text>}
       <Field id="m-name" label="Name" hint={edge ? 'How you’ll refer to it, like vps1.' : "How you'll refer to it, like rack-1."} error={errors.name}>
         <Input id="m-name" mono value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={Boolean(errors.name)} />
@@ -219,7 +228,12 @@ function JoinCard({ added, onDone }: { added: AddedMachine; onDone: () => void }
           <Heading level={2}>Join {added.machine.name}</Heading>
           <Text as="p">On the other computer, with Docker running, run this. It works once, until {new Date(added.expiresAt).toLocaleTimeString()}.</Text>
           <CodeBlock label="Join command" code={added.joinCommand} />
-          {added.machine.role === 'edge' ? (
+          {added.machine.role === 'standby' ? (
+            <Text as="p" size="sm" tone="muted">
+              Run it on the standby, with Docker running. This machine sends it copies on the agent port ({RULES.agentPortDefault}/tcp). To take over later, run enclave standby promote there;
+              the old main machine is then fenced and stops changing anything.
+            </Text>
+          ) : added.machine.role === 'edge' ? (
             <Text as="p" size="sm" tone="muted">
               Run it on the server, with Docker running. Open these ports in the server’s firewall: the agent ({RULES.agentPortDefault}/tcp, from this machine only), the tunnel
               ({RULES.tunnelPortDefault}/udp) and visitors (80/tcp and 443/tcp). This machine connects to it, so nothing is opened on your router. It shows here as online once it joins.
@@ -260,6 +274,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
   if (!x) return <Stack aria-busy="true"><Skeleton shape="title" /><Skeleton shape="block" /></Stack>;
   // An edge machine runs no resources: nothing is placed, drained or moved there (EDG-03).
   const edge = x.role === 'edge';
+  const standby = x.role === 'standby';
   const relays = (all.data ?? []).filter((r) => r.kind === 'tunnel' && (r.spec as TunnelSpec).machine === name && r.status.phase !== 'deleting');
 
   const refresh = () => {
@@ -323,10 +338,10 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
         back={back}
         title={x.main ? x.title : x.name}
         status={<Status tone={tone(x)}>{MACHINE_STATE[x.state] ?? x.state}</Status>}
-        lede={x.main ? 'The computer EnclaveStack runs on.' : edge ? 'A server with a public address that relays visitors to this EnclaveStack.' : 'A computer that joined this EnclaveStack.'}
-        meta={(!x.schedulable || x.versionMismatch || edge) && (
+        lede={x.main ? 'The computer EnclaveStack runs on.' : edge ? 'A server with a public address that relays visitors to this EnclaveStack.' : standby ? 'A computer that keeps a copy of the control plane and can take over.' : 'A computer that joined this EnclaveStack.'}
+        meta={(!x.schedulable || x.versionMismatch || edge || standby) && (
           <>
-            {edge ? <Chip icon={<Icons.Globe />}>Edge</Chip> : !x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
+            {edge ? <Chip icon={<Icons.Globe />}>Edge</Chip> : standby ? <StandbyChip m={x} /> : !x.schedulable && <Chip icon={<Icons.CirclePause />}>Not schedulable</Chip>}
             {x.versionMismatch && <Chip tone="warn">Different version</Chip>}
           </>
         )}
@@ -334,7 +349,7 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
               <Inline gap={2} wrap>
                 {x.main && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setRenaming(true)}>Rename</Button>}
                 {x.state === 'waiting' && <Button size="sm" icon={<Icons.KeyRound />} disabled={busy} onClick={() => void api.newJoinCode(name).then(setJoined, (e: unknown) => toast(errorText(e)))}>New join code</Button>}
-                {!edge && (
+                {!edge && !standby && (
                   <Button size="sm" icon={<Icons.CirclePause />} disabled={busy} onClick={() => void run(x.schedulable ? `${name} takes nothing new` : `${name} is schedulable again`, () => api.updateMachineByName(name, { schedulable: !x.schedulable }))}>
                     {x.schedulable ? 'Pause placing' : 'Allow placing'}
                   </Button>
@@ -361,7 +376,8 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
             { label: 'ID', mono: true, value: x.id, copy: x.id },
             { label: `${MACHINE_STATE[x.state] ?? x.state} since`, hint: DETAIL_HELP['State since'], value: <span title={new Date(x.since).toLocaleString()}>{formatAgo(x.since)}</span> },
             { label: 'Last heard', value: x.lastSeenAt ? <span title={new Date(x.lastSeenAt).toLocaleString()}>{formatAgo(x.lastSeenAt)}</span> : '—' },
-            { label: 'Role', value: edge ? 'Edge (only relays visitors)' : 'Worker' },
+            { label: 'Role', value: edge ? 'Edge (only relays visitors)' : standby ? 'Standby (keeps a copy of the control plane)' : 'Worker' },
+            ...(standby ? [{ label: 'Last copy', value: x.standby?.lastCopyAt ? `${formatAgo(x.standby.lastCopyAt)}${x.standby.lastCopyBytes ? ` · ${formatBytes(x.standby.lastCopyBytes)}` : ''}${x.standby.lastCopyError ? ` · ${x.standby.lastCopyError}` : ''}` : 'None yet' }] : []),
             { label: 'Address', mono: true, value: x.address ?? '—', copy: x.address ?? undefined },
             { label: 'System', value: x.os ? `${x.os} · ${x.arch}` : '—' },
             { label: 'Agent', mono: true, value: x.agentVersion || '—' },
@@ -407,6 +423,15 @@ function MachineDetail({ name, admin, back, onChanged, onRemoved }: { name: stri
                 ))}
               </tbody>
             </Table>
+          </Card>
+        )}
+        {standby && (
+          <Card as="section" title="Taking over">
+            <Stack gap={2}>
+              {x.standby?.stale && <Alert tone="bad">No copy has arrived for over 2 minutes. If this machine took over now, it would miss the latest changes.</Alert>}
+              <Text size="sm">If the main machine is lost, run this on {name}. It starts the control plane from its latest copy; the old main machine stops changing anything if it comes back.</Text>
+              <CodeBlock label="On the standby" code="enclave standby promote" />
+            </Stack>
           </Card>
         )}
         {edge ? (

@@ -130,6 +130,10 @@ func (r *Reconciler) deliver(ctx context.Context, w subscriptionWork) {
 			sleepCtx(ctx, time.Second) // the topic's reconcile creates a missing consumer
 			continue
 		}
+		if w.sub.Function != "" {
+			r.deliverToFunction(ctx, w, batch)
+			continue
+		}
 		for _, d := range batch {
 			r.deliverOne(ctx, w, d)
 		}
@@ -137,8 +141,11 @@ func (r *Reconciler) deliver(ctx context.Context, w subscriptionWork) {
 }
 
 func targetType(s api.Subscription) string {
-	if s.Queue != "" {
+	switch {
+	case s.Queue != "":
 		return "queue"
+	case s.Function != "":
+		return "function"
 	}
 	return "webhook"
 }
@@ -198,7 +205,37 @@ func (r *Reconciler) send(ctx context.Context, w subscriptionWork, d messaging.D
 		}
 		return err
 	}
+	if w.sub.Function != "" {
+		return r.sendToFunction(ctx, w, d)
+	}
 	return r.postWebhook(ctx, w, d, id)
+}
+
+// deliverToFunction delivers a batch to a function, as many at once as the function's concurrency (ADR-055).
+func (r *Reconciler) deliverToFunction(ctx context.Context, w subscriptionWork, batch []messaging.Delivery) {
+	limit := 1
+	if fn, err := r.Store.GetResourceByName(ctx, w.project, api.KindFunction, w.sub.Function); err == nil {
+		if s, err := functionSpecOf(fn); err == nil {
+			limit = s.Concurrency
+		}
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for _, d := range batch {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			r.deliverOne(ctx, w, d)
+		}()
+	}
+	wg.Wait()
 }
 
 // postWebhook POSTs the body with the topic, message ID, attempt and attributes as headers, signed when

@@ -1,0 +1,25 @@
+name: auth0
+title: Auth0
+category: connections
+signup: https://auth0.com/signup
+description: "Your Auth0 application's domain and keys, kept as secrets for your apps to use for sign-in. It runs nothing here: your apps reach Auth0 over the internet."
+version: 1.0.0
+parameters:
+  - { name: domain, title: Domain, description: "The application's Domain under Applications › your app › Settings, like acme.us.auth0.com (or your own sign-in domain).", type: hostname, required: true }
+  - { name: clientId, title: Client ID, description: "The Client ID on the same page.", type: string, required: true }
+  - { name: clientSecret, title: Client secret, description: "The Client Secret on the same page, for apps that sign people in on the server.", type: secret }
+resources:
+  - kind: secret
+    name: domain
+    value: "${param:domain}"
+  - kind: secret
+    name: issuer
+    value: "https://${param:domain}"
+  - kind: secret
+    name: clientid
+    value: "${param:clientId}"
+outputs:
+  AUTH0_DOMAIN: "${name:domain}"
+  AUTH0_ISSUER_BASE_URL: "${name:issuer}"
+  AUTH0_CLIENT_ID: "${name:clientid}"
+  AUTH0_CLIENT_SECRET: "${param:clientSecret}"

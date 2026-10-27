@@ -13,7 +13,11 @@ import {
   type DomainSpec,
   type FirewallRule,
   type FirewallSpec,
+  type FunctionSpec,
+  type FunctionTrigger,
   type JobSpec,
+  type Preview,
+  type Previews,
   type LoadBalancerCheck,
   type LoadBalancerSpec,
   type LoadBalancerTarget,
@@ -140,7 +144,7 @@ function newId(kind: Kind): string {
 function toRun(r: RunDetail): Run {
   return { id: r.id, trigger: r.trigger, status: r.status, scheduledFor: r.scheduledFor, startedAt: r.startedAt, finishedAt: r.finishedAt,
     exitCode: r.exitCode, message: r.message, ...(r.skippedCount ? { skippedCount: r.skippedCount } : {}), ...(r.artifact ? { artifact: { ...r.artifact } } : {}),
-    ...(r.key ? { key: r.key } : {}), ...(r.outputs ? { outputs: [...r.outputs] } : {}) };
+    ...(r.key ? { key: r.key } : {}), ...(r.outputs ? { outputs: [...r.outputs] } : {}), ...(r.event !== undefined ? { event: r.event } : {}) };
 }
 
 /** A stable 40-hex "commit" for a string (FNV-1a, repeated). */
@@ -164,6 +168,16 @@ function mockBuildLog(src: GitSource, failing: boolean): string[] {
 
 function err(code: ConstructorParameters<typeof ApiError>[0], message: string, status: number, details: FieldError[] = []) {
   return new ApiError(code, message, status, { requestId: 'req_mock', details });
+}
+
+/** A preview's name for a ref, as pkg/api PreviewNameForRef: app-<ref slug>, at most the name limit. */
+export function previewName(app: string, ref: string): string {
+  const bare = ref.replace(/^refs\/heads\//, '').replace(/^refs\//, '');
+  let slug = bare.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'preview';
+  if (slug.length > 20) slug = slug.slice(0, 20).replace(/^-+|-+$/g, '');
+  const suffix = `-${slug}`;
+  const room = RULES.nameMax - suffix.length;
+  return (app.length > room ? app.slice(0, room).replace(/-+$/, '') : app) + suffix;
 }
 
 function withoutSecret(t: Token & { secret: string }): Token {
@@ -223,7 +237,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   /** Outputs of a resource, with the name of an app's or job's own keys while it has bucket access (L2-011 BKA-08). */
   function outputs(r: Resource): Resource['outputs'] {
     const out = kindOutputs(r);
-    if ((r.kind === 'app' || r.kind === 'job') && ((r.spec as AppSpec | JobSpec).bucketAccess ?? []).length) out.bucketCredentialsSecret = bucketKeysName(r.name);
+    if ((r.kind === 'app' || r.kind === 'job' || r.kind === 'function') && ((r.spec as AppSpec | JobSpec).bucketAccess ?? []).length) out.bucketCredentialsSecret = bucketKeysName(r.name);
     return out;
   }
 
@@ -231,7 +245,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
 
   /** What can reach a bucket with keys of its own: apps and jobs that name it (L2-011 BKA-07). */
   function bucketUsers(name: string) {
-    return [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.project === scope && (o.r.kind === 'app' || o.r.kind === 'job')
+    return [...store.values()].filter((o) => o.r.status.phase !== 'deleting' && o.r.project === scope && (o.r.kind === 'app' || o.r.kind === 'job' || o.r.kind === 'function')
       && ((o.r.spec as AppSpec | JobSpec).bucketAccess ?? []).some((g) => g.bucket === name));
   }
 
@@ -262,6 +276,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         const internalPort = { postgres: 5432, mysql: 3306, mongodb: 27017, clickhouse: 8123 }[engine];
         const out: Resource['outputs'] = { engine, host: '127.0.0.1', port, internalHost: internal, internalPort, database: ident, username: ident, passwordSecret: r.name + MANAGED.passwordSecretSuffix };
         if (engine === 'clickhouse') Object.assign(out, { nativePort: port + 10000, internalNativePort: 9000 });
+        // v0.10 (ADR-058): the mock's CA is a placeholder; the server issues a real one.
+        const d = r.spec as DatabaseSpec;
+        if (d.tls) Object.assign(out, { tls: true, caCertificate: MOCK_CA, certificateExpiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString() });
+        if (d.exposed) out.exposedAddresses = [`192.168.1.20:${port}`] as unknown as string;
+        if (d.initScript) out.initScript = 'ran';
         return out;
       }
       case 'queue':
@@ -312,11 +331,26 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
           out.internalPort = s.port;
           if (s.publish) Object.assign(out, { host: '127.0.0.1', port });
         }
+        // v0.10 (ADR-056): the webhook URL, a parent's preview count and a preview's marks.
+        if (s.source?.webhookSecret) out.webhookUrl = `${window.location.origin}/api/v1/hooks/git/${r.id}`;
+        if (s.previews?.enabled) out.previews = previewsOf(r.id).filter((p) => p.r.status.phase !== 'deleting').length;
+        for (const k of ['previewOf', 'previewRef', 'pullRequest', 'expiresAt', 'url']) if (r.outputs[k] !== undefined) out[k] = r.outputs[k] as string;
         return out;
       }
       case 'secret': {
         const src = (r.spec as { source?: SecretSource }).source;
         return src ? { version: r.generation, valueUpdatedAt: r.updatedAt, store: src.store, key: src.key, syncedAt: now() } : { version: r.generation, valueUpdatedAt: r.updatedAt };
+      }
+      case 'function': {
+        const f = r.spec as FunctionSpec;
+        const out: Resource['outputs'] = { triggers: (f.triggers ?? []).length };
+        const folders = (f.triggers ?? []).filter((t) => t.bucket).map((t) => `${t.bucket ?? ''}/${t.prefix ?? ''}`);
+        if (folders.length) out.watching = folders as unknown as string;
+        const sched = (f.triggers ?? []).find((t) => t.schedule)?.schedule;
+        const next = sched ? nextRuns(sched, new Date(), 1)[0] : undefined;
+        if (next) out.nextRunAt = next.toISOString();
+        for (const k of ['lastRunStatus', 'lastRunAt']) if (r.outputs[k] !== undefined) out[k] = r.outputs[k] as string;
+        return out;
       }
       case 'job': {
         // The mock schedules in the browser's zone; the server uses the job's time zone (ADR-017).
@@ -580,7 +614,10 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         };
         const src = spec.source as Record<string, unknown> | undefined;
         const source = src && { dockerfile: RULES.gitDockerfileDefault, context: RULES.gitContextDefault, ...src };
-        return { memoryMiB: RULES.appMemoryDefault, strategy: 'rolling', ...spec, ...(healthCheck ? { healthCheck } : {}), ...(source ? { source } : {}) };
+        const pv = spec.previews as Previews | undefined;
+        const previews = pv && { ...pv, ttlHours: pv.ttlHours || RULES.previewTtlDefault, maxActive: pv.maxActive || RULES.previewMaxActiveDefault,
+          ...(pv.domain ? { domain: { ...pv.domain, suffix: pv.domain.suffix.trim().toLowerCase().replace(/\.$/, ''), tls: pv.domain.tls || (pv.domain.zone || pv.domain.tunnel ? 'auto' : 'internal') } } : {}) };
+        return { memoryMiB: RULES.appMemoryDefault, strategy: 'rolling', ...spec, ...(healthCheck ? { healthCheck } : {}), ...(source ? { source } : {}), ...(previews ? { previews } : {}) };
       }
       case 'database': {
         const engine = (spec.engine as string | undefined) ?? RULES.databaseEngine;
@@ -615,6 +652,9 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         return { versioning: false, ...spec };
       case 'secret':
         return spec;
+      case 'function':
+        return { memoryMiB: RULES.functionMemoryDefault, timeoutSeconds: RULES.functionTimeoutDefault, concurrency: RULES.functionConcurrencyDefault, ...spec,
+          ...(spec.triggers ? { triggers: (spec.triggers as FunctionTrigger[]).map((t) => Object.fromEntries(Object.entries(t).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]).filter(([, v]) => v !== ''))) } : {}) };
       case 'job':
         return { timeoutSeconds: RULES.jobTimeoutDefault, overlap: 'forbid', memoryMiB: RULES.appMemoryDefault, ...spec, schedule: String(spec.schedule ?? '').trim() };
       case 'backup':
@@ -669,8 +709,34 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       }
       const cred = (spec as unknown as AppSpec).source?.credentialsSecret;
       if (cred && !byName('secret', cred)) details.push({ field: 'spec.source.credentialsSecret', code: 'NOT_FOUND', message: `There's no secret named ${cred}.` });
+      const hook = (spec as unknown as AppSpec).source?.webhookSecret;
+      if (hook && !byName('secret', hook)) details.push({ field: 'spec.source.webhookSecret', code: 'NOT_FOUND', message: `There's no secret named ${hook}.` });
     }
-    if (kind === 'app' || kind === 'job') {
+    if (kind === 'function') {
+      // As internal/service functionRefs (FN-09): a queue must hide a message for the run's timeout and 30 s more.
+      const f = spec as unknown as FunctionSpec;
+      for (const [k, name] of Object.entries(f.secretEnv ?? {})) {
+        if (!byName('secret', name)) details.push({ field: `spec.secretEnv.${k}`, code: 'NOT_FOUND', message: `There's no secret named ${name}.` });
+      }
+      (f.triggers ?? []).forEach((t, i) => {
+        const field = `spec.triggers[${i}]`;
+        if (t.queue) {
+          const q = byName('queue', t.queue);
+          if (!q || q.r.status.phase === 'deleting') details.push({ field: `${field}.queue`, code: 'NOT_FOUND', message: `There's no queue named ${t.queue}.` });
+          else {
+            const vis = (q.r.spec as QueueSpec).visibilityTimeoutSeconds ?? RULES.queueVisibilityDefault;
+            const timeout = f.timeoutSeconds ?? RULES.functionTimeoutDefault;
+            if (vis < timeout + 30) details.push({ field: `${field}.queue`, code: 'NOT_ALLOWED',
+              message: `The queue ${t.queue} hides a received message for ${vis} s. A function with a ${timeout} s timeout needs ${timeout + 30} s or more: raise the queue's visibility timeout, or shorten the timeout.` });
+          }
+        }
+        if (t.bucket) {
+          const b = byName('bucket', t.bucket);
+          if (!b || b.r.status.phase === 'deleting') details.push({ field: `${field}.bucket`, code: 'NOT_FOUND', message: `There's no bucket named ${t.bucket}.` });
+        }
+      });
+    }
+    if (kind === 'app' || kind === 'job' || kind === 'function') {
       ((spec as unknown as AppSpec).bucketAccess ?? []).forEach((g, i) => {
         const b = byName('bucket', g.bucket);
         if (!b || b.r.status.phase === 'deleting') details.push({ field: `spec.bucketAccess[${i}].bucket`, code: 'NOT_FOUND', message: `There's no bucket named ${g.bucket}.` });
@@ -699,7 +765,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       };
       if (!details.some((d) => d.field === 'spec.source')) {
         if (b.source.database) missing('database', b.source.database, 'spec.source');
-        else missing('cache', b.source.cache, 'spec.source');
+        else if (b.source.volume) {
+          missing('volume', b.source.volume, 'spec.source');
+          const v = byName('volume', b.source.volume);
+          if (v && (v.r.spec as VolumeSpec).type === 'disk') details.push({ field: 'spec.source.volume', code: 'NOT_ALLOWED', message: `The volume ${b.source.volume} is a disk. Back up disks with a snapshot.` });
+        } else missing('cache', b.source.cache, 'spec.source');
       }
       if (b.destination.bucket) missing('bucket', b.destination.bucket, 'spec.destination.bucket');
       else if (b.destination.s3) missing('secret', b.destination.s3.credentialsSecret, 'spec.destination.s3.credentialsSecret');
@@ -710,7 +780,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       return o;
     };
     const placed = spec as { network?: string; subnet?: string; publish?: boolean };
-    if ((kind === 'app' || kind === 'database' || kind === 'cache' || kind === 'job') && placed.network) {
+    if ((kind === 'app' || kind === 'database' || kind === 'cache' || kind === 'job' || kind === 'function') && placed.network) {
       const n = exists('network', placed.network, 'spec.network');
       const ns = n?.r.spec as NetworkSpec | undefined;
       if (ns && placed.subnet && !(ns.subnets ?? []).some((x) => x.name === placed.subnet))
@@ -761,6 +831,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     if (kind === 'topic') {
       ((spec as TopicSpec).subscriptions ?? []).forEach((sub, i) => {
         if (sub.queue) exists('queue', sub.queue, `spec.subscriptions[${i}].queue`);
+        if (sub.function) exists('function', sub.function, `spec.subscriptions[${i}].function`);
         if (sub.secret) exists('secret', sub.secret, `spec.subscriptions[${i}].secret`);
       });
     }
@@ -854,11 +925,41 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
   }
 
   /** Backups whose source or destination is r (CP-12, BAK-08). */
+  /** An app's previews: apps it owns (ADR-056). */
+  const previewsOf = (appId: string) => [...store.values()].filter((o) => o.r.kind === 'app' && o.r.ownerId === appId);
+  const isPreview = (r: Resource) => r.kind === 'app' && r.ownerId !== null && r.ownerId !== MANAGED.systemOwner;
+
+  /**
+   * Starts a function's run for an event, within its concurrency (FN-07); null when the function is busy.
+   * Mock runs end after a step; commands containing "exit N" end with that code.
+   */
+  function startFunctionRun(s: Stored, trigger: Run['trigger'], event: unknown): RunDetail | null {
+    const f = s.r.spec as FunctionSpec;
+    s.runs ??= [];
+    if (s.runs.filter((x) => x.status === 'running').length >= (f.concurrency ?? RULES.functionConcurrencyDefault)) return null;
+    const run: RunDetail = { id: 'run_' + Math.random().toString(36).slice(2, 18), trigger, status: 'running', scheduledFor: null,
+      startedAt: now(), finishedAt: null, exitCode: null, message: '', outputTail: '', event };
+    s.runs.unshift(run);
+    setTimeout(() => {
+      const cmd = (f.command ?? []).join(' ');
+      const code = Number(/exit\s+(\d+)/.exec(cmd)?.[1] ?? 0);
+      Object.assign(run, { status: code === 0 ? 'succeeded' : 'failed', finishedAt: now(), exitCode: code, message: `Exited with code ${code}.`,
+        outputTail: `${s.r.name}: ${JSON.stringify(event)}\n` });
+      s.r.outputs = { ...s.r.outputs, lastRunStatus: run.status, lastRunAt: run.finishedAt ?? now() };
+      if (code !== 0) addEvent(s, 'run_failed', `Run ${run.id}: ${run.message}`);
+    }, stepMs);
+    return run;
+  }
+  const functionBusy = (s: Stored) => {
+    const msg = `The function already runs ${(s.r.spec as FunctionSpec).concurrency ?? RULES.functionConcurrencyDefault} runs, its concurrency. Try again in a few seconds.`;
+    return fail(new ApiError('FUNCTION_BUSY', msg, 429, { requestId: 'req_mock', retryAfterSeconds: 5 }));
+  };
+
   const backupsUsing = (r: Resource) =>
     [...store.values()].filter((o) => {
       if (o.r.kind !== 'backup' || o.r.status.phase === 'deleting' || o.r.project !== r.project) return false;
       const b = o.r.spec as BackupSpec;
-      return (r.kind === 'database' && b.source.database === r.name) || (r.kind === 'cache' && b.source.cache === r.name)
+      return (r.kind === 'database' && b.source.database === r.name) || (r.kind === 'cache' && b.source.cache === r.name) || (r.kind === 'volume' && b.source.volume === r.name)
         || (r.kind === 'bucket' && b.destination.bucket === r.name) || (r.kind === 'secret' && b.destination.s3?.credentialsSecret === r.name);
     });
 
@@ -871,12 +972,14 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     addEvent(s, trigger === 'pre_restore' ? 'safety_backup' : 'action_run', trigger === 'pre_restore' ? `Safety backup ${run.id} before a restore.` : `Run ${run.id} requested.`);
     setTimeout(() => {
       const isDb = Boolean(b.source.database);
-      const source = b.source.database ?? b.source.cache ?? '';
+      const isVolume = Boolean(b.source.volume);
+      const source = b.source.database ?? b.source.cache ?? b.source.volume ?? '';
       const size = 1_200_000 + Math.floor(Math.random() * 400_000);
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.(\d{3})Z$/, '.$1Z');
       const where = b.destination.bucket ? `http://127.0.0.1:41999/${b.destination.bucket}` : `${(b.destination.s3?.endpoint ?? '').replace(/\/$/, '')}/${b.destination.s3?.bucket ?? ''}`;
-      Object.assign(run, { status: 'succeeded', finishedAt: now(), message: `Backed up ${isDb ? 'database' : 'cache'} ${source} (${isDb ? 'postgres' : 'redis'}): ${(size / 2 ** 20).toFixed(1)} MiB.`,
-        artifact: { key: `${b.prefix ?? RULES.backupPrefixDefault}/${source}/${stamp}-${run.id}.${isDb ? 'pgdump' : 'rdb'}`, sizeBytes: size,
+      const [what, engine, ext] = isVolume ? ['volume', 'filesystem volume', 'tar.gz'] : isDb ? ['database', 'postgres', 'pgdump'] : ['cache', 'redis', 'rdb'];
+      Object.assign(run, { status: 'succeeded', finishedAt: now(), message: `Backed up ${what} ${source} (${engine}): ${(size / 2 ** 20).toFixed(1)} MiB.`,
+        artifact: { key: `${b.prefix ?? RULES.backupPrefixDefault}/${source}/${stamp}-${run.id}.${ext}`, sizeBytes: size,
           sha256: Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join(''), destination: where } });
       s.r.outputs = { ...s.r.outputs, lastRunStatus: 'succeeded', lastRunAt: run.finishedAt ?? now(), lastSuccessAt: run.finishedAt ?? now() };
       // Retention (BAK-04): beyond the newest `keep`, runs lose their stored backup and can't be restored.
@@ -938,7 +1041,12 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         case 'queue':
           return r.kind === 'queue' && (o.r.spec as QueueSpec).deadLetterQueue === r.name;
         case 'topic':
-          return ((o.r.spec as TopicSpec).subscriptions ?? []).some((sub) => (r.kind === 'queue' && sub.queue === r.name) || (r.kind === 'secret' && sub.secret === r.name));
+          return ((o.r.spec as TopicSpec).subscriptions ?? []).some((sub) => (r.kind === 'queue' && sub.queue === r.name) || (r.kind === 'function' && sub.function === r.name) || (r.kind === 'secret' && sub.secret === r.name));
+        case 'function': {
+          const f = o.r.spec as FunctionSpec;
+          return (f.triggers ?? []).some((t) => (r.kind === 'queue' && t.queue === r.name) || (r.kind === 'bucket' && t.bucket === r.name))
+            || (r.kind === 'secret' && Object.values(f.secretEnv ?? {}).includes(r.name));
+        }
         case 'transcoder': {
           const t = o.r.spec as TranscoderSpec;
           return (r.kind === 'bucket' && [t.input.bucket, t.output.bucket].includes(r.name)) ||
@@ -1126,7 +1234,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
     if (kind === 'topic') Object.assign(s, { published: 0, deliveries: {} });
     if (kind === 'email') s.emails = [];
     if (kind === 'bucket' && !byName('secret', MANAGED.objectStoreCredentials)) insert('secret', MANAGED.objectStoreCredentials, {}, MANAGED.systemOwner, '{"accessKey":"mock","secretKey":"mock"}');
-    if (kind === 'app' || kind === 'job') syncBucketKeys(s, undefined);
+    if (kind === 'app' || kind === 'job' || kind === 'function') syncBucketKeys(s, undefined);
     return s;
   }
 
@@ -1476,6 +1584,10 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const r = s.r;
       if (r.status.phase === 'deleting') return fail(err('RESOURCE_BUSY', 'This resource is being deleted.', 409));
       if (ifMatch !== r.generation) return fail(err('PRECONDITION_FAILED', 'This resource changed since you read it. Reload and try again.', 412));
+      if (isPreview(r)) {
+        return fail(err('IMMUTABLE_FIELD', 'This preview follows its app. Change the app, then redeploy the preview or push to its pull request.', 422,
+          [{ field: 'spec', code: 'IMMUTABLE', message: "Previews can't be edited." }]));
+      }
       if (r.ownerId) return fail(err('IMMUTABLE_FIELD', 'EnclaveStack manages this secret; it changes with its owner.', 422));
       const inStack = partOfStack(r);
       if (inStack) return inStack;
@@ -1494,6 +1606,10 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       }
       if (r.kind === 'database' && (full as unknown as DatabaseSpec).version !== (r.spec as DatabaseSpec).version) {
         return fail(err('IMMUTABLE_FIELD', 'Changing the version needs a new database.', 422, [{ field: 'spec.version', code: 'IMMUTABLE', message: 'Changing the version needs a new database.' }]));
+      }
+      if (r.kind === 'database' && ((full as unknown as DatabaseSpec).initScript ?? '') !== ((r.spec as DatabaseSpec).initScript ?? '')) {
+        const msg = 'The setup script ran when the database was created. To run more SQL, connect to the database.';
+        return fail(err('IMMUTABLE_FIELD', msg, 422, [{ field: 'spec.initScript', code: 'IMMUTABLE', message: msg }]));
       }
       if (r.kind === 'search' && (full as unknown as SearchSpec).version !== (r.spec as SearchSpec).version) {
         return fail(err('IMMUTABLE_FIELD', 'Changing the version needs a new search service.', 422, [{ field: 'spec.version', code: 'IMMUTABLE', message: 'Changing the version needs a new search service.' }]));
@@ -1543,7 +1659,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         r.spec = {} as SpecByKind[Kind];
       }
       else r.spec = full as unknown as SpecByKind[Kind];
-      if (r.kind === 'app' || r.kind === 'job') syncBucketKeys(s, (prior as { bucketAccess?: BucketGrant[] }).bucketAccess);
+      if (r.kind === 'app' || r.kind === 'job' || r.kind === 'function') syncBucketKeys(s, (prior as { bucketAccess?: BucketGrant[] }).bucketAccess);
       r.generation++;
       r.updatedAt = now();
       addEvent(s, 'updated', `Spec changed to generation ${r.generation}.`);
@@ -1558,7 +1674,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (!s) return notFound();
       const r = s.r;
       if (ifMatch !== undefined && ifMatch !== r.generation) return fail(err('PRECONDITION_FAILED', 'This resource changed since you read it. Reload and try again.', 412));
-      if (r.ownerId) {
+      if (r.ownerId && !isPreview(r)) {
         const owner = r.ownerId === MANAGED.systemOwner ? 'EnclaveStack' : `the ${store.get(r.ownerId)?.r.kind ?? ''} ${store.get(r.ownerId)?.r.name ?? ''}`;
         return fail(err('RESOURCE_IN_USE', `This secret is managed by ${owner} and is deleted with it.`, 409));
       }
@@ -1574,9 +1690,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         return fail(err('RESOURCE_IN_USE', `${r.name} is still used. Remove it from these first.`, 409,
           jobUsers.map((j) => ({ field: `job/${j.r.name}`, code: 'NOT_ALLOWED' as const, message: `Run by the job ${j.r.name}.` }))));
       }
-      if (r.kind === 'app' && domainsOf(r.name).length) {
+      // An app's previews, and a preview's domain, go with it (PRV-09).
+      const ownDomains = (d: Stored) => d.r.ownerId === r.id;
+      if (r.kind === 'app' && domainsOf(r.name).filter((d) => !ownDomains(d)).length) {
         return fail(err('RESOURCE_IN_USE', `${r.name} is still used. Remove it from these first.`, 409,
-          domainsOf(r.name).map((d) => ({ field: `domain/${d.r.name}`, code: 'NOT_ALLOWED' as const, message: `Served by the domain ${d.r.name}.` }))));
+          domainsOf(r.name).filter((d) => !ownDomains(d)).map((d) => ({ field: `domain/${d.r.name}`, code: 'NOT_ALLOWED' as const, message: `Served by the domain ${d.r.name}.` }))));
       }
       const backupUsers = backupsUsing(r);
       if (backupUsers.length) {
@@ -1609,6 +1727,9 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (s.timer) clearTimeout(s.timer);
       r.status = { ...r.status, phase: 'deleting', lastTransitionAt: now() };
       addEvent(s, 'deleting', 'Deletion requested.');
+      const parent = isPreview(r) && r.ownerId ? store.get(r.ownerId) : undefined;
+      if (parent) addEvent(parent, 'preview_deleted', `Preview ${r.name} deleted.`);
+      for (const p of r.kind === 'app' ? previewsOf(id) : []) removeNow(p);
       setTimeout(() => {
         store.delete(id);
         for (const [cid, child] of store) if (child.r.ownerId === id) store.delete(cid);
@@ -1720,6 +1841,13 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         return wait(toRun(backupRun(s, 'manual')));
       }
       if (s.r.kind === 'transcoder') return fail(err('VALIDATION_FAILED', 'Check the highlighted fields.', 422, [{ field: 'key', code: 'REQUIRED', message: "Give the object's key to transcode, like videos/intro.mov." }]));
+      if (s.r.kind === 'function') {
+        if (s.r.status.phase !== 'ready') return fail(err('RESOURCE_BUSY', 'Wait until the function is ready, or use Retry if it failed.', 409));
+        const run = startFunctionRun(s, 'manual', { source: 'manual' });
+        if (!run) return functionBusy(s);
+        addEvent(s, 'action_run', `Run ${run.id} requested.`);
+        return wait(toRun(run));
+      }
       if (s.r.kind !== 'job') return fail(err('ACTION_NOT_SUPPORTED', `A ${s.r.kind} can't be run.`, 409));
       if (s.r.status.phase !== 'ready') return fail(err('ACTION_NOT_SUPPORTED', 'Wait until the job is ready, or use Retry if it failed.', 409));
       const j = s.r.spec as JobSpec;
@@ -1747,7 +1875,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (blocked) return blocked;
       const s = store.get(id);
       if (!s) return notFound();
-      if (s.r.kind !== 'job' && s.r.kind !== 'backup' && s.r.kind !== 'transcoder') return fail(err('ACTION_NOT_SUPPORTED', `A ${s.r.kind} has no runs.`, 409));
+      if (!(RULES.runKinds as readonly Kind[]).includes(s.r.kind)) return fail(err('ACTION_NOT_SUPPORTED', `A ${s.r.kind} has no runs.`, 409));
       return wait((s.runs ?? []).map(toRun));
     },
     restore: (id, req) => {
@@ -1771,12 +1899,14 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (run.status !== 'succeeded') return fail(err('RUN_NOT_RESTORABLE', 'Only a successful backup run can be restored.', 409));
       if (!run.artifact) return fail(err('RUN_NOT_RESTORABLE', "This run's backup was removed by retention. Choose a newer run.", 409));
       const b = s.r.spec as BackupSpec;
-      const kind: Kind = b.source.cache ? 'cache' : 'database';
-      const srcName = b.source.database ?? b.source.cache ?? '';
+      const kind: Kind = b.source.cache ? 'cache' : b.source.volume ? 'volume' : 'database';
+      const srcName = b.source.database ?? b.source.cache ?? b.source.volume ?? '';
       const src = byName(kind, srcName);
       if (!src) return fail(err('RUN_NOT_RESTORABLE', `The ${kind} ${srcName} no longer exists. Restore into a new one instead.`, 409));
       if (req.mode === 'new') {
-        return api.createResource(kind, req.name ?? '', clone(src.r.spec) as SpecByKind[typeof kind], s.r.project).then((created) => {
+        // A new volume starts empty and gets the backup's files, not its source's snapshot (ADR-059).
+        const fresh = kind === 'volume' ? { ...clone(src.r.spec as VolumeSpec), snapshot: undefined } : clone(src.r.spec);
+        return api.createResource(kind, req.name ?? '', fresh as SpecByKind[typeof kind], s.r.project).then((created) => {
           const target = store.get(created.id);
           if (target) addEvent(target, 'restore_started', `Restoring from backup ${s.r.name} run ${run.id}.`);
           return created;
@@ -1800,6 +1930,76 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       return run ? wait({ ...run }) : fail(err('NOT_FOUND', "That run doesn't exist, or was removed by retention.", 404));
     },
 
+    // v0.10 (L3-002 §18).
+    invoke: (id, event, waitForEnd = false) => {
+      const blocked = guard();
+      if (blocked) return blocked;
+      const s = store.get(id);
+      if (!s) return notFound();
+      if (s.r.kind !== 'function') return fail(err('ACTION_NOT_SUPPORTED', `Only functions can be invoked; this is a ${s.r.kind}.`, 409));
+      if (s.r.status.phase !== 'ready') return fail(err('RESOURCE_BUSY', 'Wait until the function is ready, or use Retry if it failed.', 409));
+      if (new TextEncoder().encode(JSON.stringify(event ?? null)).length > RULES.invokeMaxBytes) {
+        return fail(err('PAYLOAD_TOO_LARGE', "An invocation's body can be at most 256 KiB. Put bigger inputs in a bucket and send the key.", 413));
+      }
+      const run = startFunctionRun(s, 'invoke', { source: 'invoke', ...(event === undefined ? {} : { body: event }) });
+      if (!run) return functionBusy(s);
+      if (!waitForEnd) return wait(toRun(run));
+      return new Promise((resolve) => setTimeout(resolve, stepMs + 10)).then(() => (run.status === 'running' ? toRun(run) : { ...run }));
+    },
+    listPreviews: (id) => {
+      const blocked = guard();
+      if (blocked) return blocked;
+      const s = store.get(id);
+      if (!s) return notFound();
+      if (s.r.kind !== 'app') return fail(err('ACTION_NOT_SUPPORTED', `A ${s.r.kind} has no previews.`, 409));
+      return wait(previewsOf(id).map((p): Preview => ({ id: p.r.id, name: p.r.name, ref: String(p.r.outputs.previewRef ?? ''), phase: p.r.status.phase,
+        expiresAt: String(p.r.outputs.expiresAt ?? ''), createdAt: p.r.createdAt, ...(p.r.outputs.pullRequest ? { pullRequest: Number(p.r.outputs.pullRequest) } : {}),
+        ...(p.r.outputs.url ? { url: String(p.r.outputs.url) } : {}) })));
+    },
+    createPreview: (id, ref, name) => {
+      const blocked = guard();
+      if (blocked) return blocked;
+      const s = store.get(id);
+      if (!s) return notFound();
+      ref = ref.trim();
+      if (!ref || ref.length > RULES.gitRefMax || /\s/.test(ref)) {
+        return validationFailed([{ field: 'ref', code: 'INVALID_FORMAT', message: 'Enter a branch, tag, commit or ref, like feature/login or refs/pull/7/head.' }]);
+      }
+      if (s.r.kind !== 'app' || isPreview(s.r)) return fail(err('ACTION_NOT_SUPPORTED', 'Only an app built from Git has previews.', 409));
+      if (s.r.status.phase === 'deleting') return fail(err('RESOURCE_BUSY', 'This app is being deleted.', 409));
+      const parent = s.r.spec as AppSpec;
+      if (!parent.source || !parent.previews?.enabled) return fail(err('ACTION_NOT_SUPPORTED', 'Turn previews on for this app first: they need an app built from Git.', 409));
+      const nm = name?.trim() || previewName(s.r.name, ref);
+      const nameErr = validateName(nm);
+      if (nameErr) return validationFailed([{ field: 'name', code: 'INVALID_FORMAT', message: nameErr }]);
+      const expiresAt = new Date(Date.now() + (parent.previews.ttlHours ?? RULES.previewTtlDefault) * 3_600_000).toISOString();
+      const domain = parent.previews.domain;
+      const marks = { previewOf: s.r.name, previewRef: ref, expiresAt, ...(domain ? { url: `${domain.tls === 'off' ? 'http' : 'https'}://${nm}.${domain.suffix}` } : {}) };
+      const existing = byName('app', nm);
+      if (existing) {
+        if (existing.r.ownerId !== s.r.id) return validationFailed([{ field: 'name', code: 'NOT_ALLOWED', message: `There's already an app named ${nm} that isn't a preview of ${s.r.name}. Choose another name.` }]);
+        if (existing.r.status.phase === 'deleting') return fail(err('RESOURCE_BUSY', "This preview is being deleted. Try again once it's gone.", 409));
+        existing.r.outputs = { ...existing.r.outputs, ...marks };
+        addEvent(existing, 'redeploying', `Preview redeployed from ${ref}.`);
+        reconcile(existing, 'updating');
+        return wait(clone(existing.r));
+      }
+      const active = previewsOf(id).filter((p) => p.r.status.phase !== 'deleting');
+      const max = parent.previews.maxActive ?? RULES.previewMaxActiveDefault;
+      if (active.length >= max) return fail(err('PREVIEW_LIMIT', `${s.r.name} already has ${active.length} previews, its limit. Delete one, or raise previews.maxActive.`, 409));
+      // The parent's spec at ref, one replica, unpublished, without previews, webhooks or volumes (ADR-056).
+      const spec: AppSpec = { ...clone(parent), source: { ...parent.source, ref, webhookSecret: undefined, deployOnPush: undefined }, previews: undefined, volumes: undefined,
+        publish: false, replicas: 1, env: { ...(parent.env ?? {}), ENCLAVE_PREVIEW: nm, ENCLAVE_PREVIEW_REF: ref } };
+      const created = insert('app', nm, JSON.parse(JSON.stringify(spec)) as Record<string, unknown>, s.r.id, undefined, s.r.project);
+      created.r.outputs = { ...created.r.outputs, ...marks };
+      if (domain) {
+        insert('domain', nm, { hostname: `${nm}.${domain.suffix}`, app: nm, tls: domain.tls, redirectHttp: true, ...(domain.zone ? { zone: domain.zone } : {}),
+          ...(domain.tunnel ? { tunnel: domain.tunnel } : {}) }, created.r.id, undefined, s.r.project);
+      }
+      addEvent(s, 'preview_created', `Preview ${nm} created from ${ref}.`);
+      return wait(clone(created.r));
+    },
+
     // v0.6 data endpoints (L3-002 §9.3), in memory.
     sendMessage: (id, message) => {
       const s = dataOf(id, ['queue', 'topic']);
@@ -1811,15 +2011,26 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (s.r.kind === 'topic') {
         s.published = (s.published ?? 0) + 1;
         for (const sub of (s.r.spec as TopicSpec).subscriptions ?? []) {
-          const target = sub.queue ? `queue/${sub.queue}` : (sub.url ?? '');
+          const target = sub.queue ? `queue/${sub.queue}` : sub.function ? `function/${sub.function}` : (sub.url ?? '');
           if (sub.queue) enqueue(byName('queue', sub.queue), message);
+          const fn = sub.function ? byName('function', sub.function) : undefined;
+          if (fn) startFunctionRun(fn, 'topic', { source: 'topic', topic: s.r.name, message: { body: message.body, attributes: message.attributes ?? {} } });
           s.deliveries = { ...s.deliveries, [target]: (s.deliveries?.[target] ?? 0) + 1 };
         }
         return wait({ id: String(s.published), duplicate: false });
       }
       const dup = message.deduplicationId ? s.messages?.find((m) => m.attributes['__dedup'] === message.deduplicationId) : undefined;
       if (dup) return wait({ id: dup.id, duplicate: true });
-      return wait({ id: enqueue(s, message), duplicate: false });
+      const sent = enqueue(s, message);
+      // A function with this queue as a trigger takes the message as a run (FN-03); a busy one leaves it waiting.
+      for (const o of store.values()) {
+        if (o.r.kind !== 'function' || o.r.project !== s.r.project || !((o.r.spec as FunctionSpec).triggers ?? []).some((t) => t.queue === s.r.name)) continue;
+        if (startFunctionRun(o, 'queue', { source: 'queue', queue: s.r.name, message: { id: sent, body: message.body, attributes: message.attributes ?? {} } })) {
+          s.messages = (s.messages ?? []).filter((m) => m.id !== sent);
+        }
+        break;
+      }
+      return wait({ id: sent, duplicate: false });
     },
     listMessages: (id, limit = RULES.peekLimitDefault) => {
       const s = dataOf(id, ['queue']);
@@ -1861,7 +2072,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const s = dataOf(id, ['topic']);
       if (s instanceof Promise) return s;
       return wait({ published: s.published ?? 0, items: ((s.r.spec as TopicSpec).subscriptions ?? []).map((sub) => {
-        const target = sub.queue ? `queue/${sub.queue}` : (sub.url ?? '');
+        const target = sub.queue ? `queue/${sub.queue}` : sub.function ? `function/${sub.function}` : (sub.url ?? '');
         return { target, delivered: s.deliveries?.[target] ?? 0, pending: 0, failed: 0, lastError: '' };
       }) });
     },
@@ -2023,9 +2234,11 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       const m = machineList().find((x) => x.name === name);
       return guard() ?? (m ? wait(clone(m)) : machineNotFound(name));
     },
-    addMachine: (name, labels = {}, edge) => {
+    addMachine: (name, labels = {}, role) => {
       const blocked = guard() ?? adminOnly('add machines');
       if (blocked) return blocked;
+      const edge = role && 'address' in role ? role : undefined;
+      const standby = role !== undefined && 'standby' in role;
       const nameErr = validateName(name);
       const details: FieldError[] = [...(nameErr ? [{ field: 'name', code: 'INVALID_FORMAT' as const, message: nameErr }] : []),
         ...Object.entries(validateLabels(labels, 'labels')).map(([field, message]) => ({ field, code: 'INVALID_FORMAT' as const, message }))];
@@ -2035,9 +2248,13 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (edge?.agentPort !== undefined && (edge.agentPort < RULES.portMin || edge.agentPort > RULES.portMax)) details.push({ field: 'agentPort', code: 'OUT_OF_RANGE', message: 'Use a port from 1 to 65535.' });
       if (details.length) return validationFailed(details);
       if (machineList().some((m) => m.name === name)) return fail(err('NAME_TAKEN', `A machine named ${name} already exists.`, 409, [{ field: 'name', code: 'NOT_ALLOWED', message: `A machine named ${name} already exists.` }]));
+      // v0.10 (SBY-01): one standby at a time.
+      const other = standby ? machines.find((m) => m.role === 'standby') : undefined;
+      if (other) return fail(err('STANDBY_EXISTS', `${other.name} is already the standby. Remove it to make another computer the standby.`, 409));
       seedMachine(name, labels, 'waiting');
       const added = machines.find((m) => m.name === name);
       if (edge && added) Object.assign(added, { role: 'edge', address: edge.address.trim(), schedulable: false });
+      if (standby && added) Object.assign(added, { role: 'standby', schedulable: false, standby: { stale: false } });
       machineEvent(name, 'added', 'Added; waiting for its agent.');
       const joinAfter = options.joinAfterMs ?? stepMs * 5;
       if (joinAfter > 0) {
@@ -2045,7 +2262,10 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
           const i = machines.findIndex((m) => m.name === name && m.state === 'waiting');
           const m = machines[i];
           if (!m) return;
-          machines[i] = m.role === 'edge' ? { ...joined(m, m.address ?? ''), role: 'edge', schedulable: false } : joined(m, `10.0.0.${10 + i}`);
+          machines[i] = m.role === 'edge' ? { ...joined(m, m.address ?? ''), role: 'edge', schedulable: false }
+            : m.role === 'standby' ? { ...joined(m, `10.0.0.${10 + i}`), role: 'standby', schedulable: false, standby: { lastCopyAt: now(), lastCopyBytes: 2_400_000, stale: false },
+              message: 'Standby: it keeps a copy of the control plane and takes over with `enclave standby promote`.' }
+            : joined(m, `10.0.0.${10 + i}`);
           machineEvent(name, 'joined', m.role === 'edge' ? `Joined: this machine reached ${m.address ?? ''}.` : `Joined from 10.0.0.${10 + i}.`);
         }, joinAfter);
       }
@@ -2066,6 +2286,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
         save();
       }
       if (input.labels) m.labels = { ...input.labels };
+      if (input.schedulable && 'role' in m && m.role === 'standby') return validationFailed([{ field: 'schedulable', code: 'NOT_ALLOWED', message: `${name} is the standby: it keeps the control plane's copy, and nothing is placed on it.` }]);
       if (input.schedulable && 'role' in m && m.role === 'edge') return validationFailed([{ field: 'schedulable', code: 'NOT_ALLOWED', message: 'An edge machine only relays visitors; nothing is placed on it.' }]);
       if (input.schedulable !== undefined && input.schedulable !== m.schedulable) {
         m.schedulable = input.schedulable;
@@ -2106,7 +2327,7 @@ export function createMockApi(options: MockOptions = {}): EnclaveApi {
       if (!m) return machineNotFound(name);
       if (m.state !== 'waiting') return fail(err('ACTION_NOT_SUPPORTED', `${name} has joined already; a join code is only for a machine waiting for its agent.`, 409));
       const code = Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 6).toUpperCase()).join('-');
-      const joinCommand = m.role === 'edge' ? `enclave agent join --edge --code ${code}` : `enclave agent join http://${window.location.host} --code ${code}`;
+      const joinCommand = m.role === 'edge' ? `enclave agent join --edge --code ${code}` : `enclave agent join http://${window.location.host}${m.role === 'standby' ? ' --standby' : ''} --code ${code}`;
       return wait({ machine: clone(m), joinCode: code, joinCommand, expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
     },
     drainMachine: (name) => {

@@ -163,7 +163,7 @@ func (a *app) versionCmd() *cobra.Command {
 
 func (a *app) machineCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "machine", Short: "Show the machine, server version and engine status", Args: cobra.NoArgs,
+		Use: "machine", Aliases: []string{"machines"}, Short: "Show the machine, server version and engine status", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client()
 			if err != nil {

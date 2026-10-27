@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,17 +63,44 @@ func backupSpecOf(res *domain.Resource) (api.BackupSpec, error) {
 	return raw.(api.BackupSpec), nil
 }
 
-// backupSource returns the database or cache a backup copies.
+// backupSource returns the database, cache or filesystem volume a backup copies.
 func (r *Reconciler) backupSource(ctx context.Context, project string, s api.BackupSpec) (*domain.Resource, error) {
-	kind, name := api.KindDatabase, s.Source.Database
-	if s.Source.Cache != "" {
-		kind, name = api.KindCache, s.Source.Cache
-	}
+	kind, name := s.Source.Kind(), s.Source.Name()
 	src, err := r.Store.GetResourceByName(ctx, project, kind, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, engine.Permanent(fmt.Errorf("the %s %s no longer exists", kind, name))
 	}
+	if err == nil && kind == api.KindVolume && volumeType(src) == api.VolumeDisk {
+		return nil, engine.Permanent(fmt.Errorf("the volume %s is a disk: back it up with a snapshot", name))
+	}
 	return src, err
+}
+
+// dumpTo writes a source's backup into w: a database's or cache's dump, or a filesystem volume's files
+// as a gzipped tar (ADR-059).
+func (r *Reconciler) dumpTo(ctx context.Context, src *domain.Resource, in engine.EnsureInput, w io.Writer) (engine.DumpInfo, error) {
+	if src.Kind != api.KindVolume {
+		return r.Driver.Dump(ctx, in, w)
+	}
+	gz := gzip.NewWriter(w)
+	if err := r.Driver.SnapshotVolume(ctx, src, gz); err != nil {
+		return engine.DumpInfo{}, err
+	}
+	return engine.DumpInfo{Ext: engine.DumpExt(in.Spec), Engine: "filesystem volume"}, gz.Close()
+}
+
+// restoreFrom restores a backup's file into the target: a dump through the engine, or a volume's archive
+// unpacked over its files (files added since the backup stay, ADR-059).
+func (r *Reconciler) restoreFrom(ctx context.Context, target *domain.Resource, in engine.EnsureInput, f io.Reader) error {
+	if target.Kind != api.KindVolume {
+		return r.Driver.Restore(ctx, in, f)
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return engine.Permanent(fmt.Errorf("the volume backup isn't a gzipped archive: %w", err))
+	}
+	defer gz.Close()
+	return r.Driver.RestoreVolume(ctx, target, gz)
 }
 
 // backupTarget resolves where a backup's objects go, with credentials (never logged).
@@ -177,7 +205,7 @@ func (r *Reconciler) backupOnce(ctx context.Context, res *domain.Resource, s api
 	}
 	done := make(chan dumped, 1)
 	go func() {
-		info, err := r.Driver.Dump(ctx, in, pw)
+		info, err := r.dumpTo(ctx, src, in, pw)
 		_ = pw.CloseWithError(err)
 		done <- dumped{info, err}
 	}()
@@ -354,7 +382,7 @@ func (r *Reconciler) restoreInto(ctx context.Context, target *domain.Resource, i
 	}
 	engine.Note(report, "Restoring "+from+".")
 	r.event(ctx, target, "restore_started", "Restoring from "+from+".")
-	if err := r.Driver.Restore(ctx, in, tmp); err != nil {
+	if err := r.restoreFrom(ctx, target, in, tmp); err != nil {
 		return "", fmt.Errorf("the restore failed: %w", err)
 	}
 	r.event(ctx, target, "restored", "Restored from "+from+".")

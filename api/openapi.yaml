@@ -648,6 +648,61 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /api/v1/resources/{id}/invoke:
+    post:
+      operationId: invokeFunction
+      tags: [resources]
+      summary: Start a function's run with the JSON body as its event; ?wait=true waits up to 60 s (L2-016 FN-06)
+      parameters:
+        - { $ref: '#/components/parameters/ResourceID' }
+        - { $ref: '#/components/parameters/CSRF' }
+        - { name: wait, in: query, schema: { type: boolean, default: false } }
+      requestBody: { required: false, content: { application/json: { schema: { description: "Any JSON value, at most 256 KiB; it becomes the event's body" } } } }
+      responses:
+        '200': { description: "The run ended (wait=true): the run with its output tail", content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/Run' }, { type: object, required: [outputTail], properties: { outputTail: { type: string } } }] } } } }
+        '202': { description: "The run started (or is still running after the wait)", content: { application/json: { schema: { $ref: '#/components/schemas/Run' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '429': { description: "FUNCTION_BUSY: as many runs as its concurrency are going; Retry-After says when to try again", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/resources/{id}/previews:
+    parameters: [{ $ref: '#/components/parameters/ResourceID' }]
+    get:
+      operationId: listPreviews
+      tags: [resources]
+      summary: An app's previews (L2-016 PRV-07)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Preview' } } } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createPreview
+      tags: [resources]
+      summary: Make a preview of a ref, or redeploy the one already made for it (L2-016 PRV-06)
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreatePreview' } } } }
+      responses:
+        '202': { description: The preview app, provisioning, content: { application/json: { schema: { $ref: '#/components/schemas/Resource' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/hooks/git/{id}:
+    post:
+      operationId: gitHook
+      tags: [resources]
+      summary: A GitHub or GitLab webhook for an app, checked with its webhook secret (L2-016 PRV-03); also served by the gate at /.enclave/hooks/git/{id}
+      security: []
+      parameters: [{ $ref: '#/components/parameters/ResourceID' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, description: "The Git host's event, at most 1 MiB" } } } }
+      responses:
+        '200':
+          description: "What the event did: pong, ignored, deployed, preview_created, preview_updated or preview_deleted"
+          content: { application/json: { schema: { type: object, required: [result], properties: { result: { type: string }, preview: { type: string } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
   /api/v1/resources/{id}/messages/receive:
     post:
       operationId: receiveMessages
@@ -816,7 +871,7 @@ components:
       description: Error envelope (L0-003)
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
-    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack, tunnel] }
+    Kind: { type: string, enum: [app, database, cache, bucket, secret, domain, job, function, backup, network, firewall, loadbalancer, zone, record, vm, volume, snapshot, queue, topic, search, transcoder, cdn, email, dashboard, alert, channel, logexport, secretstore, stack, tunnel] }
     Role: { type: string, enum: [viewer, editor, admin] }
     Phase: { type: string, enum: [pending, provisioning, ready, updating, deleting, failed] }
     ErrorEnvelope:
@@ -832,7 +887,8 @@ components:
               enum: [MALFORMED_REQUEST, UNAUTHENTICATED, INVALID_CREDENTIALS, FORBIDDEN, CSRF_REQUIRED, INVALID_SETUP_CODE, NOT_FOUND, METHOD_NOT_ALLOWED,
                 NAME_TAKEN, HOSTNAME_TAKEN, RUN_IN_PROGRESS, RUN_NOT_RESTORABLE, RESOURCE_IN_USE, VOLUME_ATTACHED, RESOURCE_BUSY, ACTION_NOT_SUPPORTED, SETUP_COMPLETE, SETUP_REQUIRED, PRECONDITION_FAILED, PAYLOAD_TOO_LARGE,
                 UNSUPPORTED_MEDIA_TYPE, VALIDATION_FAILED, IMMUTABLE_FIELD, IDEMPOTENCY_KEY_REUSED, TOO_MANY_ATTEMPTS, RATE_LIMITED, INTERNAL, ENGINE_UNAVAILABLE,
-                PROJECT_NOT_EMPTY, LAST_ADMIN, EMAIL_TAKEN, INVITE_INVALID, MACHINE_NOT_EMPTY, MACHINE_ONLINE, MACHINE_OFFLINE, JOIN_CODE_INVALID, PART_OF_STACK]
+                PROJECT_NOT_EMPTY, LAST_ADMIN, EMAIL_TAKEN, INVITE_INVALID, MACHINE_NOT_EMPTY, MACHINE_ONLINE, MACHINE_OFFLINE, JOIN_CODE_INVALID, PART_OF_STACK,
+                FUNCTION_BUSY, PREVIEW_LIMIT, STANDBY_EXISTS, CONTROL_PLANE_REPLACED]
             message: { type: string }
             requestId: { type: string }
             details:
@@ -985,8 +1041,13 @@ components:
         name: { type: string }
         title: { type: string, description: "The main machine's title is the machine name given at setup" }
         main: { type: boolean }
-        role: { type: string, enum: [worker, edge] }
+        role: { type: string, enum: [worker, edge, standby] }
         state: { type: string, enum: [waiting, online, offline] }
+        standby:
+          type: object
+          description: "A standby's last copy of the control plane (L2-016 SBY-03); stale after 2 minutes"
+          required: [stale]
+          properties: { lastCopyAt: { type: string, format: date-time }, lastCopyBytes: { type: integer }, lastCopyError: { type: string }, stale: { type: boolean } }
         since: { type: string, format: date-time }
         labels: { type: object, additionalProperties: { type: string } }
         schedulable: { type: boolean }
@@ -1014,7 +1075,7 @@ components:
       properties:
         name: { type: string }
         labels: { type: object, maxProperties: 10, additionalProperties: { type: string } }
-        role: { type: string, enum: [worker, edge], description: "edge: a server with a public address that only relays visitors; the main machine joins it (L2-014 EDG-02)" }
+        role: { type: string, enum: [worker, edge, standby], description: "edge: a server with a public address that only relays visitors; the main machine joins it (L2-014 EDG-02). standby: keeps copies of the control plane and can be promoted; at most one (L2-016 SBY-01)" }
         address: { type: string, description: "edge only: its public IPv4 address or host name" }
         agentPort: { type: integer, minimum: 1, maximum: 65535, description: "edge only: where its agent waits; default 7071" }
     AddedMachine:
@@ -1116,6 +1177,20 @@ components:
         replicas: { type: integer, minimum: 1, maximum: 10, default: 1, description: "containers per revision; 1 when publish is true (ADR-022)" }
         volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' }, description: "filesystem volumes mounted into every container (ADR-027); a change deploys a new revision" }
         bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "buckets the app reaches with keys of its own, given as AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_ENDPOINT_URL_S3 and AWS_ENDPOINT_URL (L2-011); the list replaces the old one" }
+        previews:
+          type: object
+          additionalProperties: false
+          required: [enabled]
+          description: "An app per pull request (L2-016 PRV-01; source apps only). Outputs add webhookUrl and previews"
+          properties:
+            enabled: { type: boolean }
+            ttlHours: { type: integer, minimum: 1, maximum: 720, default: 72 }
+            maxActive: { type: integer, minimum: 1, maximum: 20, default: 5 }
+            domain:
+              type: object
+              required: [suffix]
+              additionalProperties: false
+              properties: { suffix: { type: string }, tls: { type: string, enum: [auto, internal, off] }, zone: { type: string }, tunnel: { type: string } }
     GitSource:
       type: object
       required: [git, ref]
@@ -1128,6 +1203,8 @@ components:
         context: { type: string, default: '.' }
         credentialsSecret: { type: string, description: 'secret holding {"token"} (https) or {"privateKey","knownHosts"} (ssh)' }
         buildArgs: { type: object, maxProperties: 50, additionalProperties: { type: string }, description: "not for secrets: build arguments end up in image metadata" }
+        webhookSecret: { type: string, description: "the secret Git webhooks are checked with (L2-016 PRV-03)" }
+        deployOnPush: { type: boolean, default: false, description: "redeploy when a webhook says ref moved (PRV-05)" }
     HealthCheck:
       type: object
       required: [type]
@@ -1151,6 +1228,9 @@ components:
         version: { type: string, enum: ['16', '17', '8.4', '8.0', '7.0', '26.3', '25.8'] }
         network: { type: string }
         subnet: { type: string }
+        tls: { type: boolean, default: false, description: "postgres and mysql: encrypted connections only, with a certificate from EnclaveStack's database CA. Outputs add tls, caCertificate, certificateExpiresAt (ADR-058)" }
+        exposed: { type: boolean, default: false, description: "reachable from other computers on the machine's addresses; needs tls. Outputs add exposedAddresses" }
+        initScript: { type: string, maxLength: 65536, description: "SQL (mongodb: JavaScript) run once when the database is first made; immutable" }
     CacheSpec:
       type: object
       additionalProperties: false
@@ -1183,6 +1263,47 @@ components:
         subnet: { type: string }
         volumes: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/VolumeMount' } }
         bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' }, description: "a job from an image only; a job with app uses the app's (L2-011)" }
+    FunctionSpec:
+      type: object
+      required: [image]
+      additionalProperties: false
+      description: "An image started once per event (L2-016 FN-01, ADR-055). The event is at /enclave/event.json ($ENCLAVE_EVENT_FILE). Outputs: triggers, watching, nextRunAt, lastRunStatus, lastRunAt."
+      properties:
+        image: { type: string, maxLength: 255 }
+        command: { type: array, maxItems: 32, items: { type: string, maxLength: 1024 } }
+        env: { type: object, additionalProperties: { type: string, maxLength: 4096 }, description: "names starting ENCLAVE_ are reserved" }
+        secretEnv: { type: object, additionalProperties: { type: string } }
+        memoryMiB: { type: integer, minimum: 64, maximum: 8192, default: 256 }
+        timeoutSeconds: { type: integer, minimum: 1, maximum: 900, default: 60 }
+        concurrency: { type: integer, minimum: 1, maximum: 20, default: 5 }
+        triggers:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            description: "exactly one of schedule, queue or bucket; at most one schedule"
+            properties: { schedule: { type: string }, timeZone: { type: string }, queue: { type: string }, bucket: { type: string }, prefix: { type: string } }
+        network: { type: string }
+        subnet: { type: string }
+        bucketAccess: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/BucketGrant' } }
+    Preview:
+      type: object
+      required: [id, name, ref, phase, expiresAt, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        ref: { type: string }
+        pullRequest: { type: integer }
+        phase: { $ref: '#/components/schemas/Phase' }
+        url: { type: string }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    CreatePreview:
+      type: object
+      required: [ref]
+      additionalProperties: false
+      properties: { ref: { type: string, minLength: 1, maxLength: 255 }, name: { type: string } }
     BackupSpec:
       type: object
       required: [source, destination]
@@ -1192,8 +1313,8 @@ components:
         source:
           type: object
           additionalProperties: false
-          description: "Exactly one; immutable"
-          properties: { database: { type: string }, cache: { type: string } }
+          description: "Exactly one; immutable. A volume must be a filesystem volume; its files are a gzipped tar (L2-016 VBK-01)"
+          properties: { database: { type: string }, cache: { type: string }, volume: { type: string } }
         destination:
           type: object
           additionalProperties: false
@@ -1229,7 +1350,7 @@ components:
       required: [id, trigger, status, scheduledFor, startedAt, finishedAt, exitCode, message]
       properties:
         id: { type: string }
-        trigger: { type: string, enum: [schedule, manual, catch_up, pre_restore, watch] }
+        trigger: { type: string, enum: [schedule, manual, catch_up, pre_restore, watch, queue, topic, bucket, invoke] }
         status: { type: string, enum: [running, succeeded, failed, timed_out, skipped] }
         scheduledFor: { type: [string, 'null'], format: date-time }
         startedAt: { type: string, format: date-time }
@@ -1242,6 +1363,7 @@ components:
           properties: { key: { type: string }, sizeBytes: { type: integer }, sha256: { type: string }, destination: { type: string } }
         key: { type: string, description: "A transcoder run's input object" }
         outputs: { type: array, items: { type: string }, description: "The keys a transcoder run wrote" }
+        event: { type: object, description: "A function run's event, as written to /enclave/event.json (L2-016 FN-05)" }
     DomainSpec:
       type: object
       required: [hostname, app]
@@ -1436,8 +1558,8 @@ components:
           items:
             type: object
             additionalProperties: false
-            description: "exactly one of queue or url; secret signs webhook bodies"
-            properties: { queue: { type: string }, url: { type: string, maxLength: 2048 }, secret: { type: string } }
+            description: "exactly one of queue, url or function; secret signs webhook bodies"
+            properties: { queue: { type: string }, url: { type: string, maxLength: 2048 }, function: { type: string, description: "each message starts a run (L2-016 FN-08)" }, secret: { type: string } }
     SearchSpec:
       type: object
       additionalProperties: false
@@ -1677,6 +1799,7 @@ components:
             - { $ref: '#/components/schemas/SecretSpec' }
             - { $ref: '#/components/schemas/DomainSpec' }
             - { $ref: '#/components/schemas/JobSpec' }
+            - { $ref: '#/components/schemas/FunctionSpec' }
             - { $ref: '#/components/schemas/BackupSpec' }
             - { $ref: '#/components/schemas/NetworkSpec' }
             - { $ref: '#/components/schemas/FirewallSpec' }
@@ -1742,7 +1865,7 @@ components:
             required: [id, event, alert, subject, status, attempts, lastError, createdAt, sentAt]
             properties:
               id: { type: string }
-              event: { type: string, enum: [firing, resolved, repeat, test] }
+              event: { type: string, enum: [firing, resolved, repeat, test, event] }
               alert: { type: string }
               subject: { type: string }
               status: { type: string, enum: [pending, sent, failed] }
@@ -1765,7 +1888,7 @@ components:
           type: object
           required: [type, resources]
           properties:
-            type: { type: string, enum: [metric, crash_loop, failed, run_failed] }
+            type: { type: string, enum: [metric, crash_loop, failed, run_failed, machine_offline, event] }
             resources: { type: array, minItems: 1, maxItems: 10, items: { type: string, description: 'kind/name, or machine for a machine metric' } }
             metric: { type: string }
             operator: { type: string, enum: [above, below] }
@@ -1773,6 +1896,7 @@ components:
             forMinutes: { type: integer, minimum: 1, maximum: 60 }
             restarts: { type: integer, minimum: 1, maximum: 100 }
             windowMinutes: { type: integer, minimum: 1, maximum: 120 }
+            events: { type: array, minItems: 1, maxItems: 20, items: { type: string }, description: "event: the event types sent as they happen (L2-016 EVN-01); repeatMinutes must be 0" }
         channels: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
         repeatMinutes: { type: integer, minimum: 0, maximum: 1440 }
         enabled: { type: boolean }

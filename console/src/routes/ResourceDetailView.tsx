@@ -8,11 +8,12 @@ import { Link, useNavigate } from 'react-router';
 import { useApi } from '../api/context';
 import { MANAGED } from '../api/generated';
 import { DETAIL_HELP, isCopyable, isMono, isSecretLabel, OUTPUT_LABELS, withHelp } from '../lib/details';
-import { ApiError, type AppSpec, type BackupSpec, type BucketSpec, type CacheSpec, type CDNSpec, type DatabaseSpec, type EmailSpec, type QueueSpec, type SearchSpec, type TopicSpec, type TranscoderSpec, type DomainSpec, type FirewallSpec, type JobSpec, type Kind, type LoadBalancerSpec, type NetworkSpec, type RecordSpec, type Resource, type Run, type SnapshotSpec, type VMSpec, type VolumeSpec, type ZoneSpec, type GateMode, type TunnelSpec } from '../api/types';
+import { ApiError, type AppSpec, type BackupSpec, type BucketSpec, type CacheSpec, type CDNSpec, type DatabaseSpec, type EmailSpec, type QueueSpec, type SearchSpec, type TopicSpec, type TranscoderSpec, type DomainSpec, type FirewallSpec, type FunctionSpec, type JobSpec, type Kind, type LoadBalancerSpec, type NetworkSpec, type RecordSpec, type Resource, type Run, type SnapshotSpec, type VMSpec, type VolumeSpec, type ZoneSpec, type GateMode, type TunnelSpec } from '../api/types';
 import { BucketAccessCard } from '../components/AccessFields';
 import { GATE_TITLE, gateOf, WAY_TITLE } from '../components/PublicAccessFields';
 import { connectionChip, MakePublic, PublicAddressesCard, PublicDomainCard, TunnelCards } from '../components/PublicAccessPanels';
 import { TranscodeOutputsCards } from '../components/TranscodeFields';
+import { InvokeDrawer, Previews } from '../components/FunctionPanels';
 import { BucketObjects } from '../components/BucketObjects';
 import { IMAGE_TITLES } from '../components/ComputeFields';
 import { ConnectCard, EmailMessages, QueueMessages, TopicDeliveries, TranscodeDialog } from '../components/DataPanels';
@@ -36,7 +37,7 @@ import { useLoad } from '../lib/useLoad';
 import { usePolling } from '../lib/usePolling';
 import { ResourceForm } from './ResourceForm';
 
-type Tab = 'overview' | 'objects' | 'metrics' | 'logs' | 'build' | 'env' | 'runs' | 'backups' | 'records' | 'messages' | 'deliveries' | 'emails' | 'incidents' | 'notifications' | 'events';
+type Tab = 'overview' | 'previews' | 'objects' | 'metrics' | 'logs' | 'build' | 'env' | 'runs' | 'backups' | 'records' | 'messages' | 'deliveries' | 'emails' | 'incidents' | 'notifications' | 'events';
 
 /** A drawer that creates a related resource: a snapshot of this one, or a volume or VM from this snapshot. */
 type Spawn = { kind: Kind; title: string; snapshot?: string; source?: string };
@@ -45,12 +46,17 @@ const REVEAL_MS = 30_000;
 
 const RUN_LABEL: Record<string, string> = { running: 'Running', succeeded: 'Succeeded', failed: 'Failed', timed_out: 'Timed out', skipped: 'Skipped' };
 const RUN_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'neutral' | 'accent'> = { running: 'accent', succeeded: 'ok', failed: 'bad', timed_out: 'bad', skipped: 'neutral' };
-const TRIGGER_LABEL: Record<string, string> = { schedule: 'Scheduled', manual: 'Manual', catch_up: 'Catch-up', pre_restore: 'Before restore', watch: 'New file' };
+const TRIGGER_LABEL: Record<string, string> = { schedule: 'Scheduled', manual: 'Manual', catch_up: 'Catch-up', pre_restore: 'Before restore', watch: 'New file',
+  queue: 'Queue message', topic: 'Topic message', bucket: 'New file', invoke: 'Invoked' };
 
 const CERT_LABEL: Record<string, string> = { issued: 'Issued', pending: 'Waiting', failed: 'Failed', none: 'None (HTTP only)' };
 const TLS_LABEL: Record<string, string> = { auto: "Let's Encrypt", internal: 'EnclaveStack certificate', off: 'None (HTTP only)' };
 
 function outputText(k: string, v: unknown): string {
+  if (Array.isArray(v)) return v.map(String).join(', ');
+  if (k === 'tls') return v ? 'Yes: TLS only' : 'No';
+  if (k === 'initScript') return 'Ran when it was made';
+  if (k === 'expiresAt') return new Date(String(v)).toLocaleString();
   if (k === 'lastDeploy') return DEPLOY_LABEL[String(v)] ?? String(v);
   if (k === 'certificateState') return CERT_LABEL[String(v)] ?? String(v);
   if (k === 'nextRunAt' || k === 'lastRunAt' || k === 'lastSuccessAt') return new Date(String(v)).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -79,7 +85,7 @@ function outputText(k: string, v: unknown): string {
 }
 
 /** Outputs that are bookkeeping, not facts for people. */
-const HIDDEN_OUTPUTS = new Set(['latestRevision', 'pendingRestore', 'builtInputs', 'appliedTargets', 'backends', 'owned', 'linkPort', 'webPort', 'dnsRecord', 'dnsRecordOwned', 'dnsZone']);
+const HIDDEN_OUTPUTS = new Set(['caCertificate', 'triggers', 'latestRevision', 'pendingRestore', 'builtInputs', 'appliedTargets', 'backends', 'owned', 'linkPort', 'webPort', 'dnsRecord', 'dnsRecordOwned', 'dnsZone']);
 
 const BUILD_LABEL: Record<string, string> = { succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped — nothing changed' };
 const DEPLOY_LABEL: Record<string, string> = { succeeded: 'Succeeded', failed: 'Failed — previous revision kept', in_progress: 'In progress' };
@@ -107,6 +113,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
   const [spawning, setSpawning] = useState<Spawn | null>(null);
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [transcoding, setTranscoding] = useState(false);
+  const [invoking, setInvoking] = useState(false);
   const navigate = useNavigate();
   const detail = useLoad(`detail:${id}`, () => api.getResource(id));
   const r = detail.data;
@@ -174,7 +181,9 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
   }
 
   const section = sectionByKind(r.kind);
-  // A stack's member is changed through its stack (CAT-06): no edit, delete or move.
+  // A stack's member is changed through its stack (CAT-06): no edit, delete or move. A preview follows
+  // its app's settings but can be deleted on its own (L2-016 PRV-08).
+  const preview = r.kind === 'app' && typeof r.outputs.previewOf === 'string' && r.outputs.previewOf !== '';
   const managed = r.ownerId !== null || r.stack !== null;
   const canRestart = ['app', 'database', 'cache', 'search', 'email', 'cdn'].includes(r.kind) && r.status.phase === 'ready' || (r.kind === 'vm' && r.status.phase === 'ready' && r.outputs.power === 'running');
   const canRedeploy = r.kind === 'app' && r.status.phase === 'ready';
@@ -189,11 +198,12 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
     ...(hasLogs ? [{ id: 'logs' as const, label: r.kind === 'vm' ? 'Boot console' : 'Logs' }] : []),
     ...(r.kind === 'app' && (r.spec as AppSpec).source ? [{ id: 'build' as const, label: 'Build log' }] : []),
     ...(r.kind === 'app' ? [{ id: 'env' as const, label: 'Environment' }] : []),
-    ...(r.kind === 'job' || r.kind === 'backup' || r.kind === 'transcoder' ? [{ id: 'runs' as const, label: 'Runs' }] : []),
+    ...(r.kind === 'app' && (r.spec as AppSpec).source && !preview ? [{ id: 'previews' as const, label: 'Previews' }] : []),
+    ...(r.kind === 'job' || r.kind === 'function' || r.kind === 'backup' || r.kind === 'transcoder' ? [{ id: 'runs' as const, label: 'Runs' }] : []),
     ...(r.kind === 'queue' && r.status.phase === 'ready' ? [{ id: 'messages' as const, label: 'Messages' }] : []),
     ...(r.kind === 'topic' && r.status.phase === 'ready' ? [{ id: 'deliveries' as const, label: 'Deliveries' }] : []),
     ...(r.kind === 'email' && r.status.phase === 'ready' ? [{ id: 'emails' as const, label: 'Messages' }] : []),
-    ...(r.kind === 'database' || r.kind === 'cache' ? [{ id: 'backups' as const, label: 'Backups' }] : []),
+    ...(r.kind === 'database' || r.kind === 'cache' || (r.kind === 'volume' && (r.spec as VolumeSpec).type !== 'disk') ? [{ id: 'backups' as const, label: 'Backups' }] : []),
     ...(r.kind === 'zone' ? [{ id: 'records' as const, label: 'Records' }] : []),
     ...(r.kind === 'alert' ? [{ id: 'incidents' as const, label: 'Incidents' }] : []),
     ...(r.kind === 'channel' ? [{ id: 'notifications' as const, label: 'Deliveries' }] : []),
@@ -257,11 +267,14 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
               <Button size="sm" icon={<Icons.RefreshCw />} disabled={busy} onClick={() => run(`Reading ${r.name} again`, () => api.action(r.id, 'refresh'))}>Refresh now</Button>
             )}
             {canRestart && <Button size="sm" icon={<Icons.RotateCw />} disabled={busy} onClick={() => run(`Restart requested for ${r.name}`, () => api.action(r.id, 'restart'))}>Restart</Button>}
-            {(r.kind === 'job' || r.kind === 'backup') && r.status.phase === 'ready' && (
+            {(r.kind === 'job' || r.kind === 'function' || r.kind === 'backup') && r.status.phase === 'ready' && (
               <Button size="sm" icon={<Icons.Play />} disabled={busy} onClick={() => run(r.kind === 'backup' ? `Backup ${r.name} started` : `Run of ${r.name} started`, async () => {
                 await api.runNow(r.id);
                 setTab('runs');
               })}>{r.kind === 'backup' ? 'Back up now' : 'Run now'}</Button>
+            )}
+            {r.kind === 'function' && r.status.phase === 'ready' && (
+              <Button size="sm" icon={<Icons.Play />} disabled={busy} onClick={() => setInvoking(true)}>Invoke</Button>
             )}
             {(r.kind === 'queue' || r.kind === 'cdn') && r.status.phase === 'ready' && (
               <Button size="sm" icon={<Icons.Eraser />} disabled={busy} onClick={() => setConfirmPurge(true)}>Purge</Button>
@@ -288,7 +301,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
               <MoveButton r={r} disabled={busy} onMoved={() => { toast(`Moving ${r.name}`); detail.reload(); onChanged(); }} />
             )}
             {!managed && r.status.phase !== 'deleting' && <Button size="sm" icon={<Icons.Pencil />} disabled={busy} onClick={() => setEditing(true)}>{r.kind === 'stack' ? 'Edit parameters' : 'Edit'}</Button>}
-            {!managed && r.status.phase !== 'deleting' && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</Button>}
+            {(!managed || preview) && r.status.phase !== 'deleting' && <Button size="sm" variant="danger-outline" icon={<Icons.Trash2 />} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete</Button>}
           </Inline>
           )}
           </>
@@ -316,6 +329,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
         </div>
         <TabPanel id={tab}>
           {tab === 'overview' && (r.kind === 'dashboard' ? <DashboardCharts dashboard={r as Resource<'dashboard'>} /> : r.kind === 'stack' ? <StackOverview stack={r as Resource<'stack'>} /> : <Overview r={r} canReveal={canEdit} />)}
+          {tab === 'previews' && <Previews app={r} canEdit={canEdit} />}
           {tab === 'objects' && <BucketObjects bucket={r} canEdit={canEdit} />}
           {tab === 'metrics' && <ResourceMetrics resource={r} />}
           {tab === 'incidents' && <Incidents alert={r} />}
@@ -351,6 +365,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
           />}
         </Drawer>
       )}
+      {invoking && <InvokeDrawer fn={r} onClose={() => setInvoking(false)} onStarted={() => { detail.reload(); setTab('runs'); }} />}
       {makingPublic && <MakePublic app={r} onClose={() => setMakingPublic(false)} />}
       {addingDomain && (
         <Drawer title="New domain" onClose={() => setAddingDomain(false)}>
@@ -396,7 +411,7 @@ export function ResourceDetailView({ id, back, onChanged, onDeleted }: Props) {
         <Drawer title="New backup" onClose={() => setAddingBackup(false)}>
           <ResourceForm
             kind="backup"
-            initialSource={{ kind: r.kind === 'cache' ? 'cache' : 'database', name: r.name }}
+            initialSource={{ kind: r.kind === 'cache' ? 'cache' : r.kind === 'volume' ? 'volume' : 'database', name: r.name }}
             onDone={(created) => {
               setAddingBackup(false);
               toast(`Creating backup ${created.name}`);
@@ -658,6 +673,7 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
     case 'app': {
       const s = r.spec as AppSpec;
       if (s.source) facts.unshift(['Source', `${s.source.git} @ ${s.source.ref}`]);
+      if (s.source?.webhookSecret) facts.push(['Deploys on push', s.source.deployOnPush ? 'Yes' : 'No']);
       else facts.unshift(['Image', s.image ?? '']);
       facts.push(['Network', s.network ? `${s.network}${s.subnet ? ` · ${s.subnet}` : ''}` : 'Default network'], ['Replicas', String(s.replicas ?? 1)])
       facts.push(['Memory', `${s.memoryMiB ?? 256} MiB`], ['Published', s.publish ? 'Yes' : 'No'],
@@ -668,6 +684,14 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
       const d = r.spec as DatabaseSpec;
       const title = { postgres: 'PostgreSQL', mysql: 'MySQL', mongodb: 'MongoDB', clickhouse: 'ClickHouse' }[d.engine] ?? d.engine;
       facts.unshift(['Engine', `${title} ${d.version}`], ['Network', d.network ? `${d.network}${d.subnet ? ` · ${d.subnet}` : ''}` : 'Default network']);
+      break;
+    }
+    case 'function': {
+      const f = r.spec as FunctionSpec;
+      facts.unshift(['Image', f.image], ['Triggers', (f.triggers ?? []).map((t) => (t.schedule ? describeSchedule(t.schedule, t.timeZone) : t.queue ? `queue/${t.queue}` : `bucket/${t.bucket ?? ''}/${t.prefix ?? ''}`)).join(', ') || 'Invoke and topics only']);
+      if (f.command?.length) facts.push(['Command', f.command.join(' ')]);
+      facts.push(['Timeout', `${f.timeoutSeconds ?? RULES.functionTimeoutDefault} s`], ['Runs at once', String(f.concurrency ?? RULES.functionConcurrencyDefault)],
+        ['Memory', `${f.memoryMiB ?? RULES.functionMemoryDefault} MiB`], ['Network', f.network ? `${f.network}${f.subnet ? ` · ${f.subnet}` : ''}` : 'Default network']);
       break;
     }
     case 'queue': {
@@ -772,7 +796,7 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
     }
     case 'backup': {
       const b = r.spec as BackupSpec;
-      facts.unshift(['Source', b.source.database ? `Database ${b.source.database}` : `Cache ${b.source.cache ?? ''}`],
+      facts.unshift(['Source', b.source.database ? `Database ${b.source.database}` : b.source.volume ? `Volume ${b.source.volume} (its files)` : `Cache ${b.source.cache ?? ''}`],
         ['Stored in', describeDestination(b)], ['Schedule', describeSchedule(b.schedule ?? RULES.backupScheduleDefault, b.timeZone)]);
       facts.push(['Keeps', `The newest ${b.keep ?? RULES.backupKeepDefault}${b.keepDays ? `, at most ${b.keepDays} days old` : ''}`], ['Key prefix', b.prefix ?? RULES.backupPrefixDefault]);
       break;
@@ -817,7 +841,7 @@ function Overview({ r, canReveal }: { r: Resource; canReveal: boolean }) {
       {['database', 'queue', 'topic', 'search', 'email'].includes(r.kind) && r.status.phase === 'ready' && <ConnectCard r={r} />}
       {r.kind === 'cdn' && <DomainCards r={r} />}
       {(r.kind === 'app' || r.kind === 'database' || r.kind === 'cache' || r.kind === 'loadbalancer' || r.kind === 'vm') && <FirewallsCard r={r} />}
-      {(r.kind === 'app' || r.kind === 'job') && <BucketAccessCard r={r} />}
+      {(r.kind === 'app' || r.kind === 'job' || r.kind === 'function') && <BucketAccessCard r={r} />}
       {r.kind === 'transcoder' && <TranscodeOutputsCards spec={r.spec as TranscoderSpec} />}
       {r.ownerId === null && (
         <Card>
@@ -1076,6 +1100,7 @@ function RunOutput({ id, runId, onClose }: { id: string; runId: string; onClose:
                 ))}
               </Rows>
             )}
+            {d.event !== undefined && <CodeBlock label="Event" code={JSON.stringify(d.event, null, 2)} />}
             <Terminal label="Run output">
               {d.outputTail ? d.outputTail.split('\n').map((line, i) => <TerminalLine key={i}>{line}</TerminalLine>)
                 : <TerminalLine><TerminalText level="dim">{d.status === 'running' ? 'Running…' : 'No output.'}</TerminalText></TerminalLine>}
@@ -1234,7 +1259,7 @@ function BackupsOf({ r, onAdd }: { r: Resource; onAdd: () => void }) {
   const backups = useLoad(`backups-of:${r.id}`, () => api.listResources('backup'));
   const mine = (backups.data ?? []).filter((b) => {
     const s = b.spec as BackupSpec;
-    return r.kind === 'database' ? s.source.database === r.name : s.source.cache === r.name;
+    return r.kind === 'database' ? s.source.database === r.name : r.kind === 'volume' ? s.source.volume === r.name : s.source.cache === r.name;
   });
   if (backups.error) return <Alert>{backups.error.message}</Alert>;
   return (

@@ -541,7 +541,7 @@ func (b *Broker) fetch(name, subName string, max int) ([]messaging.Delivery, err
 			}
 		}
 		out = append(out, messaging.Delivery{Sequence: seq, Body: m.body, Attributes: copyAttrs(m.attrs), Published: m.sentAt, Attempt: s.attempts[seq],
-			Ack: settle(nil), Term: settle(nil),
+			Ack: settle(nil), Term: settle(nil), Progress: func(context.Context) error { return nil }, // in flight until settled
 			Nak: func(ctx context.Context, d time.Duration) error { at := b.now().Add(d); return settle(&at)(ctx) }})
 	}
 	return out, nil

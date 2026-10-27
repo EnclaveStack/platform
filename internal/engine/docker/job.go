@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
+	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +56,15 @@ func (d *Driver) StartJob(ctx context.Context, run engine.JobRun) error {
 		cancel()
 		if err != nil {
 			return d.classify(fmt.Errorf("create run container: %w", err))
+		}
+		for _, p := range slices.Sorted(maps.Keys(run.Files)) {
+			dir := strings.TrimPrefix(path.Dir(p), "/") + "/"
+			if dir == "/" {
+				dir = ""
+			}
+			if err := d.copyTar(ctx, name, "/", dir, map[string][]byte{path.Base(p): run.Files[p]}, 0o644); err != nil {
+				return err
+			}
 		}
 	} else if c.State != nil && c.State.Status != "created" {
 		return nil // already started (or finished): WaitJob takes it from here

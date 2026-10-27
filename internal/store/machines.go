@@ -460,6 +460,12 @@ func roleOf(m Machine) string {
 // IsEdge reports whether m only relays visitors (L2-014 EDG-03).
 func (m Machine) IsEdge() bool { return m.Role == api.MachineEdge }
 
+// RoleOrWorker is m's role, a worker unless it says otherwise.
+func (m Machine) RoleOrWorker() string { return roleOf(m) }
+
+// IsStandby reports a standby control plane's machine (ADR-057).
+func (m Machine) IsStandby() bool { return m.Role == api.MachineStandby }
+
 func nullBytes(b []byte) any {
 	if len(b) == 0 {
 		return nil

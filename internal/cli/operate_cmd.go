@@ -158,6 +158,7 @@ func (a *app) dashboardCmd() *cobra.Command {
 // alertFlags are an alert's condition and delivery settings.
 type alertFlags struct {
 	crashLoop, failed, runFailed, offline, resources, channels []string
+	events                                                     []string
 	metric                                                     string
 	above, below                                               float64
 	forDur, window, repeat                                     time.Duration
@@ -172,6 +173,7 @@ func (f *alertFlags) bind(c *cobra.Command, update bool) {
 	fl.StringArrayVar(&f.runFailed, "run-failed", nil, "fire when a run of this job, backup or transcoder fails (repeatable)")
 	fl.StringArrayVar(&f.offline, "machine-offline", nil, "fire when this machine goes offline for --for (default 1m; repeatable)")
 	fl.StringVar(&f.metric, "metric", "", "fire on this metric of --resource")
+	fl.StringArrayVar(&f.events, "event", nil, "send each event of this type on --resource as it happens (repeatable): "+strings.Join(api.NotifiableEvents, ", "))
 	fl.StringArrayVar(&f.resources, "resource", nil, "a resource the metric is read from (kind/name or machine; repeatable)")
 	fl.Float64Var(&f.above, "above", 0, "fire when the metric is above this")
 	fl.Float64Var(&f.below, "below", 0, "fire when the metric is below this")
@@ -222,8 +224,12 @@ func (f *alertFlags) condition(changed func(string) bool) (api.AlertCondition, b
 			c.Operator, c.Threshold = api.OperatorBelow, &f.below
 		}
 	}
+	if len(f.events) > 0 {
+		set++
+		c = api.AlertCondition{Type: api.ConditionEvent, Events: f.events, Resources: f.resources}
+	}
 	if set > 1 {
-		return c, false, usagef("use one of --crash-loop, --failed, --run-failed, --machine-offline or --metric")
+		return c, false, usagef("use one of --crash-loop, --failed, --run-failed, --machine-offline, --metric or --event")
 	}
 	return c, set == 1, nil
 }
@@ -238,7 +244,7 @@ func (a *app) alertCmd() *cobra.Command {
 				return err
 			}
 			if !ok {
-				return usagef("pass a condition: --crash-loop, --failed, --run-failed, --machine-offline or --metric with --resource")
+				return usagef("pass a condition: --crash-loop, --failed, --run-failed, --machine-offline, or --metric or --event with --resource")
 			}
 			s := api.AlertSpec{Condition: cond, Channels: cf.channels, RepeatMinutes: int(cf.repeat / time.Minute)}
 			if cf.disabled {

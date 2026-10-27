@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,12 +12,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/enclavestack/platform/internal/agent"
 	"github.com/enclavestack/platform/internal/observability"
+	"github.com/enclavestack/platform/internal/server"
 	"github.com/enclavestack/platform/pkg/api"
 	"github.com/enclavestack/platform/pkg/client"
 )
@@ -28,7 +31,7 @@ import (
 func (a *app) machineSubcommands(cmd *cobra.Command) {
 	var labels []string
 	var edge bool
-	var address string
+	var address, role string
 	var agentPort int
 	add := &cobra.Command{
 		Use: "add NAME [--label k=v]… | add NAME --edge --address A", Short: "Add a machine and print the command that joins it (machine admins)", Args: cobra.ExactArgs(1),
@@ -43,6 +46,18 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 				return err
 			}
 			req := api.AddMachine{Name: args[0], Labels: l}
+			switch role {
+			case "", api.MachineWorker:
+			case api.MachineEdge:
+				edge = true
+			case api.MachineStandby: // keeps copies of the control plane (ADR-057)
+				if edge {
+					return usagef("--edge and --role standby don't go together")
+				}
+				req.Role = api.MachineStandby
+			default:
+				return usagef("--role is worker, edge or standby")
+			}
 			if edge {
 				req.Role, req.Address, req.AgentPort = api.MachineEdge, address, agentPort
 			} else if address != "" || agentPort != 0 {
@@ -57,6 +72,7 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 	}
 	add.Flags().StringArrayVar(&labels, "label", nil, "a label placement can ask for, as key=value (repeat)")
 	add.Flags().BoolVar(&edge, "edge", false, "add an edge machine that only relays visitors (L2-014)")
+	add.Flags().StringVar(&role, "role", "", "worker (default), edge, or standby: a second computer that keeps a copy of the control plane and can take over")
 	add.Flags().StringVar(&address, "address", "", "the edge machine's public IPv4 address or host name")
 	add.Flags().IntVar(&agentPort, "agent-port", 0, "where the edge machine's agent waits (default 7071)")
 	list := &cobra.Command{
@@ -76,8 +92,8 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 			rows := [][]string{}
 			for _, m := range items {
 				state := m.State
-				if m.Role == api.MachineEdge {
-					state += " (edge)"
+				if m.Role == api.MachineEdge || m.Role == api.MachineStandby {
+					state += " (" + m.Role + ")"
 				} else if !m.Schedulable {
 					state += " (not schedulable)"
 				}
@@ -107,6 +123,16 @@ func (a *app) machineSubcommands(cmd *cobra.Command) {
 				{"OS / arch", m.OS + " / " + m.Arch}, {"Agent version", m.AgentVersion}, {"Engine", m.Engine.Driver + " " + m.Engine.Version},
 				{"CPUs", strconv.Itoa(m.CPUs)}, {"Memory reserved", mib(m.MemoryReservedBytes) + " of " + mib(m.MemoryTotalBytes)},
 				{"VMs", vmSupportText(m.VMs)}, {"Resources", strconv.Itoa(m.Resources)}, {"Labels", labelText(m.Labels)}, {"Last seen", ago(m.LastSeenAt)}}
+			if s := m.Standby; s != nil {
+				last := "none yet"
+				if s.LastCopyAt != nil {
+					last = ago(s.LastCopyAt) + " (" + mib(s.LastCopyBytes) + ")"
+				}
+				rows = append(rows, []string{"Last copy", last})
+				if s.LastCopyError != "" {
+					rows = append(rows, []string{"Last copy error", s.LastCopyError})
+				}
+			}
 			for _, l := range m.Links {
 				state := "not connected"
 				if l.Connected {
@@ -242,8 +268,11 @@ func (a *app) printJoin(out api.AddedMachine) error {
 }
 
 func roleText(role string) string {
-	if role == api.MachineEdge {
+	switch role {
+	case api.MachineEdge:
 		return "edge (only relays visitors for relay tunnels)"
+	case api.MachineStandby:
+		return "standby (keeps a copy of the control plane)"
 	}
 	return "worker"
 }
@@ -330,6 +359,7 @@ func (a *app) agentCmd() *cobra.Command {
 	join.Flags().IntVar(&opts.TunnelPort, "tunnel-port", api.TunnelPortDefault, "the UDP port of the tunnel between machines")
 	join.Flags().BoolVar(&install, "install", false, "install the agent as a service that starts with the computer (systemd or launchd) instead of running it here")
 	join.Flags().BoolVar(&edge, "edge", false, "join as an edge machine: wait for the main machine to come to this one")
+	join.Flags().BoolVar(&opts.Standby, "standby", false, "join as the standby: keep copies of the control plane and take over with `enclave standby promote`")
 	run.register(join)
 	runCmd := &cobra.Command{
 		Use: "run", Short: "Run the agent of a computer that joined", Args: cobra.NoArgs,
@@ -380,6 +410,8 @@ func (a *app) agentCmd() *cobra.Command {
 // agentRunFlags are the flags of `agent run` (and of `agent join`, which runs it).
 type agentRunFlags struct {
 	stateDir, listen, driver, publish, qemu, logLevel, logFormat string
+	// autoPromote, on a standby, takes over after this long without a call from the main machine (ADR-057).
+	autoPromote time.Duration
 }
 
 func (f *agentRunFlags) dir() string {
@@ -404,13 +436,51 @@ func (f *agentRunFlags) register(cmd *cobra.Command) {
 	fl.StringVar(&f.qemu, "qemu", "", "QEMU binary for VMs; default: found on PATH")
 	fl.StringVar(&f.logLevel, "log-level", "info", "debug, info, warn or error")
 	fl.StringVar(&f.logFormat, "log-format", "auto", "json, text, or auto (text on a terminal)")
+	fl.DurationVar(&f.autoPromote, "auto-promote-after", 0, "standby only: take over as the main machine after this long without a call from it (off by default: a cut network looks the same)")
 	_ = fl.MarkHidden("driver")
 }
 
 func (a *app) runAgent(cmd *cobra.Command, f agentRunFlags) error {
 	text := f.logFormat == "text" || f.logFormat == "auto" && term.IsTerminal(int(os.Stderr.Fd()))
 	log := observability.NewLogger(a.io.Err, f.logLevel, text)
-	return agent.RunHost(cmd.Context(), agent.HostConfig{StateDir: f.dir(), Listen: f.listen, Driver: f.driver, PublishAddress: f.publish, QEMU: f.qemu, Log: log})
+	hc := agent.HostConfig{StateDir: f.dir(), Listen: f.listen, Driver: f.driver, PublishAddress: f.publish, QEMU: f.qemu, Log: log}
+	if f.autoPromote <= 0 {
+		return agent.RunHost(cmd.Context(), hc)
+	}
+	if id, err := agent.Load(f.dir()); err != nil || !id.Standby {
+		return usagef("--auto-promote-after is for a standby's agent")
+	}
+	ctx, stop := context.WithCancel(cmd.Context())
+	defer stop()
+	started := make(chan *agent.Server, 1)
+	hc.Started = func(s *agent.Server) { started <- s }
+	errc := make(chan error, 1)
+	go func() { errc <- agent.RunHost(ctx, hc) }()
+	var s *agent.Server
+	select {
+	case s = <-started:
+	case err := <-errc:
+		return err
+	}
+	promoted := false
+	err := autoPromote(ctx, s, f.autoPromote, time.Now(), func() error {
+		log.Warn("no call from the main machine; promoting this standby", "after", f.autoPromote.String())
+		promoted = true
+		stop() // the agent makes way for the control plane
+		<-errc
+		return nil
+	})
+	if err != nil || !promoted {
+		stop()
+		return errors.Join(err, <-errc)
+	}
+	// The control plane runs with the server's defaults, as `enclave server` would.
+	var cfg server.Config
+	scmd := &cobra.Command{}
+	var logFormat, setup string
+	a.serverFlags(scmd, &cfg, &logFormat, &setup)
+	scmd.SetContext(cmd.Context())
+	return a.promote(scmd, f.dir(), cfg, f.logFormat, "", false)
 }
 
 // installAgentService writes the agent's service and starts it (MCH-12).

@@ -29,8 +29,12 @@ import (
 // engine.Hypervisor; every call is one HTTPS request over mutual TLS.
 type Remote struct {
 	MachineID string
-	base      string
-	http      *http.Client
+	// Epoch is the control plane's epoch, sent on every call; OnFenced is told when the agent refuses it
+	// because a standby was promoted (ADR-057). Both may be nil.
+	Epoch    func() int64
+	OnFenced func()
+	base     string
+	http     *http.Client
 }
 
 var (
@@ -56,6 +60,9 @@ func (m *Remote) request(ctx context.Context, method, path string, body io.Reade
 	if dl, ok := ctx.Deadline(); ok {
 		req.Header.Set(headerDeadline, formatDeadline(dl))
 	}
+	if m.Epoch != nil {
+		req.Header.Set(HeaderEpoch, strconv.FormatInt(m.Epoch(), 10))
+	}
 	return req, nil
 }
 
@@ -67,6 +74,9 @@ func (m *Remote) do(req *http.Request) (*http.Response, error) {
 			return nil, req.Context().Err()
 		}
 		return nil, fmt.Errorf("%w: the agent of %s doesn't answer: %v", engine.ErrMachineOffline, m.MachineID, err)
+	}
+	if resp.StatusCode == http.StatusConflict && resp.Header.Get(headerFenced) != "" && m.OnFenced != nil {
+		m.OnFenced()
 	}
 	return resp, nil
 }

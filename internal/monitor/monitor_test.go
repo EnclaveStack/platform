@@ -168,6 +168,35 @@ func TestSamplesBecomeRatesGraphsAndPrometheusGauges(t *testing.T) {
 	}
 }
 
+// A new install has points but no rollups yet. Ranges that read rollups (the console's 24h, 7d and 30d)
+// fill the time after the newest rollup from points, so they show the samples instead of "no data".
+func TestLongRangesShowPointsNotYetRolledUp(t *testing.T) {
+	env := testenv.Start(t)
+	c, _ := env.Token(t, "")
+	app := create(t, c, api.KindApp, "web", api.AppSpec{Image: "nginx", Port: 80})
+	clk := &clock{t: time.Now().Add(-2 * time.Minute)}
+	env.Monitor.Now = clk.now
+	for i, cpu := range []float64{10, 25, 40} {
+		env.Fake.SetStats(app.ID, engine.ContainerStats{ID: "c1", CPUSeconds: cpu, MemoryBytes: 100 << 20, MemoryLimit: 256 << 20})
+		if err := env.Monitor.SampleOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if i < 2 {
+			clk.add(30 * time.Second)
+		}
+	}
+	// The console asks for a range a moment longer than points are kept, which reads rollups.
+	for _, span := range []time.Duration{24*time.Hour + time.Second, 7 * 24 * time.Hour} {
+		d, err := c.ResourceMetrics(ctx, app.ID, []string{"cpu"}, time.Now().Add(-span), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.StepSeconds%900 != 0 || len(d.Items) != 1 || len(d.Items[0].Points) == 0 {
+			t.Errorf("%s: step %d, items %+v", span, d.StepSeconds, d.Items)
+		}
+	}
+}
+
 func TestCrashLoopAlertFiresOnceSurvivesARestartAndResolves(t *testing.T) {
 	env := testenv.Start(t)
 	c, _ := env.Token(t, "")

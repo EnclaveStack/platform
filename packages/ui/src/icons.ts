@@ -64,6 +64,7 @@ export {
   Signpost,
   Store,
   Split,
+  SquareFunction,
   Sun,
   Terminal,
   TextSearch,

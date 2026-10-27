@@ -38,10 +38,18 @@ type Server struct {
 	// Sweep removes the containers of resources not in keep (ADR-046); nil when the driver has none to remove.
 	Sweep func(ctx context.Context, keep []string) ([]string, error)
 	Log   *slog.Logger
+	// StateDir keeps the highest epoch seen and, on a standby, the control plane's copies (ADR-057); ""
+	// keeps the epoch in memory only (tests).
+	StateDir string
+	// Standby serves the copy endpoints: this machine holds copies of the control plane.
+	Standby bool
 
-	certs *certs // nil in tests that serve a fixed certificate
-	mu    sync.Mutex
-	calls map[string]chan continueBody
+	certs       *certs // nil in tests that serve a fixed certificate
+	mu          sync.Mutex
+	calls       map[string]chan continueBody
+	epoch       int64
+	epochRead   bool
+	lastContact *time.Time
 }
 
 type handler func(w http.ResponseWriter, r *http.Request)
@@ -65,7 +73,11 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST "+pathRenew, s.certs.renew)
 		mux.HandleFunc("POST "+pathCert, s.certs.install)
 	}
-	return mux
+	if s.Standby {
+		mux.HandleFunc("PUT "+pathStandbyCopy, s.putStandbyCopy)
+		mux.HandleFunc("GET "+pathStandbyState, s.standbyState)
+	}
+	return s.fence(mux)
 }
 
 // withDeadline gives the call the control plane's deadline; the request's context already ends when the
