@@ -6,9 +6,9 @@
 | Document ID | L3-003-architecture-decision-records-v1 |
 | Layer | L3 — Architecture |
 | Status | Draft |
-| Version | v20 |
+| Version | v21 |
 | Created | 2026-10-20 |
-| Last Updated | 2026-10-26 |
+| Last Updated | 2026-10-27 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -616,7 +616,7 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
     - volumes: used bytes from the driver and hypervisor; percent full = used / size;
     - machine: CPU and memory summed over everything EnclaveStack runs, against the engine's CPUs and memory; disk free of the data directory (`statfs`).
   - **Storage.** `metric_points (series_id, ts, value)` holds 30-second points for 24 hours; `metric_rollups (series_id, ts, avg, max, count)` holds 15-minute buckets for 30 days. `metric_series (id, resource_id, metric)` names each series, so points are three integers and a real. Each sample is one transaction. A sweep every 15 minutes rolls up finished buckets and deletes old points. Series of deleted resources are deleted with them.
-  - **Query.** `GET /resources/{id}/metrics?metric=…&from=…&to=…` picks the step (≥ 30 s, at most 500 points); ranges inside the last 24 hours read points, others read rollups (avg, with max returned too).
+  - **Query.** `GET /resources/{id}/metrics?metric=…&from=…&to=…` picks the step (≥ 30 s, at most 500 points); ranges inside the last 24 hours read points, others read rollups (avg, with max returned too). Rollups exist only for finished 15-minute buckets, so the buckets after the newest rollup are read from points; a new install's long ranges therefore show its first samples.
   - **Prometheus.** `/metrics` gains `enclave_resource_value{project,kind,name,metric}` with the latest value of each series.
   - **Dashboards** are a resource kind (`dashboard`) with only a spec; the reconciler marks them ready. Widgets name resources but don't reference them (DSH-02), so deleting a resource on a dashboard is allowed.
 - **Consequences**: about 13 series per running resource; 50 resources write ~650 rows every 30 s (~1.9 M rows a day before sweeping). The budget in MET-06 is checked in `L5-003`. A gap while EnclaveStack is down shows as missing points, not zeros.
@@ -966,3 +966,4 @@ The decisions that shape how EnclaveStack works, numbered after ADR-001 and ADR-
 | v18 | 2026-10-24 | Soupler | ADR-051 – ADR-053 for public access: tunnel connectors and per-tunnel edge listeners, edge machines joined from the main machine with relays over the mesh, the gate (planned; L2-014) |
 | v19 | 2026-10-25 | Soupler | ADR-054: releases built by `cmd/release`, signed keyless with cosign, published on a `v*` tag with a Homebrew tap, an install script and a server image (issue #3) |
 | v20 | 2026-10-26 | Soupler | ADR-055 – ADR-060 for v0.10: functions, previews, the standby control plane, database TLS and setup scripts, volume backups, event alerts (`L2-016`) |
+| v21 | 2026-10-27 | Soupler | ADR-037: buckets after the newest rollup are read from points; ADR-057: Last copy is when the copy was taken, and a change during a copy is copied again |
