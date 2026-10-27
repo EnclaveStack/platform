@@ -6,7 +6,7 @@
 | Document ID | L4-002-ci-release-runbook-v1 |
 | Layer | L4 — Infrastructure |
 | Status | Draft |
-| Version | v10 |
+| Version | v11 |
 | Created | 2026-10-20 |
 | Last Updated | 2026-10-27 |
 | Owner | Soupler |
@@ -101,7 +101,7 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 
 ## 6 · Dependency updates (Dependabot)
 
-- **Security updates** are on in the repository's settings (Settings › Code security). When a library in use has a published vulnerability, Dependabot raises an alert and opens a PR for the fixed version as soon as one exists.
+- **Security updates** are on in the repository's settings (Settings › Code security). When a library in use has a published vulnerability, Dependabot raises an alert and opens a PR for the fixed version as soon as one exists. GitHub opens security PRs against the repository's **default branch** and ignores `target-branch` for them, so the default branch must be `develop` (Settings › General › Default branch). While it was `main`, three security PRs (#10 – #12) opened into `main`, which the branch policy refuses; they were closed and their upgrades made in a PR into `develop`.
 - **Version updates** follow `.github/dependabot.yml`: once a month, one grouped PR each for Go modules (`go.mod`), the pnpm workspace (`console`, `packages/*`), GitHub Actions and the `Dockerfile` base image, all into `develop`. Titles are `chore(deps): …`, which the PR Metadata check accepts. Dependabot PRs skip the `## Docs update` block (`L0-005` §2).
 - An update PR runs every required check, as any PR does, and is merged only when they pass. One that breaks a test is fixed in its own PR or closed. Dependabot doesn't retry a version that was closed.
 - Not covered: the images EnclaveStack runs for users (PostgreSQL, Redis, MinIO and the rest) are pinned in Go code, and pinned by digest where ADR-013 says so. They are upgraded by hand, with their own tests.
@@ -120,3 +120,4 @@ The Engine E2E job opens `/dev/kvm` to the runner's user with a udev rule, insta
 | v8 | 2026-10-23 | Soupler | `make engine-docker` runs with a 30 m timeout; the rolling-deploy failure message lists Docker's container states |
 | v9 | 2026-10-25 | Soupler | §3 rewritten as built (ADR-054): `release.yml` on a `v*` tag, `make release`, keyless signing, GHCR image, Homebrew tap; one-time set-up, checking a download, a bad release (issue #3) |
 | v10 | 2026-10-27 | Soupler | §6 dependency updates: security updates on, monthly grouped version updates into `develop` (`.github/dependabot.yml`) |
+| v11 | 2026-10-27 | Soupler | §6: security PRs follow the default branch, which must be `develop`; #10 – #12 closed and made into `develop` |
