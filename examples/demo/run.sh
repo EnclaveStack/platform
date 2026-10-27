@@ -75,6 +75,7 @@ step "cache sessions (Redis)" "$bin" cache create sessions $wait
 step "bucket uploads" "$bin" bucket create uploads $wait
 step "app api (nginx, using stripe-key)" "$bin" app create api --image nginx:1.27-alpine --port 80 --publish --secret-env STRIPE_KEY=stripe-key $wait
 step "job nightly-report (02:00 every day)" "$bin" job create nightly-report --image alpine:3 --schedule "0 2 * * *" $wait -- echo hello
+step "function thumbs (on uploads to photos/)" "$bin" function create thumbs --image alpine:3 --on-bucket uploads/photos/ $wait -- cat /enclave/event.json
 step "stack blog (WordPress from the catalogue)" "$bin" stack create blog --template wordpress --param domain=blog.localhost $wait
 step "project shop" "$bin" project create shop
 step "app storefront in project shop" "$bin" app create storefront --project shop --image nginx:1.27-alpine --port 80 $wait
