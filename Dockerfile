@@ -5,7 +5,7 @@
 #
 # Run it beside the Docker it drives (L5-004 §1a):
 #   docker run -d -v /var/run/docker.sock:/var/run/docker.sock -v enclave-data:/data -p 7070:7070 ghcr.io/enclavestack/enclave
-FROM alpine:3.22
+FROM alpine:3.24
 ARG TARGETARCH
 # The tools of networks across machines and VM links live in helper images the server builds (ADR-045, ADR-026).
 RUN apk add --no-cache ca-certificates tzdata
