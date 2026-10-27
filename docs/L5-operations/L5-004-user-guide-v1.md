@@ -6,9 +6,9 @@
 | Document ID | L5-004-user-guide-v1 |
 | Layer | L5 — Operations |
 | Status | Draft |
-| Version | v8 |
+| Version | v9 |
 | Created | 2026-10-23 |
-| Last Updated | 2026-10-26 |
+| Last Updated | 2026-10-27 |
 | Owner | Soupler |
 | Reviewers | Soupler |
 | Copyright | © 2026 Soupler |
@@ -530,12 +530,12 @@ Create a token with the `editor` role (`enclave token create --name ci --role ed
 If you installed `enclave` without building (§1a), get the OpenTofu plug-in from the same release until it is published on the OpenTofu registry. Pick the zip for your computer from the release page (`terraform-provider-enclave_X.Y.Z_<os>_<arch>.zip`) and put it where OpenTofu looks for plug-ins on this computer:
 
 ```bash
-V=0.9.0; OS=darwin; ARCH=arm64      # your release, and linux / amd64 as they apply
+V=0.10.0; OS=darwin; ARCH=arm64      # your release, and linux / amd64 as they apply
 D=~/.terraform.d/plugins/registry.opentofu.org/enclavestack/enclave/$V/${OS}_$ARCH
 mkdir -p $D && unzip -o terraform-provider-enclave_${V}_${OS}_$ARCH.zip -d $D
 ```
 
-Then, in your files, ask for that version (`source = "enclavestack/enclave"`, `version = "0.9.0"`) and run `tofu init`. OpenTofu takes the plug-in from that folder instead of the registry.
+Then, in your files, ask for that version (`source = "enclavestack/enclave"`, `version = "0.10.0"`) and run `tofu init`. OpenTofu takes the plug-in from that folder instead of the registry.
 
 ## 9 · Connecting your own code to what you created
 
@@ -1452,3 +1452,4 @@ There's one standby at a time. Automatic takeover is off by default, because a c
 | v6 | 2026-10-25 | Soupler | §16 use a service that runs elsewhere: connect Supabase, use it from an app, change a key (L2-015) |
 | v7 | 2026-10-25 | Soupler | §1a install without building (Homebrew, the install script, the server image); §8.9 the OpenTofu plug-in from a release; §10.3 updating an installed program (ADR-054) |
 | v8 | 2026-10-26 | Soupler | §17 functions, deploy on push and previews, database TLS, other computers and setup scripts, volume backups, event alerts, the standby; §14 rows for their details (L2-016) |
+| v9 | 2026-10-27 | Soupler | §8.9: the OpenTofu plug-in example names release 0.10.0 |

@@ -4,13 +4,19 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-27
+
+Closes the roadmap (`L2-016`): functions, deploy on push and previews of pull requests, a standby control plane that takes over, database TLS, other computers and setup scripts, volume backups, event alerts, and connections for Neon, Firebase, Auth0, Clerk and Sentry, each from the console, the CLI and OpenTofu. Also: long-range graphs on a new install, security upgrades for go-git, BuildKit and containerd, and monthly Dependabot updates. Install with `brew install enclavestack/tap/enclave` or `curl -fsSL https://enclavestack.soupler.com/install.sh | sh`, or run `ghcr.io/enclavestack/enclave:0.10.0`.
+
 ### Changed
+- **Version 0.10.0 (2026-10-27).** The Unreleased entries moved under this version, so the Release workflow has its notes (`L4-002` §3). The version a source build reports without a tag is now `0.11.0-dev`. The README's status and the user guide's OpenTofu example name 0.10.0.
 - **Monthly dependency updates (2026-10-27, `L4-002` v10 §6).** `.github/dependabot.yml` has Dependabot open one grouped PR a month each for Go modules, the pnpm workspace, GitHub Actions and the `Dockerfile` base image, into `develop`. Security updates were already on. Every update PR runs the full suite before it can merge.
 - **The README lists v0.9 and v0.10 (2026-10-27).** *What you get* gains Functions, Previews and deploy on push, Public access, the database options, volume backups, event alerts and all six connections. *Many machines* covers the standby. *Status* adds v0.9 (released as 0.9.0) and v0.10 (built, not released), drops "none is published yet", and lists what is still untried by hand. *Documentation* links the user guide. Every console screenshot is retaken from `make demo` in light and dark (the redesigned sidebar with Functions, a standby on Machines), and a new one shows a function.
 - **`make demo` adds a function**, `thumbs`, that runs for each file put in `uploads/photos/`.
 
 ### Fixed
 - **Security upgrades for go-git, BuildKit and containerd (2026-10-27, `L4-002` v11 §6).** go-git 5.18.0 → 5.19.2 (and go-billy 5.9.0), BuildKit 0.25.2 → 0.31.1, containerd 2.1.4 → 2.2.9, clearing their Dependabot alerts (path traversal, symlink following and crafted-object issues in Git checkouts; frontend sandbox escapes in builds). These were Dependabot's PRs #10 – #12, which targeted `main` and were closed. `github.com/docker/docker` still has alerts with no fixed release in that module.
+- **Graphs over 24 hours, 7 days or 30 days no longer say "No data yet" on a new install (2026-10-27, ADR-037).** Those ranges read the 15-minute rollups, which exist only for finished buckets: a new install has none for its first quarter hour, and the newest quarter hour was always missing. The console's Overview opens on 24h, a moment longer than points are kept, so it showed no graphs at first. The time after the newest rollup is now read from points. `TestLongRangesShowPointsNotYetRolledUp` covers it.
 
 ### Added
 - **v0.10: close the roadmap (2026-10-26, `L2-016`).** Everything left on the roadmap, in one release. Each part works from the console, the CLI and OpenTofu.
@@ -32,9 +38,6 @@ All notable changes to `platform` are recorded here. Every change — code, docs
     - **By hand, on Docker:** `enclave function create hello --image alpine:3 -- cat /enclave/event.json` and `invoke --wait` printed the event; a queue message and a topic publish each started a run of one function. A `--tls --exposed --init-script-file` PostgreSQL answered over TLS at its LAN address with the seed row, and passed `sslmode=verify-full` with the printed CA. It refused a connection without TLS.
   - **Still to do by hand:** a real GitHub or GitLab webhook making a preview (`L5-001` §2k). Volume backups against a working bucket. Promoting a standby on two physical machines. The five connections with real accounts. The website needs a `/services/functions/` page; that is updated separately in `marketing`.
   - **CI:** network tests now pick a `/24` that no network on the engine already uses. Before, a random range could clash on a shared runner (`TestRandomCIDRAvoidsUsedRanges`). `TestMeshBetweenTwoEngines` waits up to a minute for a name to resolve on a busy runner.
-
-### Fixed
-- **Graphs over 24 hours, 7 days or 30 days no longer say "No data yet" on a new install (2026-10-27, ADR-037).** Those ranges read the 15-minute rollups, which exist only for finished buckets: a new install has none for its first quarter hour, and the newest quarter hour was always missing. The console's Overview opens on 24h, a moment longer than points are kept, so it showed no graphs at first. The time after the newest rollup is now read from points. `TestLongRangesShowPointsNotYetRolledUp` covers it.
 
 ## [0.9.0] — 2026-10-25
 

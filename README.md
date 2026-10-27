@@ -319,7 +319,7 @@ You describe what you want, and the **control plane** stores it. A **reconciler*
 | v0.7 | Projects, roles, metrics, dashboards, alerts, log export and outside secret stores | Built |
 | v0.8 | Many machines, moving resources and the catalogue | Built |
 | v0.9 | Public access (tunnels, the gate, edge machines), connections (Supabase) and installing without building | Released as 0.9.0 |
-| v0.10 | Functions, deploy on push and previews, a standby that takes over, database TLS and setup scripts, volume backups, event alerts, and connections for Neon, Firebase, Auth0, Clerk and Sentry | Built, not released yet |
+| v0.10 | Functions, deploy on push and previews, a standby that takes over, database TLS and setup scripts, volume backups, event alerts, and connections for Neon, Firebase, Auth0, Clerk and Sentry | Released as 0.10.0 |
 
 Every release above is tested on all three surfaces and on real Docker. Not yet tried by hand:
 - two physical computers joined over a network, including a standby taking over;

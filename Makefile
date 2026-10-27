@@ -1,6 +1,6 @@
 # EnclaveStack platform — common tasks (L4-001, L4-002). Every target works from a clean clone.
 GO        ?= go
-VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.10.0-dev)
+VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.11.0-dev)
 LDFLAGS   := -s -w -X github.com/enclavestack/platform/internal/version.Version=$(VERSION)
 BINDIR    ?=
 TOFU      ?= $(shell command -v tofu 2>/dev/null)
