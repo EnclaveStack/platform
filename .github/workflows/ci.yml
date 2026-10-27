@@ -33,7 +33,7 @@ jobs:
       - name: Skip until the project has a package.json
         if: hashFiles('package.json') == ''
         run: echo "No package.json yet - nothing to lint or type-check."
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: hashFiles('package.json') != ''
         with:
           version: 9.15.9
@@ -56,7 +56,7 @@ jobs:
       - name: Skip until the project has a package.json
         if: hashFiles('package.json') == ''
         run: echo "No package.json yet - nothing to test."
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: hashFiles('package.json') != ''
         with:
           version: 9.15.9
