@@ -27,7 +27,7 @@ Please give us a reasonable time to release a fix before you talk about it publi
 
 ## Supported versions
 
-EnclaveStack is pre-release. Fixes go into the latest release only; there are no backports until 1.0.
+EnclaveStack is at 0.x, before 1.0. Fixes go into the latest release only; there are no backports until 1.0.
 
 ## Scope
 

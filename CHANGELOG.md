@@ -4,6 +4,9 @@ All notable changes to `platform` are recorded here. Every change — code, docs
 
 ## [Unreleased]
 
+### Fixed
+- **The README no longer says pre-release (2026-10-27).** Its *Status: pre-release* badge was fixed text; it is now the latest release, read from GitHub, so it follows every release. The FAQ and `SECURITY.md` say 0.x, before 1.0, instead of pre-release.
+
 ## [0.10.0] — 2026-10-27
 
 Closes the roadmap (`L2-016`): functions, deploy on push and previews of pull requests, a standby control plane that takes over, database TLS, other computers and setup scripts, volume backups, event alerts, and connections for Neon, Firebase, Auth0, Clerk and Sentry, each from the console, the CLI and OpenTofu. Also: long-range graphs on a new install, security upgrades for go-git, BuildKit and containerd, and monthly Dependabot updates. Install with `brew install enclavestack/tap/enclave` or `curl -fsSL https://enclavestack.soupler.com/install.sh | sh`, or run `ghcr.io/enclavestack/enclave:0.10.0`.
